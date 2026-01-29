@@ -1,3 +1,5 @@
+// app.js
+
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -11,6 +13,7 @@ const {
 } = require("discord.js");
 const indexRouter = require("./routes/index");
 
+// ---------------- Boot logs ----------------
 console.log("=== BoostMon app.js booted ===");
 console.log("DISCORD_TOKEN present:", Boolean(process.env.DISCORD_TOKEN));
 console.log("DISCORD_CLIENT_ID present:", Boolean(process.env.DISCORD_CLIENT_ID));
@@ -43,13 +46,17 @@ function writeData(obj) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(obj, null, 2), "utf8");
 }
 
-// remaining time tracked as "expiresAt" (ms epoch)
+function ensureUserRoleBucket(data, userId) {
+  if (!data[userId]) data[userId] = { roles: {} };
+  if (!data[userId].roles) data[userId].roles = {};
+}
+
+// Add minutes to a specific role timer (user+role)
 function addMinutesForRole(userId, roleId, minutes) {
   const data = readData();
   const now = Date.now();
 
-  if (!data[userId]) data[userId] = { roles: {} };
-  if (!data[userId].roles) data[userId].roles = {};
+  ensureUserRoleBucket(data, userId);
 
   const current = data[userId].roles[roleId]?.expiresAt ?? 0;
   const base = current > now ? current : now;
@@ -61,10 +68,46 @@ function addMinutesForRole(userId, roleId, minutes) {
   return expiresAt;
 }
 
+// Remove minutes from a role timer (user+role)
+// Returns:
+// - 0 if expired/removed
+// - new expiresAt timestamp if still active
+// - null if no timer existed
+function removeMinutesForRole(userId, roleId, minutes) {
+  const data = readData();
+  if (!data[userId]?.roles?.[roleId]) return null;
+
+  const now = Date.now();
+  const current = data[userId].roles[roleId].expiresAt;
+  const newExpiry = current - minutes * 60 * 1000;
+
+  if (newExpiry <= now) {
+    delete data[userId].roles[roleId];
+    if (Object.keys(data[userId].roles).length === 0) {
+      delete data[userId];
+    }
+    writeData(data);
+    return 0;
+  }
+
+  data[userId].roles[roleId].expiresAt = newExpiry;
+  writeData(data);
+  return newExpiry;
+}
+
 function getTimeLeftMsForRole(userId, roleId) {
   const data = readData();
   const expiresAt = data[userId]?.roles?.[roleId]?.expiresAt ?? 0;
   return Math.max(0, expiresAt - Date.now());
+}
+
+function getCurrentTimedRoleId(userId) {
+  const data = readData();
+  const roles = data[userId]?.roles;
+  if (!roles) return null;
+  const ids = Object.keys(roles);
+  if (ids.length === 0) return null;
+  return ids[0];
 }
 
 function formatMs(ms) {
@@ -90,6 +133,10 @@ const client = new Client({
 client.once("clientReady", async () => {
   console.log(`BoostMon logged in as ${client.user.tag}`);
 
+  if (!TOKEN) {
+    console.error("Missing DISCORD_TOKEN. Bot cannot start.");
+    return;
+  }
   if (!CLIENT_ID || !GUILD_ID) {
     console.log("Missing DISCORD_CLIENT_ID or DISCORD_GUILD_ID; skipping command registration.");
     return;
@@ -112,6 +159,24 @@ client.once("clientReady", async () => {
       )
       .addRoleOption((o) =>
         o.setName("role").setDescription("Role to grant").setRequired(true)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("removetime")
+      .setDescription("Remove minutes from a user's timed role.")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption((o) =>
+        o.setName("user").setDescription("User to modify").setRequired(true)
+      )
+      .addIntegerOption((o) =>
+        o
+          .setName("minutes")
+          .setDescription("Minutes to remove")
+          .setRequired(true)
+          .setMinValue(1)
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false)
       ),
 
     new SlashCommandBuilder()
@@ -138,6 +203,7 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   try {
+    // ---------- /addtime ----------
     if (interaction.commandName === "addtime") {
       if (!interaction.guild) {
         return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
@@ -149,27 +215,15 @@ client.on("interactionCreate", async (interaction) => {
 
       const guild = interaction.guild;
 
-      // Fetch bot member
-      const me = await guild.members.fetchMe();
-
-      // Permission check
-      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return interaction.reply({
-          content: "I don't have the **Manage Roles** permission in this server.",
-          ephemeral: true,
-        });
-      }
-
-      // Ensure role exists in this guild (it will, but keep it safe)
       const role = guild.roles.cache.get(targetRole.id);
       if (!role) {
-        return interaction.reply({
-          content: "I couldn't find that role in this server.",
-          ephemeral: true,
-        });
+        return interaction.reply({ content: "I couldn't find that role in this server.", ephemeral: true });
       }
 
-      // Hierarchy check
+      const me = await guild.members.fetchMe();
+      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return interaction.reply({ content: "I don't have **Manage Roles** permission.", ephemeral: true });
+      }
       if (me.roles.highest.position <= role.position) {
         return interaction.reply({
           content:
@@ -181,10 +235,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const member = await guild.members.fetch(targetUser.id);
 
-      // Save expiry per user+role
       const expiresAt = addMinutesForRole(targetUser.id, role.id, minutes);
-
-      // Assign role
       await member.roles.add(role.id);
 
       return interaction.reply({
@@ -195,15 +246,132 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
+    // ---------- /removetime ----------
+    if (interaction.commandName === "removetime") {
+      if (!interaction.guild) {
+        return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("user", true);
+      const minutes = interaction.options.getInteger("minutes", true);
+      const roleOption = interaction.options.getRole("role"); // optional
+
+      const guild = interaction.guild;
+      const member = await guild.members.fetch(targetUser.id);
+      const me = await guild.members.fetchMe();
+
+      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        return interaction.reply({ content: "I don't have **Manage Roles** permission.", ephemeral: true });
+      }
+
+      const data = readData();
+      const timers = data[targetUser.id]?.roles || {};
+      const timedRoleIds = Object.keys(timers);
+
+      if (timedRoleIds.length === 0) {
+        return interaction.reply({ content: `${targetUser} has no active timed roles.`, ephemeral: true });
+      }
+
+      // Decide which roleId we are subtracting from
+      let roleIdToEdit = null;
+
+      if (roleOption) {
+        // Explicit targeting: subtract ONLY from this role timer
+        roleIdToEdit = roleOption.id;
+
+        if (!timers[roleIdToEdit]) {
+          return interaction.reply({
+            content: `${targetUser} has no saved time for **${roleOption.name}**.`,
+            ephemeral: true,
+          });
+        }
+      } else {
+        // No role provided: pick a timed role the user currently has in Discord, if unambiguous
+        const matching = timedRoleIds.filter((rid) => member.roles.cache.has(rid));
+
+        if (matching.length === 1) {
+          roleIdToEdit = matching[0];
+        } else if (matching.length === 0) {
+          if (timedRoleIds.length === 1) {
+            roleIdToEdit = timedRoleIds[0];
+          } else {
+            return interaction.reply({
+              content:
+                `${targetUser} has multiple timed roles stored.\n` +
+                `Please specify which role to remove time from using the **role** option.`,
+              ephemeral: true,
+            });
+          }
+        } else {
+          const names = matching
+            .map((rid) => guild.roles.cache.get(rid)?.name || rid)
+            .slice(0, 10)
+            .join(", ");
+
+          return interaction.reply({
+            content:
+              `${targetUser} currently has multiple timed roles. Please specify the **role** to remove time from.\n` +
+              `Possible: ${names}`,
+            ephemeral: true,
+          });
+        }
+      }
+
+      const roleObj = guild.roles.cache.get(roleIdToEdit);
+      if (!roleObj) {
+        return interaction.reply({ content: "That role no longer exists in this server.", ephemeral: true });
+      }
+
+      // Bot hierarchy check
+      if (me.roles.highest.position <= roleObj.position) {
+        return interaction.reply({
+          content:
+            `I can't manage **${roleObj.name}** because my highest role is not above it.\n` +
+            `Move my bot role higher than **${roleObj.name}** in the server role list.`,
+          ephemeral: true,
+        });
+      }
+
+      const result = removeMinutesForRole(targetUser.id, roleIdToEdit, minutes);
+
+      if (result === null) {
+        return interaction.reply({ content: `${targetUser} has no saved time for **${roleObj.name}**.`, ephemeral: true });
+      }
+
+      // If expired -> remove role
+      if (result === 0) {
+        await member.roles.remove(roleIdToEdit);
+        return interaction.reply({
+          content:
+            `Removed **${minutes} minutes** from ${targetUser} for **${roleObj.name}**.\n` +
+            `Time expired — **${roleObj.name}** has been removed.`,
+          ephemeral: false,
+        });
+      }
+
+      // Still has time
+      const leftMs = Math.max(0, result - Date.now());
+      return interaction.reply({
+        content:
+          `Removed **${minutes} minutes** from ${targetUser} for **${roleObj.name}**.\n` +
+          `Remaining: **${formatMs(leftMs)}** (expires <t:${Math.floor(result / 1000)}:R>).`,
+        ephemeral: false,
+      });
+    }
+
+    // ---------- /timeleft ----------
     if (interaction.commandName === "timeleft") {
       const targetUser = interaction.options.getUser("user") ?? interaction.user;
       const role = interaction.options.getRole("role"); // optional
 
-      // If a role is provided, show time for that role only
+      // If role is given, show that role
       if (role) {
         const left = getTimeLeftMsForRole(targetUser.id, role.id);
         if (left <= 0) {
-          return interaction.reply({ content: `${targetUser} has **0 time left** for **${role.name}**.`, ephemeral: true });
+          return interaction.reply({
+            content: `${targetUser} has **0 time left** for **${role.name}**.`,
+            ephemeral: true,
+          });
         }
         return interaction.reply({
           content: `${targetUser} has **${formatMs(left)}** remaining for **${role.name}** (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
@@ -211,20 +379,31 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // No role provided: just a helpful message for now
+      // If no role is given, show the "first stored role" (simple default)
+      const currentRoleId = getCurrentTimedRoleId(targetUser.id);
+      if (!currentRoleId) {
+        return interaction.reply({ content: `${targetUser} has **0 time left**.`, ephemeral: true });
+      }
+
+      const left = getTimeLeftMsForRole(targetUser.id, currentRoleId);
+      const roleObj = interaction.guild?.roles?.cache?.get(currentRoleId);
+
+      if (left <= 0) {
+        return interaction.reply({ content: `${targetUser} has **0 time left**.`, ephemeral: true });
+      }
+
       return interaction.reply({
         content:
-          `Please include a role to check.\nExample: \`/timeleft user: ${targetUser.username} role: @server1\``,
+          `${targetUser} has **${formatMs(left)}** remaining` +
+          (roleObj ? ` for **${roleObj.name}**` : "") +
+          ` (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
         ephemeral: true,
       });
     }
   } catch (err) {
     console.error("Command error:", err);
 
-    const msg =
-      "Error running command.\n" +
-      "Details: " +
-      friendlyDiscordError(err);
+    const msg = "Error running command.\nDetails: " + friendlyDiscordError(err);
 
     try {
       if (interaction.deferred || interaction.replied) {
@@ -240,24 +419,86 @@ client.on("interactionCreate", async (interaction) => {
 client.on("error", (err) => console.error("Discord client error:", err));
 process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
 
+// ---------------- Expiry cleanup (Discord-side role removal) ----------------
+async function cleanupExpiredRoles() {
+  try {
+    if (!GUILD_ID) return;
+    if (!client.isReady()) return;
+
+    const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+    if (!guild) return;
+
+    const me = await guild.members.fetchMe();
+    if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) return;
+
+    const data = readData();
+    const now = Date.now();
+    let changed = false;
+
+    for (const userId of Object.keys(data)) {
+      const roles = data[userId]?.roles || {};
+
+      for (const roleId of Object.keys(roles)) {
+        const expiresAt = roles[roleId]?.expiresAt ?? 0;
+
+        if (expiresAt > 0 && expiresAt <= now) {
+          // Remove role in Discord (best-effort)
+          const member = await guild.members.fetch(userId).catch(() => null);
+          if (member) {
+            const roleObj = guild.roles.cache.get(roleId);
+            if (roleObj && me.roles.highest.position > roleObj.position) {
+              await member.roles.remove(roleId).catch(() => null);
+            }
+          }
+
+          // Remove timer record
+          delete data[userId].roles[roleId];
+          changed = true;
+        }
+      }
+
+      if (data[userId] && Object.keys(data[userId].roles || {}).length === 0) {
+        delete data[userId];
+        changed = true;
+      }
+    }
+
+    if (changed) writeData(data);
+  } catch (e) {
+    console.error("cleanupExpiredRoles error:", e);
+  }
+}
+
+// Run every 30 seconds
+setInterval(() => {
+  cleanupExpiredRoles();
+}, 30_000);
+
+// ---------------- Login ----------------
 client.login(TOKEN).catch((err) => console.error("Login failed:", err));
 
 // ---------------- Express Web Server ----------------
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Middleware: log request method and url
 app.use((req, res, next) => {
   console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
+// Static files
 app.use(express.static(path.resolve(__dirname, "public")));
+
+// Main routes
 app.use("/", indexRouter);
 
+// 404 handler
 app.use((req, res) => {
   res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
 });
 
+// Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).send("Internal Server Error");
