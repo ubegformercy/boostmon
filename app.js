@@ -81,6 +81,19 @@ function ensureUserRole(data, userId, roleId) {
   return data;
 }
 
+function clearRoleTimer(userId, roleId) {
+  const data = readData();
+  if (!data[userId]?.roles?.[roleId]) return false;
+
+  delete data[userId].roles[roleId];
+
+  if (Object.keys(data[userId].roles).length === 0) {
+    delete data[userId];
+  }
+
+  writeData(data);
+  return true;
+}
 
 
 //----------------------------------------
@@ -232,7 +245,7 @@ client.once("clientReady", async () => {
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to add time to").setRequired(true))
       .addIntegerOption((o) => o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1))
-      .addRoleOption((o) => o.setName("role").setDescription("Role to add time to").setRequired(false)),
+      .addRoleOption((o) => o.setName("role").setDescription("Role to add time to (optional)").setRequired(false)),
 
     new SlashCommandBuilder()
       .setName("removetime")
@@ -243,6 +256,13 @@ client.once("clientReady", async () => {
         o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
       )
       .addRoleOption((o) => o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false)),
+
+    new SlashCommandBuilder()
+      .setName("cleartime")
+      .setDescription("Clear a user's timed role timer and remove the role.")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption((o) => o.setName("user").setDescription("User to clear").setRequired(true))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to clear (optional)").setRequired(false)),
 
     new SlashCommandBuilder()
       .setName("timeleft")
@@ -273,6 +293,7 @@ async function canManageRole(guild, role) {
   }
   return { ok: true, me };
 }
+
 
 
 
@@ -307,13 +328,34 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: permCheck.reason, ephemeral: true });
       }
 
-      // Validate channel if provided (best effort)
+      // Validate channel if provided (and whether bot can send there)
       let warnChannelId = null;
       let warnModeText = "No channel selected. Automatic expiry warnings will be DMed to the user.";
 
       if (channelOpt) {
-        warnChannelId = channelOpt.id;
-        warnModeText = `Expiry warnings will be posted in ${channelOpt}.`;
+        const channel = await guild.channels.fetch(channelOpt.id).catch(() => null);
+
+        if (
+          channel &&
+          (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)
+        ) {
+          const me = await guild.members.fetchMe();
+          const perms = channel.permissionsFor(me);
+
+          const canView = perms?.has(PermissionFlagsBits.ViewChannel);
+          const canSend = perms?.has(PermissionFlagsBits.SendMessages);
+
+          if (canView && canSend) {
+            warnChannelId = channel.id;
+            warnModeText = `Expiry warnings will be posted in ${channel}.`;
+          } else {
+            warnModeText =
+              `I can't post warnings in ${channel} (missing View Channel or Send Messages). ` +
+              `Warnings will be DMed to the user instead.`;
+          }
+        } else {
+          warnModeText = "That channel isn't a text/announcement channel. Warnings will be DMed to the user.";
+        }
       }
 
       const member = await guild.members.fetch(targetUser.id);
@@ -343,7 +385,6 @@ client.on("interactionCreate", async (interaction) => {
       const guild = interaction.guild;
       const member = await guild.members.fetch(targetUser.id);
 
-      // Determine which role timer to add to
       const data = readData();
       const timers = data[targetUser.id]?.roles || {};
       const timedRoleIds = Object.keys(timers);
@@ -380,7 +421,6 @@ client.on("interactionCreate", async (interaction) => {
 
       const expiresAt = addMinutesForRole(targetUser.id, role.id, minutes);
 
-      // Ensure role is actually assigned
       if (!member.roles.cache.has(role.id)) {
         await member.roles.add(role.id);
       }
@@ -414,7 +454,6 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: `${targetUser} has no active timed roles.`, ephemeral: true });
       }
 
-      // Decide which roleId we are subtracting from
       let roleIdToEdit = null;
 
       if (roleOption) {
@@ -496,6 +535,72 @@ client.on("interactionCreate", async (interaction) => {
       });
     }
 
+    // ---------- /cleartime ----------
+    if (interaction.commandName === "cleartime") {
+      if (!interaction.guild) {
+        return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("user", true);
+      const roleOption = interaction.options.getRole("role"); // optional
+
+      const guild = interaction.guild;
+      const member = await guild.members.fetch(targetUser.id);
+
+      const data = readData();
+      const timers = data[targetUser.id]?.roles || {};
+      const timedRoleIds = Object.keys(timers);
+
+      if (timedRoleIds.length === 0) {
+        return interaction.reply({ content: `${targetUser} has no active timed roles.`, ephemeral: true });
+      }
+
+      // Pick role to clear
+      let roleIdToClear = null;
+
+      if (roleOption) {
+        roleIdToClear = roleOption.id;
+        if (!timers[roleIdToClear]) {
+          return interaction.reply({
+            content: `${targetUser} has no saved time for **${roleOption.name}**.`,
+            ephemeral: true,
+          });
+        }
+      } else {
+        // "first found role" behavior: prefer one they currently have, else first stored
+        const matching = timedRoleIds.find((rid) => member.roles.cache.has(rid));
+        roleIdToClear = matching || timedRoleIds[0];
+      }
+
+      const roleObj = guild.roles.cache.get(roleIdToClear);
+      if (!roleObj) {
+        // Role deleted, but timer exists. Clear timer anyway.
+        clearRoleTimer(targetUser.id, roleIdToClear);
+        return interaction.reply({
+          content: `Cleared saved time for ${targetUser}. (Role no longer exists in this server.)`,
+          ephemeral: false,
+        });
+      }
+
+      const permCheck = await canManageRole(guild, roleObj);
+      if (!permCheck.ok) {
+        return interaction.reply({ content: permCheck.reason, ephemeral: true });
+      }
+
+      const cleared = clearRoleTimer(targetUser.id, roleIdToClear);
+
+      if (member.roles.cache.has(roleIdToClear)) {
+        await member.roles.remove(roleIdToClear);
+      }
+
+      return interaction.reply({
+        content: cleared
+          ? `Cleared saved time for ${targetUser} on **${roleObj.name}** and removed the role.`
+          : `No saved time existed for ${targetUser} on **${roleObj.name}**.`,
+        ephemeral: false,
+      });
+    }
+
     // ---------- /timeleft ----------
     if (interaction.commandName === "timeleft") {
       const targetUser = interaction.options.getUser("user") ?? interaction.user;
@@ -551,11 +656,6 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-client.on("error", (err) => console.error("Discord client error:", err));
-process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
-
-client.login(TOKEN).catch((err) => console.error("Login failed:", err));
-
 
 
 //----------------------------------------
@@ -592,26 +692,56 @@ app.listen(PORT, () => {
 // SECTION 8 — Timers: Warnings + Expiry Cleanup
 //----------------------------------------
 
+async function trySendToChannel(guild, channelId, content) {
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel) return { ok: false, reason: "Channel not found" };
+
+  if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+    return { ok: false, reason: "Not a text/announcement channel" };
+  }
+
+  const me = await guild.members.fetchMe();
+  const perms = channel.permissionsFor(me);
+
+  const canView = perms?.has(PermissionFlagsBits.ViewChannel);
+  const canSend = perms?.has(PermissionFlagsBits.SendMessages);
+
+  if (!canView || !canSend) {
+    return { ok: false, reason: "Missing ViewChannel or SendMessages" };
+  }
+
+  await channel.send({ content });
+  return { ok: true };
+}
+
+async function tryDmUser(userId, content) {
+  const user = await client.users.fetch(userId).catch(() => null);
+  if (!user) return { ok: false, reason: "User fetch failed" };
+  await user.send({ content });
+  return { ok: true };
+}
+
 async function sendWarningOrDm(guild, userId, roleId, minutesLeft, warnChannelId) {
   const roleObj = guild.roles.cache.get(roleId);
   const roleName = roleObj ? roleObj.name : "that role";
 
   const content = `<@${userId}> warning: your access for **${roleName}** expires in **${minutesLeft} minute(s)**.`;
 
-  // Channel mode
   if (warnChannelId) {
-    const channel = await guild.channels.fetch(warnChannelId).catch(() => null);
-    if (channel && (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)) {
-      await channel.send({ content }).catch(() => null);
-      return;
+    try {
+      const res = await trySendToChannel(guild, warnChannelId, content);
+      if (res.ok) return;
+      console.warn(`[WARN] Could not post warning to channel ${warnChannelId}: ${res.reason}`);
+    } catch (e) {
+      console.warn(`[WARN] Channel send failed for ${warnChannelId}:`, e?.message || e);
     }
-    // fallback to DM
   }
 
-  // DM fallback
-  const user = await client.users.fetch(userId).catch(() => null);
-  if (user) {
-    await user.send({ content }).catch(() => null);
+  try {
+    const dmRes = await tryDmUser(userId, content);
+    if (!dmRes.ok) console.warn(`[WARN] Could not DM user ${userId}: ${dmRes.reason}`);
+  } catch (e) {
+    console.warn(`[WARN] DM send failed for user ${userId}:`, e?.message || e);
   }
 }
 
@@ -622,16 +752,20 @@ async function sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId) {
   const content = `<@${userId}> notice: your access for **${roleName}** has expired.`;
 
   if (warnChannelId) {
-    const channel = await guild.channels.fetch(warnChannelId).catch(() => null);
-    if (channel && (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)) {
-      await channel.send({ content }).catch(() => null);
-      return;
+    try {
+      const res = await trySendToChannel(guild, warnChannelId, content);
+      if (res.ok) return;
+      console.warn(`[WARN] Could not post expiry notice to channel ${warnChannelId}: ${res.reason}`);
+    } catch (e) {
+      console.warn(`[WARN] Channel send failed for ${warnChannelId}:`, e?.message || e);
     }
   }
 
-  const user = await client.users.fetch(userId).catch(() => null);
-  if (user) {
-    await user.send({ content }).catch(() => null);
+  try {
+    const dmRes = await tryDmUser(userId, content);
+    if (!dmRes.ok) console.warn(`[WARN] Could not DM user ${userId}: ${dmRes.reason}`);
+  } catch (e) {
+    console.warn(`[WARN] DM send failed for user ${userId}:`, e?.message || e);
   }
 }
 
@@ -664,7 +798,6 @@ async function cleanupAndWarn() {
 
         // Expired -> remove role + record
         if (leftMs <= 0) {
-          // Remove role in Discord (best-effort)
           if (canManage) {
             const member = await guild.members.fetch(userId).catch(() => null);
             const roleObj = guild.roles.cache.get(roleId);
@@ -673,16 +806,14 @@ async function cleanupAndWarn() {
             }
           }
 
-          // Notify expired (best-effort)
           await sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId).catch(() => null);
 
-          // Remove timer record
           delete data[userId].roles[roleId];
           changed = true;
           continue;
         }
 
-        // Warnings
+        // Warnings (use actual minutes left)
         const leftMin = Math.ceil(leftMs / 60_000);
 
         if (!entry.warningsSent) entry.warningsSent = {};
@@ -690,16 +821,14 @@ async function cleanupAndWarn() {
         for (const thresholdMin of WARNING_THRESHOLDS_MIN) {
           const key = String(thresholdMin);
 
-          // Send when "at or below" the threshold, once.
           if (leftMin <= thresholdMin && !entry.warningsSent[key]) {
-            await sendWarningOrDm(guild, userId, roleId, thresholdMin, warnChannelId).catch(() => null);
+            await sendWarningOrDm(guild, userId, roleId, leftMin, warnChannelId).catch(() => null);
             entry.warningsSent[key] = true;
             changed = true;
           }
         }
       }
 
-      // Cleanup user object if no roles
       if (data[userId] && Object.keys(data[userId].roles || {}).length === 0) {
         delete data[userId];
         changed = true;
