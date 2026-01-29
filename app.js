@@ -15,14 +15,20 @@ console.log("=== BoostMon app.js booted ===");
 console.log("DISCORD_TOKEN present:", Boolean(process.env.DISCORD_TOKEN));
 console.log("DISCORD_CLIENT_ID present:", Boolean(process.env.DISCORD_CLIENT_ID));
 console.log("DISCORD_GUILD_ID present:", Boolean(process.env.DISCORD_GUILD_ID));
-console.log("WHITELIST_ROLE_ID present:", Boolean(process.env.WHITELIST_ROLE_ID));
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
-const WHITELIST_ROLE_ID = process.env.WHITELIST_ROLE_ID;
 
 // ---------------- Storage ----------------
+// Data format:
+// {
+//   "<userId>": {
+//     "roles": {
+//       "<roleId>": { "expiresAt": 1234567890 }
+//     }
+//   }
+// }
 const DATA_PATH = path.resolve(__dirname, "data.json");
 
 function readData() {
@@ -37,20 +43,27 @@ function writeData(obj) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(obj, null, 2), "utf8");
 }
 
-function addMinutes(userId, minutes) {
+// remaining time tracked as "expiresAt" (ms epoch)
+function addMinutesForRole(userId, roleId, minutes) {
   const data = readData();
   const now = Date.now();
-  const current = data[userId]?.expiresAt ?? 0;
+
+  if (!data[userId]) data[userId] = { roles: {} };
+  if (!data[userId].roles) data[userId].roles = {};
+
+  const current = data[userId].roles[roleId]?.expiresAt ?? 0;
   const base = current > now ? current : now;
   const expiresAt = base + minutes * 60 * 1000;
-  data[userId] = { expiresAt };
+
+  data[userId].roles[roleId] = { expiresAt };
   writeData(data);
+
   return expiresAt;
 }
 
-function getTimeLeftMs(userId) {
+function getTimeLeftMsForRole(userId, roleId) {
   const data = readData();
-  const expiresAt = data[userId]?.expiresAt ?? 0;
+  const expiresAt = data[userId]?.roles?.[roleId]?.expiresAt ?? 0;
   return Math.max(0, expiresAt - Date.now());
 }
 
@@ -63,7 +76,6 @@ function formatMs(ms) {
 }
 
 function friendlyDiscordError(err) {
-  // discord.js REST errors often have: err.code, err.status, err.rawError?.message
   const rawMsg = err?.rawError?.message || err?.message || "Unknown error";
   const code = err?.code ? ` (code ${err.code})` : "";
   const status = err?.status ? ` (HTTP ${err.status})` : "";
@@ -71,12 +83,6 @@ function friendlyDiscordError(err) {
 }
 
 // ---------------- Discord Bot ----------------
-if (!TOKEN) {
-  console.error("FATAL: DISCORD_TOKEN is missing.");
-} else {
-  console.log("Discord token loaded.");
-}
-
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
@@ -84,7 +90,6 @@ const client = new Client({
 client.once("clientReady", async () => {
   console.log(`BoostMon logged in as ${client.user.tag}`);
 
-  // Register slash commands (guild commands)
   if (!CLIENT_ID || !GUILD_ID) {
     console.log("Missing DISCORD_CLIENT_ID or DISCORD_GUILD_ID; skipping command registration.");
     return;
@@ -93,7 +98,7 @@ client.once("clientReady", async () => {
   const commands = [
     new SlashCommandBuilder()
       .setName("addtime")
-      .setDescription("Add minutes to a user's whitelist time and give the role.")
+      .setDescription("Add minutes to a user's timed role and assign the role.")
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) =>
         o.setName("user").setDescription("User to add time to").setRequired(true)
@@ -104,12 +109,19 @@ client.once("clientReady", async () => {
           .setDescription("Minutes to add")
           .setRequired(true)
           .setMinValue(1)
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Role to grant").setRequired(true)
       ),
+
     new SlashCommandBuilder()
       .setName("timeleft")
-      .setDescription("Show remaining whitelist time for a user.")
+      .setDescription("Show remaining timed role time for a user (and optional role).")
       .addUserOption((o) =>
         o.setName("user").setDescription("User to check (default: you)").setRequired(false)
+      )
+      .addRoleOption((o) =>
+        o.setName("role").setDescription("Role to check (optional)").setRequired(false)
       ),
   ].map((c) => c.toJSON());
 
@@ -127,35 +139,20 @@ client.on("interactionCreate", async (interaction) => {
 
   try {
     if (interaction.commandName === "addtime") {
-      // Basic env var checks
-      if (!WHITELIST_ROLE_ID) {
-        return interaction.reply({
-          content: "WHITELIST_ROLE_ID is not set in Railway Variables.",
-          ephemeral: true,
-        });
-      }
       if (!interaction.guild) {
         return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
       }
 
-      const target = interaction.options.getUser("user", true);
+      const targetUser = interaction.options.getUser("user", true);
       const minutes = interaction.options.getInteger("minutes", true);
+      const targetRole = interaction.options.getRole("role", true);
 
-      // Fetch member & role objects
       const guild = interaction.guild;
 
-      const role = guild.roles.cache.get(WHITELIST_ROLE_ID);
-      if (!role) {
-        return interaction.reply({
-          content:
-            "I can't find the whitelist role in this server. Double-check WHITELIST_ROLE_ID (it must be the Role ID number, not the name).",
-          ephemeral: true,
-        });
-      }
-
+      // Fetch bot member
       const me = await guild.members.fetchMe();
 
-      // Permission check: bot must have Manage Roles
+      // Permission check
       if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
         return interaction.reply({
           content: "I don't have the **Manage Roles** permission in this server.",
@@ -163,7 +160,16 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // Hierarchy check: bot's highest role must be above the target role
+      // Ensure role exists in this guild (it will, but keep it safe)
+      const role = guild.roles.cache.get(targetRole.id);
+      if (!role) {
+        return interaction.reply({
+          content: "I couldn't find that role in this server.",
+          ephemeral: true,
+        });
+      }
+
+      // Hierarchy check
       if (me.roles.highest.position <= role.position) {
         return interaction.reply({
           content:
@@ -173,33 +179,42 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // Fetch target member and add role
-      const member = await guild.members.fetch(target.id);
+      const member = await guild.members.fetch(targetUser.id);
 
-      // Add time first (storage)
-      const expiresAt = addMinutes(target.id, minutes);
+      // Save expiry per user+role
+      const expiresAt = addMinutesForRole(targetUser.id, role.id, minutes);
 
-      // Add role
+      // Assign role
       await member.roles.add(role.id);
 
       return interaction.reply({
         content:
-          `Added **${minutes} minutes** to ${target} and gave **${role.name}**.\n` +
+          `Added **${minutes} minutes** to ${targetUser} for **${role.name}** and assigned the role.\n` +
           `New expiry: <t:${Math.floor(expiresAt / 1000)}:F> (in <t:${Math.floor(expiresAt / 1000)}:R>).`,
         ephemeral: false,
       });
     }
 
     if (interaction.commandName === "timeleft") {
-      const target = interaction.options.getUser("user") ?? interaction.user;
-      const left = getTimeLeftMs(target.id);
+      const targetUser = interaction.options.getUser("user") ?? interaction.user;
+      const role = interaction.options.getRole("role"); // optional
 
-      if (left <= 0) {
-        return interaction.reply({ content: `${target} has **0 time left**.`, ephemeral: true });
+      // If a role is provided, show time for that role only
+      if (role) {
+        const left = getTimeLeftMsForRole(targetUser.id, role.id);
+        if (left <= 0) {
+          return interaction.reply({ content: `${targetUser} has **0 time left** for **${role.name}**.`, ephemeral: true });
+        }
+        return interaction.reply({
+          content: `${targetUser} has **${formatMs(left)}** remaining for **${role.name}** (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
+          ephemeral: true,
+        });
       }
 
+      // No role provided: just a helpful message for now
       return interaction.reply({
-        content: `${target} has **${formatMs(left)}** remaining (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
+        content:
+          `Please include a role to check.\nExample: \`/timeleft user: ${targetUser.username} role: @server1\``,
         ephemeral: true,
       });
     }
@@ -211,7 +226,6 @@ client.on("interactionCreate", async (interaction) => {
       "Details: " +
       friendlyDiscordError(err);
 
-    // Always try to reply/follow-up without crashing
     try {
       if (interaction.deferred || interaction.replied) {
         return interaction.followUp({ content: msg, ephemeral: true });
@@ -223,7 +237,6 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-// Avoid unhandled errors killing the process
 client.on("error", (err) => console.error("Discord client error:", err));
 process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
 
