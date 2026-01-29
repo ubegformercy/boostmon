@@ -213,7 +213,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-client.once("clientReady", async () => {
+client.once("ready", async () => {
   console.log(`BoostMon logged in as ${client.user.tag}`);
 
   if (!CLIENT_ID || !GUILD_ID) {
