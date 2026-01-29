@@ -1,5 +1,3 @@
-// app.js
-
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
@@ -10,10 +8,10 @@ const {
   Routes,
   SlashCommandBuilder,
   PermissionFlagsBits,
+  ChannelType,
 } = require("discord.js");
 const indexRouter = require("./routes/index");
 
-// ---------------- Boot logs ----------------
 console.log("=== BoostMon app.js booted ===");
 console.log("DISCORD_TOKEN present:", Boolean(process.env.DISCORD_TOKEN));
 console.log("DISCORD_CLIENT_ID present:", Boolean(process.env.DISCORD_CLIENT_ID));
@@ -23,12 +21,20 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
+// ----- Warning thresholds (minutes remaining) -----
+const WARNING_THRESHOLDS_MIN = [10, 1]; // customize as you like
+const CHECK_INTERVAL_MS = 30_000;
+
 // ---------------- Storage ----------------
 // Data format:
 // {
 //   "<userId>": {
 //     "roles": {
-//       "<roleId>": { "expiresAt": 1234567890 }
+//       "<roleId>": {
+//         "expiresAt": 1234567890000,
+//         "warnChannelId": "123..." | null,
+//         "warningsSent": { "10": true, "1": true }
+//       }
 //     }
 //   }
 // }
@@ -46,25 +52,84 @@ function writeData(obj) {
   fs.writeFileSync(DATA_PATH, JSON.stringify(obj, null, 2), "utf8");
 }
 
-function ensureUserRoleBucket(data, userId) {
+function ensureUserRole(data, userId, roleId) {
   if (!data[userId]) data[userId] = { roles: {} };
   if (!data[userId].roles) data[userId].roles = {};
+  if (!data[userId].roles[roleId]) {
+    data[userId].roles[roleId] = {
+      expiresAt: 0,
+      warnChannelId: null,
+      warningsSent: {},
+    };
+  }
+  if (!data[userId].roles[roleId].warningsSent) data[userId].roles[roleId].warningsSent = {};
+  return data;
+}
+
+function formatMs(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${h}h ${m}m ${s}s`;
+}
+
+function friendlyDiscordError(err) {
+  const rawMsg = err?.rawError?.message || err?.message || "Unknown error";
+  const code = err?.code ? ` (code ${err.code})` : "";
+  const status = err?.status ? ` (HTTP ${err.status})` : "";
+  return `${rawMsg}${code}${status}`;
+}
+
+function getTimeLeftMsForRole(userId, roleId) {
+  const data = readData();
+  const expiresAt = data[userId]?.roles?.[roleId]?.expiresAt ?? 0;
+  return Math.max(0, expiresAt - Date.now());
+}
+
+// Helper: when role not specified, choose a role timer deterministically (first key)
+function getFirstTimedRoleId(userId) {
+  const data = readData();
+  const roles = data[userId]?.roles;
+  if (!roles) return null;
+  const ids = Object.keys(roles);
+  if (ids.length === 0) return null;
+  return ids[0];
 }
 
 // Add minutes to a specific role timer (user+role)
 function addMinutesForRole(userId, roleId, minutes) {
   const data = readData();
   const now = Date.now();
-
-  ensureUserRoleBucket(data, userId);
+  ensureUserRole(data, userId, roleId);
 
   const current = data[userId].roles[roleId]?.expiresAt ?? 0;
   const base = current > now ? current : now;
   const expiresAt = base + minutes * 60 * 1000;
 
-  data[userId].roles[roleId] = { expiresAt };
-  writeData(data);
+  data[userId].roles[roleId].expiresAt = expiresAt;
 
+  // If you extend time, you might want to allow warnings to be re-sent if you moved back above thresholds.
+  // We'll clear warningsSent so warnings can re-fire appropriately after large extensions.
+  data[userId].roles[roleId].warningsSent = {};
+
+  writeData(data);
+  return expiresAt;
+}
+
+// Set minutes exactly for a role timer (user+role) to now+minutes.
+// Also sets warnChannelId (nullable) and resets warningsSent.
+function setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull) {
+  const data = readData();
+  const now = Date.now();
+  ensureUserRole(data, userId, roleId);
+
+  const expiresAt = now + minutes * 60 * 1000;
+  data[userId].roles[roleId].expiresAt = expiresAt;
+  data[userId].roles[roleId].warnChannelId = warnChannelIdOrNull ?? null;
+  data[userId].roles[roleId].warningsSent = {};
+
+  writeData(data);
   return expiresAt;
 }
 
@@ -91,38 +156,13 @@ function removeMinutesForRole(userId, roleId, minutes) {
   }
 
   data[userId].roles[roleId].expiresAt = newExpiry;
+
+  // If time was reduced, we should also clear warningsSent so it can re-evaluate correctly.
+  // Example: if it was above 10 min, then you remove time down to 5 min, it should warn.
+  data[userId].roles[roleId].warningsSent = {};
+
   writeData(data);
   return newExpiry;
-}
-
-function getTimeLeftMsForRole(userId, roleId) {
-  const data = readData();
-  const expiresAt = data[userId]?.roles?.[roleId]?.expiresAt ?? 0;
-  return Math.max(0, expiresAt - Date.now());
-}
-
-function getCurrentTimedRoleId(userId) {
-  const data = readData();
-  const roles = data[userId]?.roles;
-  if (!roles) return null;
-  const ids = Object.keys(roles);
-  if (ids.length === 0) return null;
-  return ids[0];
-}
-
-function formatMs(ms) {
-  const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${h}h ${m}m ${s}s`;
-}
-
-function friendlyDiscordError(err) {
-  const rawMsg = err?.rawError?.message || err?.message || "Unknown error";
-  const code = err?.code ? ` (code ${err.code})` : "";
-  const status = err?.status ? ` (HTTP ${err.status})` : "";
-  return `${rawMsg}${code}${status}`;
 }
 
 // ---------------- Discord Bot ----------------
@@ -133,10 +173,6 @@ const client = new Client({
 client.once("clientReady", async () => {
   console.log(`BoostMon logged in as ${client.user.tag}`);
 
-  if (!TOKEN) {
-    console.error("Missing DISCORD_TOKEN. Bot cannot start.");
-    return;
-  }
   if (!CLIENT_ID || !GUILD_ID) {
     console.log("Missing DISCORD_CLIENT_ID or DISCORD_GUILD_ID; skipping command registration.");
     return;
@@ -144,50 +180,45 @@ client.once("clientReady", async () => {
 
   const commands = [
     new SlashCommandBuilder()
+      .setName("settime")
+      .setDescription("Set a user's timed role time to exactly N minutes from now and assign the role.")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption((o) => o.setName("user").setDescription("User to set time for").setRequired(true))
+      .addIntegerOption((o) =>
+        o.setName("minutes").setDescription("Minutes to set").setRequired(true).setMinValue(1)
+      )
+      .addRoleOption((o) => o.setName("role").setDescription("Role to grant").setRequired(true))
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Where expiry warnings should be sent (optional). If omitted, warnings are DMed.")
+          .setRequired(false)
+          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+      ),
+
+    new SlashCommandBuilder()
       .setName("addtime")
       .setDescription("Add minutes to a user's timed role and assign the role.")
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption((o) =>
-        o.setName("user").setDescription("User to add time to").setRequired(true)
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName("minutes")
-          .setDescription("Minutes to add")
-          .setRequired(true)
-          .setMinValue(1)
-      )
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Role to grant").setRequired(true)
-      ),
+      .addUserOption((o) => o.setName("user").setDescription("User to add time to").setRequired(true))
+      .addIntegerOption((o) => o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to add time to").setRequired(false)),
 
     new SlashCommandBuilder()
       .setName("removetime")
       .setDescription("Remove minutes from a user's timed role.")
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
-      .addUserOption((o) =>
-        o.setName("user").setDescription("User to modify").setRequired(true)
-      )
+      .addUserOption((o) => o.setName("user").setDescription("User to modify").setRequired(true))
       .addIntegerOption((o) =>
-        o
-          .setName("minutes")
-          .setDescription("Minutes to remove")
-          .setRequired(true)
-          .setMinValue(1)
+        o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
       )
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false)
-      ),
+      .addRoleOption((o) => o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false)),
 
     new SlashCommandBuilder()
       .setName("timeleft")
       .setDescription("Show remaining timed role time for a user (and optional role).")
-      .addUserOption((o) =>
-        o.setName("user").setDescription("User to check (default: you)").setRequired(false)
-      )
-      .addRoleOption((o) =>
-        o.setName("role").setDescription("Role to check (optional)").setRequired(false)
-      ),
+      .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to check (optional)").setRequired(false)),
   ].map((c) => c.toJSON());
 
   try {
@@ -199,12 +230,26 @@ client.once("clientReady", async () => {
   }
 });
 
+async function canManageRole(guild, role) {
+  const me = await guild.members.fetchMe();
+  if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    return { ok: false, reason: "I don't have Manage Roles permission." };
+  }
+  if (me.roles.highest.position <= role.position) {
+    return {
+      ok: false,
+      reason: `I can't manage **${role.name}** because my highest role is not above it. Move my bot role higher than **${role.name}**.`,
+    };
+  }
+  return { ok: true, me };
+}
+
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   try {
-    // ---------- /addtime ----------
-    if (interaction.commandName === "addtime") {
+    // ---------- /settime ----------
+    if (interaction.commandName === "settime") {
       if (!interaction.guild) {
         return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
       }
@@ -212,6 +257,7 @@ client.on("interactionCreate", async (interaction) => {
       const targetUser = interaction.options.getUser("user", true);
       const minutes = interaction.options.getInteger("minutes", true);
       const targetRole = interaction.options.getRole("role", true);
+      const channelOpt = interaction.options.getChannel("channel"); // optional
 
       const guild = interaction.guild;
 
@@ -220,27 +266,92 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: "I couldn't find that role in this server.", ephemeral: true });
       }
 
-      const me = await guild.members.fetchMe();
-      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return interaction.reply({ content: "I don't have **Manage Roles** permission.", ephemeral: true });
+      const permCheck = await canManageRole(guild, role);
+      if (!permCheck.ok) {
+        return interaction.reply({ content: permCheck.reason, ephemeral: true });
       }
-      if (me.roles.highest.position <= role.position) {
-        return interaction.reply({
-          content:
-            `I can't assign **${role.name}** because my highest role is not above it.\n` +
-            `Move my bot role higher than **${role.name}** in the server role list.`,
-          ephemeral: true,
-        });
+
+      // Validate channel if provided (best effort)
+      let warnChannelId = null;
+      let warnModeText = "No channel selected. Automatic expiry warnings will be DMed to the user.";
+
+      if (channelOpt) {
+        warnChannelId = channelOpt.id;
+        warnModeText = `Expiry warnings will be posted in ${channelOpt}.`;
       }
 
       const member = await guild.members.fetch(targetUser.id);
 
-      const expiresAt = addMinutesForRole(targetUser.id, role.id, minutes);
+      const expiresAt = setMinutesForRole(targetUser.id, role.id, minutes, warnChannelId);
       await member.roles.add(role.id);
 
       return interaction.reply({
         content:
-          `Added **${minutes} minutes** to ${targetUser} for **${role.name}** and assigned the role.\n` +
+          `Set **${minutes} minutes** for ${targetUser} on **${role.name}** and assigned the role.\n` +
+          `${warnModeText}\n` +
+          `Expiry: <t:${Math.floor(expiresAt / 1000)}:F> (in <t:${Math.floor(expiresAt / 1000)}:R>).`,
+        ephemeral: false,
+      });
+    }
+
+    // ---------- /addtime ----------
+    if (interaction.commandName === "addtime") {
+      if (!interaction.guild) {
+        return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+      }
+
+      const targetUser = interaction.options.getUser("user", true);
+      const minutes = interaction.options.getInteger("minutes", true);
+      const roleOption = interaction.options.getRole("role"); // optional
+
+      const guild = interaction.guild;
+      const member = await guild.members.fetch(targetUser.id);
+
+      // Determine which role timer to add to
+      const data = readData();
+      const timers = data[targetUser.id]?.roles || {};
+      const timedRoleIds = Object.keys(timers);
+
+      let roleIdToEdit = null;
+
+      if (roleOption) {
+        roleIdToEdit = roleOption.id;
+      } else {
+        if (timedRoleIds.length === 1) {
+          roleIdToEdit = timedRoleIds[0];
+        } else if (timedRoleIds.length === 0) {
+          return interaction.reply({
+            content: `${targetUser} has no active timed roles. Use /settime with a role first.`,
+            ephemeral: true,
+          });
+        } else {
+          return interaction.reply({
+            content: `${targetUser} has multiple timed roles. Please specify the role.`,
+            ephemeral: true,
+          });
+        }
+      }
+
+      const role = guild.roles.cache.get(roleIdToEdit);
+      if (!role) {
+        return interaction.reply({ content: "That role no longer exists in this server.", ephemeral: true });
+      }
+
+      const permCheck = await canManageRole(guild, role);
+      if (!permCheck.ok) {
+        return interaction.reply({ content: permCheck.reason, ephemeral: true });
+      }
+
+      const expiresAt = addMinutesForRole(targetUser.id, role.id, minutes);
+
+      // Ensure role is actually assigned
+      if (!member.roles.cache.has(role.id)) {
+        await member.roles.add(role.id);
+      }
+
+      return interaction.reply({
+        content:
+          `Added **${minutes} minutes** to ${targetUser} for **${role.name}**.\n` +
           `New expiry: <t:${Math.floor(expiresAt / 1000)}:F> (in <t:${Math.floor(expiresAt / 1000)}:R>).`,
         ephemeral: false,
       });
@@ -258,11 +369,6 @@ client.on("interactionCreate", async (interaction) => {
 
       const guild = interaction.guild;
       const member = await guild.members.fetch(targetUser.id);
-      const me = await guild.members.fetchMe();
-
-      if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
-        return interaction.reply({ content: "I don't have **Manage Roles** permission.", ephemeral: true });
-      }
 
       const data = readData();
       const timers = data[targetUser.id]?.roles || {};
@@ -276,9 +382,7 @@ client.on("interactionCreate", async (interaction) => {
       let roleIdToEdit = null;
 
       if (roleOption) {
-        // Explicit targeting: subtract ONLY from this role timer
         roleIdToEdit = roleOption.id;
-
         if (!timers[roleIdToEdit]) {
           return interaction.reply({
             content: `${targetUser} has no saved time for **${roleOption.name}**.`,
@@ -286,7 +390,6 @@ client.on("interactionCreate", async (interaction) => {
           });
         }
       } else {
-        // No role provided: pick a timed role the user currently has in Discord, if unambiguous
         const matching = timedRoleIds.filter((rid) => member.roles.cache.has(rid));
 
         if (matching.length === 1) {
@@ -297,8 +400,8 @@ client.on("interactionCreate", async (interaction) => {
           } else {
             return interaction.reply({
               content:
-                `${targetUser} has multiple timed roles stored.\n` +
-                `Please specify which role to remove time from using the **role** option.`,
+                `${targetUser} has multiple timed roles stored, but none clearly matches their current roles.\n` +
+                `Please specify which role to remove time from.`,
               ephemeral: true,
             });
           }
@@ -310,7 +413,7 @@ client.on("interactionCreate", async (interaction) => {
 
           return interaction.reply({
             content:
-              `${targetUser} currently has multiple timed roles. Please specify the **role** to remove time from.\n` +
+              `${targetUser} currently has multiple timed roles. Please specify the role to remove time from.\n` +
               `Possible: ${names}`,
             ephemeral: true,
           });
@@ -322,25 +425,24 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: "That role no longer exists in this server.", ephemeral: true });
       }
 
-      // Bot hierarchy check
-      if (me.roles.highest.position <= roleObj.position) {
-        return interaction.reply({
-          content:
-            `I can't manage **${roleObj.name}** because my highest role is not above it.\n` +
-            `Move my bot role higher than **${roleObj.name}** in the server role list.`,
-          ephemeral: true,
-        });
+      const permCheck = await canManageRole(guild, roleObj);
+      if (!permCheck.ok) {
+        return interaction.reply({ content: permCheck.reason, ephemeral: true });
       }
 
       const result = removeMinutesForRole(targetUser.id, roleIdToEdit, minutes);
 
       if (result === null) {
-        return interaction.reply({ content: `${targetUser} has no saved time for **${roleObj.name}**.`, ephemeral: true });
+        return interaction.reply({
+          content: `${targetUser} has no saved time for **${roleObj.name}**.`,
+          ephemeral: true,
+        });
       }
 
-      // If expired -> remove role
       if (result === 0) {
-        await member.roles.remove(roleIdToEdit);
+        if (member.roles.cache.has(roleIdToEdit)) {
+          await member.roles.remove(roleIdToEdit);
+        }
         return interaction.reply({
           content:
             `Removed **${minutes} minutes** from ${targetUser} for **${roleObj.name}**.\n` +
@@ -349,7 +451,6 @@ client.on("interactionCreate", async (interaction) => {
         });
       }
 
-      // Still has time
       const leftMs = Math.max(0, result - Date.now());
       return interaction.reply({
         content:
@@ -364,38 +465,36 @@ client.on("interactionCreate", async (interaction) => {
       const targetUser = interaction.options.getUser("user") ?? interaction.user;
       const role = interaction.options.getRole("role"); // optional
 
-      // If role is given, show that role
       if (role) {
         const left = getTimeLeftMsForRole(targetUser.id, role.id);
         if (left <= 0) {
           return interaction.reply({
-            content: `${targetUser} has **0 time left** for **${role.name}**.`,
+            content: `${targetUser} has 0 time left for ${role.name}.`,
             ephemeral: true,
           });
         }
         return interaction.reply({
-          content: `${targetUser} has **${formatMs(left)}** remaining for **${role.name}** (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
+          content: `${targetUser} has ${formatMs(left)} remaining for ${role.name} (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
           ephemeral: true,
         });
       }
 
-      // If no role is given, show the "first stored role" (simple default)
-      const currentRoleId = getCurrentTimedRoleId(targetUser.id);
+      const currentRoleId = getFirstTimedRoleId(targetUser.id);
       if (!currentRoleId) {
-        return interaction.reply({ content: `${targetUser} has **0 time left**.`, ephemeral: true });
+        return interaction.reply({ content: `${targetUser} has 0 time left.`, ephemeral: true });
       }
 
       const left = getTimeLeftMsForRole(targetUser.id, currentRoleId);
       const roleObj = interaction.guild?.roles?.cache?.get(currentRoleId);
 
       if (left <= 0) {
-        return interaction.reply({ content: `${targetUser} has **0 time left**.`, ephemeral: true });
+        return interaction.reply({ content: `${targetUser} has 0 time left.`, ephemeral: true });
       }
 
       return interaction.reply({
         content:
-          `${targetUser} has **${formatMs(left)}** remaining` +
-          (roleObj ? ` for **${roleObj.name}**` : "") +
+          `${targetUser} has ${formatMs(left)} remaining` +
+          (roleObj ? ` for ${roleObj.name}` : "") +
           ` (expires <t:${Math.floor((Date.now() + left) / 1000)}:R>).`,
         ephemeral: true,
       });
@@ -403,7 +502,7 @@ client.on("interactionCreate", async (interaction) => {
   } catch (err) {
     console.error("Command error:", err);
 
-    const msg = "Error running command.\nDetails: " + friendlyDiscordError(err);
+    const msg = "Error running command. Details: " + friendlyDiscordError(err);
 
     try {
       if (interaction.deferred || interaction.replied) {
@@ -419,86 +518,24 @@ client.on("interactionCreate", async (interaction) => {
 client.on("error", (err) => console.error("Discord client error:", err));
 process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
 
-// ---------------- Expiry cleanup (Discord-side role removal) ----------------
-async function cleanupExpiredRoles() {
-  try {
-    if (!GUILD_ID) return;
-    if (!client.isReady()) return;
-
-    const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
-    if (!guild) return;
-
-    const me = await guild.members.fetchMe();
-    if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) return;
-
-    const data = readData();
-    const now = Date.now();
-    let changed = false;
-
-    for (const userId of Object.keys(data)) {
-      const roles = data[userId]?.roles || {};
-
-      for (const roleId of Object.keys(roles)) {
-        const expiresAt = roles[roleId]?.expiresAt ?? 0;
-
-        if (expiresAt > 0 && expiresAt <= now) {
-          // Remove role in Discord (best-effort)
-          const member = await guild.members.fetch(userId).catch(() => null);
-          if (member) {
-            const roleObj = guild.roles.cache.get(roleId);
-            if (roleObj && me.roles.highest.position > roleObj.position) {
-              await member.roles.remove(roleId).catch(() => null);
-            }
-          }
-
-          // Remove timer record
-          delete data[userId].roles[roleId];
-          changed = true;
-        }
-      }
-
-      if (data[userId] && Object.keys(data[userId].roles || {}).length === 0) {
-        delete data[userId];
-        changed = true;
-      }
-    }
-
-    if (changed) writeData(data);
-  } catch (e) {
-    console.error("cleanupExpiredRoles error:", e);
-  }
-}
-
-// Run every 30 seconds
-setInterval(() => {
-  cleanupExpiredRoles();
-}, 30_000);
-
-// ---------------- Login ----------------
 client.login(TOKEN).catch((err) => console.error("Login failed:", err));
 
 // ---------------- Express Web Server ----------------
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware: log request method and url
 app.use((req, res, next) => {
   console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
   next();
 });
 
-// Static files
 app.use(express.static(path.resolve(__dirname, "public")));
-
-// Main routes
 app.use("/", indexRouter);
 
-// 404 handler
 app.use((req, res) => {
   res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
 });
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).send("Internal Server Error");
@@ -507,3 +544,128 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Server listening: http://localhost:${PORT}`);
 });
+
+// ---------------- Timers: warnings + expiry cleanup ----------------
+async function sendWarningOrDm(guild, userId, roleId, minutesLeft, warnChannelId) {
+  const roleObj = guild.roles.cache.get(roleId);
+  const roleName = roleObj ? roleObj.name : "that role";
+
+  const content = `<@${userId}> warning: your access for **${roleName}** expires in **${minutesLeft} minute(s)**.`;
+
+  // Channel mode
+  if (warnChannelId) {
+    const channel = await guild.channels.fetch(warnChannelId).catch(() => null);
+    if (channel && (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)) {
+      await channel.send({ content }).catch(() => null);
+      return;
+    }
+    // If channel invalid or missing perms, fallback to DM
+  }
+
+  // DM fallback
+  const user = await client.users.fetch(userId).catch(() => null);
+  if (user) {
+    await user.send({ content }).catch(() => null);
+  }
+}
+
+async function sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId) {
+  const roleObj = guild.roles.cache.get(roleId);
+  const roleName = roleObj ? roleObj.name : "that role";
+
+  const content = `<@${userId}> notice: your access for **${roleName}** has expired.`;
+
+  if (warnChannelId) {
+    const channel = await guild.channels.fetch(warnChannelId).catch(() => null);
+    if (channel && (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)) {
+      await channel.send({ content }).catch(() => null);
+      return;
+    }
+  }
+
+  const user = await client.users.fetch(userId).catch(() => null);
+  if (user) {
+    await user.send({ content }).catch(() => null);
+  }
+}
+
+async function cleanupAndWarn() {
+  try {
+    if (!GUILD_ID) return;
+    if (!client.isReady()) return;
+
+    const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
+    if (!guild) return;
+
+    const data = readData();
+    const now = Date.now();
+    let changed = false;
+
+    const me = await guild.members.fetchMe().catch(() => null);
+    const canManage = Boolean(me?.permissions?.has(PermissionFlagsBits.ManageRoles));
+
+    for (const userId of Object.keys(data)) {
+      const roles = data[userId]?.roles || {};
+
+      for (const roleId of Object.keys(roles)) {
+        const entry = roles[roleId];
+        const expiresAt = entry?.expiresAt ?? 0;
+        const warnChannelId = entry?.warnChannelId ?? null;
+
+        if (!expiresAt || expiresAt <= 0) continue;
+
+        const leftMs = expiresAt - now;
+
+        // Expired -> remove role + record
+        if (leftMs <= 0) {
+          // Remove role in Discord (best-effort)
+          if (canManage) {
+            const member = await guild.members.fetch(userId).catch(() => null);
+            const roleObj = guild.roles.cache.get(roleId);
+            if (member && roleObj && me.roles.highest.position > roleObj.position) {
+              await member.roles.remove(roleId).catch(() => null);
+            }
+          }
+
+          // Notify expired (best-effort)
+          await sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId).catch(() => null);
+
+          // Remove timer record
+          delete data[userId].roles[roleId];
+          changed = true;
+          continue;
+        }
+
+        // Warnings
+        const leftMin = Math.ceil(leftMs / 60_000);
+
+        if (!entry.warningsSent) entry.warningsSent = {};
+
+        for (const thresholdMin of WARNING_THRESHOLDS_MIN) {
+          const key = String(thresholdMin);
+
+          // Send when "at or below" the threshold, once.
+          if (leftMin <= thresholdMin && !entry.warningsSent[key]) {
+            await sendWarningOrDm(guild, userId, roleId, thresholdMin, warnChannelId).catch(() => null);
+            entry.warningsSent[key] = true;
+            changed = true;
+          }
+        }
+      }
+
+      // Cleanup user object if no roles
+      if (data[userId] && Object.keys(data[userId].roles || {}).length === 0) {
+        delete data[userId];
+        changed = true;
+      }
+    }
+
+    if (changed) writeData(data);
+  } catch (e) {
+    console.error("cleanupAndWarn error:", e);
+  }
+}
+
+setInterval(() => {
+  cleanupAndWarn();
+}, CHECK_INTERVAL_MS);
