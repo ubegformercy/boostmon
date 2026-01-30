@@ -766,13 +766,32 @@ if (interaction.commandName === "resumetime") {
         await member.roles.add(role.id);
       }
 
-      return interaction.reply({
-        content:
-          `Added **${minutes} minutes** to ${targetUser} for **${role.name}**.\n` +
-          `New expiry: <t:${Math.floor(expiresAt / 1000)}:F> (in <t:${Math.floor(expiresAt / 1000)}:R>).`,
-        ephemeral: false,
-      });
+const embed = new EmbedBuilder()
+  .setColor(0x2ECC71) // 🟢 active timer
+  .setAuthor({
+    name: "BoostMon",
+    iconURL: BOOSTMON_ICON_URL,
+  })
+  .setTitle("Timed Role Extended")
+  .setTimestamp(new Date())
+  .addFields(
+    { name: "Command Run By", value: `${interaction.user}`, inline: true },
+    { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+    { name: "Target User", value: `${targetUser}`, inline: true },
+    { name: "Role", value: `${role}`, inline: true },
+    { name: "Time Added", value: `${minutes} minute(s)`, inline: true },
+    {
+      name: "New Expiry",
+      value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,
+      inline: true,
     }
+  )
+  .setFooter({ text: "BoostMon • Active Timer" });
+
+return interaction.reply({
+  embeds: [embed],
+});
+
 
     // ---------- /removetime ----------
     if (interaction.commandName === "removetime") {
