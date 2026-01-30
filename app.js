@@ -737,6 +737,7 @@ return interaction.reply({ embeds: [embed] });
       .setFooter({ text: "BoostMon • Active Timer", iconURL: BOOSTMON_ICON_URL });
     
     return interaction.reply({ embeds: [embed] });
+    }
 
     // ---------- /addtime ----------
     if (interaction.commandName === "addtime") {
