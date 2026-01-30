@@ -837,3 +837,21 @@ async function cleanupAndWarn() {
 setInterval(() => {
   cleanupAndWarn();
 }, CHECK_INTERVAL_MS);
+
+//----------------------------------------
+// SECTION 9 — Start Discord Client
+//----------------------------------------
+
+client.on("error", (err) => console.error("Discord client error:", err));
+process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
+
+if (!TOKEN) {
+  console.error("DISCORD_TOKEN is missing. Bot cannot log in.");
+} else {
+  client.login(TOKEN).then(() => {
+    console.log("Discord login() called.");
+  }).catch((err) => {
+    console.error("Discord login failed:", err);
+  });
+}
+
