@@ -714,7 +714,7 @@ return interaction.reply({ embeds: [embed] });
       const embed = new EmbedBuilder()
         .setColor(0x2ECC71) // 🟢 active timer
         .setTitle("Timed Role Activated")
-        .setThumbnail(BOOSTMON_ICON_URL)
+        .setAuthor({name: "BoostMon",iconURL: BOOSTMON_ICON_URL,})
         .setTimestamp(new Date())
         .setFooter("BoostMon • Active Timer", iconUrl)
         .addFields(
