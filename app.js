@@ -318,6 +318,13 @@ client.once("ready", async () => {
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to pause").setRequired(true))
       .addRoleOption((o) => o.setName("role").setDescription("Role to pause (optional)").setRequired(false)),
+    
+    new SlashCommandBuilder()
+      .setName("resumetime")
+      .setDescription("Resume a paused timed role (continues from where it was paused).")
+      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
+      .addUserOption((o) => o.setName("user").setDescription("User to resume").setRequired(true))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to resume (optional)").setRequired(false)),
 
     new SlashCommandBuilder()
       .setName("removetime")
@@ -452,6 +459,103 @@ if (interaction.commandName === "pausetime") {
 
   return interaction.reply({
     content: `Paused ${targetUser}'s timer for **${roleObj.name}**.`,
+    ephemeral: false,
+  });
+}
+
+  // ---------- /resumetime ----------
+if (interaction.commandName === "resumetime") {
+  if (!interaction.guild) {
+    return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const roleOption = interaction.options.getRole("role"); // optional
+
+  const guild = interaction.guild;
+  const member = await guild.members.fetch(targetUser.id);
+
+  const data = readData();
+  const timers = data[targetUser.id]?.roles || {};
+  const timedRoleIds = Object.keys(timers);
+
+  if (timedRoleIds.length === 0) {
+    return interaction.reply({ content: `${targetUser} has no active timed roles.`, ephemeral: true });
+  }
+
+  // Pick role to resume
+  let roleIdToResume = null;
+
+  if (roleOption) {
+    roleIdToResume = roleOption.id;
+
+    if (!timers[roleIdToResume]) {
+      return interaction.reply({
+        content: `${targetUser} has no saved time for **${roleOption.name}**.`,
+        ephemeral: true,
+      });
+    }
+  } else {
+    const matching = timedRoleIds.find((rid) => member.roles.cache.has(rid));
+    roleIdToResume = matching || timedRoleIds[0];
+  }
+
+  const entry = timers[roleIdToResume];
+  if (!entry?.paused) {
+    const roleObjName = guild.roles.cache.get(roleIdToResume)?.name || "that role";
+    return interaction.reply({
+      content: `${targetUser}'s timer for **${roleObjName}** is not paused.`,
+      ephemeral: true,
+    });
+  }
+
+  const roleObj = guild.roles.cache.get(roleIdToResume);
+  if (!roleObj) {
+    // Role deleted, but timer exists. Clear timer so data doesn't rot.
+    clearRoleTimer(targetUser.id, roleIdToResume);
+    return interaction.reply({
+      content: `That role no longer exists in this server, so I cleared the saved timer for ${targetUser}.`,
+      ephemeral: false,
+    });
+  }
+
+  const permCheck = await canManageRole(guild, roleObj);
+  if (!permCheck.ok) {
+    return interaction.reply({ content: permCheck.reason, ephemeral: true });
+  }
+
+  const remainingMs = Number(entry.pausedRemainingMs || 0);
+  if (remainingMs <= 0) {
+    // Nothing to resume -> clear and remove role
+    clearRoleTimer(targetUser.id, roleIdToResume);
+    if (member.roles.cache.has(roleIdToResume)) {
+      await member.roles.remove(roleIdToResume).catch(() => null);
+    }
+    return interaction.reply({
+      content: `No time remained to resume for ${targetUser} on **${roleObj.name}**. Timer cleared and role removed.`,
+      ephemeral: false,
+    });
+  }
+
+  // Resume: set a new expiresAt from now, clear pause fields, reset warnings
+  const now = Date.now();
+  entry.expiresAt = now + remainingMs;
+  entry.paused = false;
+  delete entry.pausedAt;
+  delete entry.pausedRemainingMs;
+  entry.warningsSent = {};
+
+  writeData(data);
+
+  // Ensure role is on the member
+  if (!member.roles.cache.has(roleIdToResume)) {
+    await member.roles.add(roleIdToResume);
+  }
+
+  return interaction.reply({
+    content:
+      `Resumed timer for ${targetUser} on **${roleObj.name}**.\n` +
+      `Remaining: **${formatMs(remainingMs)}** (expires <t:${Math.floor(entry.expiresAt / 1000)}:R>).`,
     ephemeral: false,
   });
 }
@@ -941,11 +1045,11 @@ async function cleanupAndWarn() {
       const roles = data[userId]?.roles || {};
 
       for (const roleId of Object.keys(roles)) {
-        const entry = roles[roleId];
-        // If paused, do nothing (no warnings, no expiry)
-        if (entry?.pausedAt) continue;
-        const expiresAt = entry?.expiresAt ?? 0;
-        const warnChannelId = entry?.warnChannelId ?? null;
+      const entry = roles[roleId];
+      const expiresAt = entry?.expiresAt ?? 0;
+      const warnChannelId = entry?.warnChannelId ?? null;
+      
+      if (entry?.paused) continue;
               
         if (!expiresAt || expiresAt <= 0) continue;
 
