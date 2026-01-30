@@ -346,7 +346,6 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("settime")
       .setDescription("Set a user's timed role time to exactly N minutes from now and assign the role.")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to set time for").setRequired(true))
       .addIntegerOption((o) =>
         o.setName("minutes").setDescription("Minutes to set").setRequired(true).setMinValue(1)
@@ -363,7 +362,6 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("addtime")
       .setDescription("Add minutes to a user's timed role and assign the role.")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to add time to").setRequired(true))
       .addIntegerOption((o) =>
         o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1)
@@ -373,21 +371,18 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("pausetime")
       .setDescription("Pause a user's timed role timer (stops countdown until resumed).")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to pause").setRequired(true))
       .addRoleOption((o) => o.setName("role").setDescription("Role to pause (optional)").setRequired(false)),
     
     new SlashCommandBuilder()
       .setName("resumetime")
       .setDescription("Resume a paused timed role (continues from where it was paused).")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to resume").setRequired(true))
       .addRoleOption((o) => o.setName("role").setDescription("Role to resume (optional)").setRequired(false)),
 
     new SlashCommandBuilder()
       .setName("removetime")
       .setDescription("Remove minutes from a user's timed role.")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to modify").setRequired(true))
       .addIntegerOption((o) =>
         o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
@@ -397,7 +392,6 @@ client.once("ready", async () => {
     new SlashCommandBuilder()
       .setName("cleartime")
       .setDescription("Clear a user's timed role timer and remove the role.")
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles)
       .addUserOption((o) => o.setName("user").setDescription("User to clear").setRequired(true))
       .addRoleOption((o) => o.setName("role").setDescription("Role to clear (optional)").setRequired(false)),
 
