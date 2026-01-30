@@ -33,7 +33,7 @@ const GUILD_ID = process.env.DISCORD_GUILD_ID;
 //----------------------------------------
 
 // Warning thresholds (minutes remaining)
-const WARNING_THRESHOLDS_MIN = [10, 1]; // customize as you like
+const WARNING_THRESHOLDS_MIN = [60, 10, 1]; // customize as you like
 const CHECK_INTERVAL_MS = 30_000;
 
 
