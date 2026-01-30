@@ -868,30 +868,28 @@ return interaction.reply({
               ephemeral: true,
             });
           }
-        } else {
+       } else {
           const names = matching
             .map((rid) => guild.roles.cache.get(rid)?.name || rid)
             .slice(0, 10)
             .join(", ");
-
+        
           const embed = new EmbedBuilder()
-            .setColor(0xE74C3C) // red = expired
+            .setColor(0xF1C40F) // yellow = action needed
             .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-            .setTitle("Timed Role Reduced (Expired)")
+            .setTitle("Timed Role Reduced")
             .setTimestamp(new Date())
             .addFields(
-              { name: "Command Run By", value: `${interaction.user}`, inline: true },
-              { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
               { name: "Target User", value: `${targetUser}`, inline: true },
-              { name: "Role", value: `${roleObj}`, inline: true },
-              { name: "Time Removed", value: `${minutes} minute(s)`, inline: true },
-              { name: "Result", value: "Time expired — role removed.", inline: true }
+              { name: "Time To Remove", value: `${minutes} minute(s)`, inline: true },
+              { name: "Action Required", value: "User has multiple timed roles. Please specify which role.", inline: false },
+              { name: "Possible Roles", value: names || "None found", inline: false }
             )
-            .setFooter({ text: "BoostMon • Timer Ended" });
-          
-          return interaction.reply({ embeds: [embed] });
-
+            .setFooter({ text: "BoostMon • Select a Role" });
+        
+          return interaction.reply({ embeds: [embed], ephemeral: true });
         }
+
       }
 
       const roleObj = guild.roles.cache.get(roleIdToEdit);
