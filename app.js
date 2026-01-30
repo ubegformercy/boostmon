@@ -874,12 +874,23 @@ return interaction.reply({
             .slice(0, 10)
             .join(", ");
 
-          return interaction.reply({
-            content:
-              `${targetUser} currently has multiple timed roles. Please specify the role to remove time from.\n` +
-              `Possible: ${names}`,
-            ephemeral: true,
-          });
+          const embed = new EmbedBuilder()
+            .setColor(0xE74C3C) // red = expired
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Timed Role Reduced (Expired)")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Command Run By", value: `${interaction.user}`, inline: true },
+              { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+              { name: "Target User", value: `${targetUser}`, inline: true },
+              { name: "Role", value: `${roleObj}`, inline: true },
+              { name: "Time Removed", value: `${minutes} minute(s)`, inline: true },
+              { name: "Result", value: "Time expired — role removed.", inline: true }
+            )
+            .setFooter({ text: "BoostMon • Timer Ended" });
+          
+          return interaction.reply({ embeds: [embed] });
+
         }
       }
 
