@@ -711,37 +711,33 @@ return interaction.reply({ embeds: [embed] });
 
 
             
-      const embed = new EmbedBuilder()
-        .setColor(0x2ECC71) // 🟢 active timer
-        .setTitle("Timed Role Activated")
-        .setAuthor({name: "BoostMon", iconURL: BOOSTMON_ICON_URL,})
-        .setTimestamp(new Date())
-        .setFooter("BoostMon • Active Timer", iconURL: BOOSTMON_ICON_URL)
-        .addFields(
-          { name: "Command Run By", value: `${interaction.user}`, inline: true },
-          { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
-          { name: "Target User", value: `${targetUser}`, inline: true },
-          { name: "Role Assigned", value: `${role}`, inline: true },
-          { name: "Duration", value: `${minutes} minute(s)`, inline: true },
-          {
-            name: "Expires",
-            value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,
-            inline: true,
-          },
-          {
-            name: "Warning Channel",
-            value: warnChannelId ? `<#${warnChannelId}>` : "DMs",
-            inline: true,
-          },
-          { name: "Notes", value: warnModeText, inline: false }
-        )
-        .setFooter({ text: "BoostMon • Active Timer" });
+        const embed = new EmbedBuilder()
+      .setColor(0x2ECC71) // active timer
+      .setTitle("Timed Role Activated")
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Command Run By", value: `${interaction.user}`, inline: true },
+        { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Role Assigned", value: `${role}`, inline: true },
+        { name: "Duration", value: `${minutes} minute(s)`, inline: true },
+        {
+          name: "Expires",
+          value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,
+          inline: true,
+        },
+        {
+          name: "Warning Channel",
+          value: warnChannelId ? `<#${warnChannelId}>` : "DMs",
+          inline: true,
+        },
+        { name: "Notes", value: warnModeText, inline: false }
+      )
+      .setFooter({ text: "BoostMon • Active Timer", iconURL: BOOSTMON_ICON_URL });
+    
+    return interaction.reply({ embeds: [embed] });
 
-      
-      return interaction.reply({
-        embeds: [embed],
-      });
-    }
     // ---------- /addtime ----------
     if (interaction.commandName === "addtime") {
       if (!interaction.guild) {
