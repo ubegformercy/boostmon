@@ -447,7 +447,8 @@ async function canManageRole(guild, role) {
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  
+
+try { 
 // ---------- /pausetime ----------
 if (interaction.commandName === "pausetime") {
   if (!interaction.guild) {
@@ -620,7 +621,7 @@ if (interaction.commandName === "resumetime") {
 }
 
 
-  try {
+ 
     // ---------- /settime ----------
     if (interaction.commandName === "settime") {
       if (!interaction.guild) {
