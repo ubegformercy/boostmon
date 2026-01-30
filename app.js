@@ -53,47 +53,82 @@ const CHECK_INTERVAL_MS = 30_000;
 //   }
 // }
 
+//----------------------------------------
+// SECTION 2 — Storage (data.json)
+// ATOMIC WRITES + BACKUP + SAFE READ
+//----------------------------------------
+
 const DATA_PATH = path.resolve(__dirname, "data.json");
+const DATA_TMP_PATH = path.resolve(__dirname, "data.json.tmp");
+const DATA_BAK_PATH = path.resolve(__dirname, "data.json.bak");
+
+function safeParseJson(text, label = "json") {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (e) {
+    return { ok: false, error: `Failed parsing ${label}: ${e?.message || e}` };
+  }
+}
+
+function readJsonFileIfExists(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return { ok: false, error: "missing" };
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = safeParseJson(raw, path.basename(filePath));
+    if (!parsed.ok) return parsed;
+    return { ok: true, value: parsed.value };
+  } catch (e) {
+    return { ok: false, error: `Read failed for ${path.basename(filePath)}: ${e?.message || e}` };
+  }
+}
 
 function readData() {
-  try {
-    return JSON.parse(fs.readFileSync(DATA_PATH, "utf8"));
-  } catch {
-    return {};
+  // 1️⃣ Try main file first
+  const main = readJsonFileIfExists(DATA_PATH);
+  if (main.ok) return main.value;
+
+  // 2️⃣ Fallback to backup if main is bad
+  const backup = readJsonFileIfExists(DATA_BAK_PATH);
+  if (backup.ok) {
+    console.warn(`[WARN] Using backup data.json.bak because main failed: ${main.error}`);
+    return backup.value;
   }
+
+  // 3️⃣ Nothing usable → start clean
+  if (main.error !== "missing") console.warn(`[WARN] data.json unreadable: ${main.error}`);
+  if (backup.error !== "missing") console.warn(`[WARN] data.json.bak unreadable: ${backup.error}`);
+
+  return {};
 }
 
 function writeData(obj) {
-  fs.writeFileSync(DATA_PATH, JSON.stringify(obj, null, 2), "utf8");
-}
+  try {
+    const json = JSON.stringify(obj, null, 2);
 
-function ensureUserRole(data, userId, roleId) {
-  if (!data[userId]) data[userId] = { roles: {} };
-  if (!data[userId].roles) data[userId].roles = {};
-  if (!data[userId].roles[roleId]) {
-    data[userId].roles[roleId] = {
-      expiresAt: 0,
-      warnChannelId: null,
-      warningsSent: {},
-    };
+    // Keep last known good version
+    if (fs.existsSync(DATA_PATH)) {
+      try {
+        fs.copyFileSync(DATA_PATH, DATA_BAK_PATH);
+      } catch (e) {
+        console.warn(`[WARN] Could not create backup: ${e?.message || e}`);
+      }
+    }
+
+    // Write to temp file first
+    fs.writeFileSync(DATA_TMP_PATH, json, "utf8");
+
+    // Atomic swap
+    fs.renameSync(DATA_TMP_PATH, DATA_PATH);
+  } catch (e) {
+    console.error(`[ERROR] writeData failed: ${e?.message || e}`);
+
+    // Cleanup temp file if something went wrong
+    try {
+      if (fs.existsSync(DATA_TMP_PATH)) fs.unlinkSync(DATA_TMP_PATH);
+    } catch {}
   }
-  if (!data[userId].roles[roleId].warningsSent) data[userId].roles[roleId].warningsSent = {};
-  return data;
 }
 
-function clearRoleTimer(userId, roleId) {
-  const data = readData();
-  if (!data[userId]?.roles?.[roleId]) return false;
-
-  delete data[userId].roles[roleId];
-
-  if (Object.keys(data[userId].roles).length === 0) {
-    delete data[userId];
-  }
-
-  writeData(data);
-  return true;
-}
 
 
 //----------------------------------------
