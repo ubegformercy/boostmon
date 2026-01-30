@@ -519,10 +519,22 @@ if (interaction.commandName === "pausetime") {
 
   writeData(data);
 
-  return interaction.reply({
-    content: `Paused ${targetUser}'s timer for **${roleName}**. Remaining: **${formatMs(remainingMs)}**.`,
-    ephemeral: false,
-  });
+const embed = new EmbedBuilder()
+  .setColor(0xF1C40F) // yellow = paused
+  .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+  .setTitle("Timed Role Paused")
+  .setTimestamp(new Date())
+  .addFields(
+    { name: "Command Run By", value: `${interaction.user}`, inline: true },
+    { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+    { name: "Target User", value: `${targetUser}`, inline: true },
+    { name: "Role", value: `${roleObj}`, inline: true },
+    { name: "Remaining", value: `**${formatMs(remainingMs)}**`, inline: true }
+  )
+  .setFooter({ text: "BoostMon • Paused Timer" });
+
+return interaction.reply({ embeds: [embed] });
+
 }
 
 
