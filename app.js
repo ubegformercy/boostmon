@@ -922,4 +922,15 @@ if (!TOKEN) {
     console.error("Discord login failed:", err);
   });
 }
+//----------------------------------------
+// SECTION 9 — Discord Login (required)
+//----------------------------------------
+
+if (!TOKEN) {
+  console.error("DISCORD_TOKEN is missing. Bot cannot login.");
+} else {
+  client.login(TOKEN).catch((err) => {
+    console.error("Discord login failed:", err);
+  });
+}
 
