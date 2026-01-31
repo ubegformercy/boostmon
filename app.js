@@ -27,6 +27,13 @@ const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 
+// Multi-server support
+if (GUILD_ID) {
+  console.log(`[MULTI-SERVER] Using GUILD_ID mode: bot restricted to server ${GUILD_ID}`);
+} else {
+  console.log("[MULTI-SERVER] GUILD_ID not set: bot will work on ALL servers (global commands)");
+}
+
 
 
 //----------------------------------------
@@ -316,10 +323,15 @@ client.once("ready", async () => {
   try {
     const rest = new REST({ version: "10" }).setToken(TOKEN);
 
-    const result = await rest.put(
-      Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-      { body: commands }
-    );
+    // Use global commands for multi-server support, or guild commands if GUILD_ID is set
+    const commandRoute = GUILD_ID
+      ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
+      : Routes.applicationCommands(CLIENT_ID);
+
+    const routeType = GUILD_ID ? `guild (${GUILD_ID})` : "global (all servers)";
+    console.log(`Registering commands as: ${routeType}`);
+
+    const result = await rest.put(commandRoute, { body: commands });
 
     console.log("Slash commands registered. Discord now has:", result.map((c) => c.name).join(", "));
   } catch (err) {
