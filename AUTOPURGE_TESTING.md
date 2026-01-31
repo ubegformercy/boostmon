@@ -10,15 +10,24 @@ Before deploying to Railway, test the implementation locally:
 # Install dependencies (if not already installed)
 npm install
 
-# Set environment variables
-export DISCORD_TOKEN="your_bot_token"
-export DISCORD_CLIENT_ID="your_client_id"
-export DISCORD_GUILD_ID="your_test_guild_id"
-export DATABASE_URL="postgresql://user:password@localhost:5432/boostmon"
+# Create a .env file (make sure it's in .gitignore)
+cat > .env << 'EOF'
+DISCORD_TOKEN=<your_bot_token>
+DISCORD_CLIENT_ID=<your_client_id>
+DISCORD_GUILD_ID=<your_test_guild_id>
+DATABASE_URL=<your_local_postgres_url>
+EOF
 
-# Run the bot
-npm start
+# Load environment variables from .env and run
+source .env && npm start
+
+# OR use dotenv package:
+npm install dotenv
+# Then in app.js: require('dotenv').config();
 ```
+
+⚠️ **SECURITY:** Never use `export VAR=value` with credentials - it exposes them in shell history!
+Use `.env` files instead (which are in `.gitignore`).
 
 ### 2. Database Verification
 
@@ -26,7 +35,7 @@ Verify the autopurge table was created:
 
 ```bash
 # Connect to your local PostgreSQL database
-psql postgresql://user:password@localhost:5432/boostmon
+psql "<your_local_postgres_connection_string>"
 
 # Check table exists
 \dt autopurge_settings

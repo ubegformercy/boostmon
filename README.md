@@ -60,6 +60,12 @@ A production-ready Discord bot for managing time-based role access with PostgreS
    - Check logs: Bot should initialize database
    - Test commands: `/settime @user 5 @role`
 
+⚠️ **SECURITY NOTES:**
+- Never hardcode credentials in your code
+- Use `.env` files for local development (they are in `.gitignore`)
+- Use Railway's Variables UI for production
+- The `DATABASE_URL` format is provided by Railway; you don't need to create it manually
+
 📖 **Detailed Setup Instructions**: See [`RAILWAY_QUICKSTART.md`](RAILWAY_QUICKSTART.md)
 
 ## Commands
@@ -92,6 +98,10 @@ CREATE TABLE role_timers (
   UNIQUE(user_id, role_id)
 );
 ```
+
+⚠️ **For local development:**
+Use an environment variable for DATABASE_URL instead of hardcoding it.
+Example: `export DATABASE_URL="<your-local-postgres-url>"`
 
 ## Architecture
 
