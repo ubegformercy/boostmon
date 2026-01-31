@@ -1075,7 +1075,7 @@ async function cleanupAndWarn() {
     for (const entry of allTimers) {
       const userId = entry.user_id;
       const roleId = entry.role_id;
-      const expiresAt = entry.expires_at;
+      const expiresAt = Number(entry.expires_at);
       const warnChannelId = entry.warn_channel_id;
       const isPaused = entry.paused;
       const pausedRemainingMs = entry.paused_remaining_ms;
