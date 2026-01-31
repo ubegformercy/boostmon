@@ -71,7 +71,11 @@ async function getTimerForRole(userId, roleId) {
       "SELECT * FROM role_timers WHERE user_id = $1 AND role_id = $2",
       [userId, roleId]
     );
-    return result.rows[0] || null;
+    const timer = result.rows[0] || null;
+    if (timer) {
+      console.log(`[getTimerForRole] Found timer: expires_at=${timer.expires_at} (type: ${typeof timer.expires_at})`);
+    }
+    return timer;
   } catch (err) {
     console.error("getTimerForRole error:", err);
     return null;
@@ -136,6 +140,10 @@ async function addMinutesForRole(userId, roleId, minutes) {
     const base = timerExpiry > now ? timerExpiry : now;
     const expiresAt = base + minutes * 60 * 1000;
 
+    console.log(`[addMinutesForRole] userId=${userId}, roleId=${roleId}, minutes=${minutes}`);
+    console.log(`[addMinutesForRole] timer.expires_at=${timerExpiry} (type: ${typeof timerExpiry})`);
+    console.log(`[addMinutesForRole] calculated expiresAt=${expiresAt}`);
+
     const result = await pool.query(
       `INSERT INTO role_timers (user_id, role_id, expires_at, warnings_sent)
        VALUES ($1, $2, $3, '{}')
@@ -146,7 +154,9 @@ async function addMinutesForRole(userId, roleId, minutes) {
        RETURNING expires_at`,
       [userId, roleId, expiresAt]
     );
-    return result.rows[0]?.expires_at || expiresAt;
+    const returnedValue = result.rows[0]?.expires_at;
+    console.log(`[addMinutesForRole] returned from DB: ${returnedValue} (type: ${typeof returnedValue})`);
+    return returnedValue || expiresAt;
   } catch (err) {
     console.error("addMinutesForRole error:", err);
     return null;
