@@ -164,8 +164,8 @@ client.once("ready", async () => {
   // Initialize database
   await db.initDatabase();
 
-  if (!CLIENT_ID || !GUILD_ID) {
-    console.log("Missing DISCORD_CLIENT_ID or DISCORD_GUILD_ID; skipping command registration.");
+  if (!CLIENT_ID) {
+    console.log("Missing DISCORD_CLIENT_ID; skipping command registration.");
     return;
   }
 
