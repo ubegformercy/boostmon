@@ -4,6 +4,11 @@
 
 const { Pool } = require("pg");
 
+// Parse BigInt (BIGINT in PostgreSQL) as JavaScript numbers
+// Instead of returning as strings
+const types = require('pg').types;
+types.setTypeParser(20, (val) => parseInt(val, 10)); // Parse BIGINT as number
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
@@ -116,7 +121,7 @@ async function setMinutesForRole(userId, roleId, minutes, warnChannelId = null) 
        RETURNING expires_at`,
       [userId, roleId, expiresAt, warnChannelId, JSON.stringify({})]
     );
-    return Number(result.rows[0]?.expires_at || expiresAt);
+    return result.rows[0]?.expires_at || expiresAt;  // Already a number
   } catch (err) {
     console.error("setMinutesForRole error:", err);
     return null;
@@ -127,13 +132,12 @@ async function addMinutesForRole(userId, roleId, minutes) {
   try {
     const timer = await getTimerForRole(userId, roleId);
     const now = Date.now();
-    const timerExpiry = timer ? Number(timer.expires_at) : 0;
+    const timerExpiry = timer?.expires_at || 0;  // Already a number from parser
     const base = timerExpiry > now ? timerExpiry : now;
     const expiresAt = base + minutes * 60 * 1000;
 
     console.log(`[addMinutesForRole DEBUG] userId=${userId}, roleId=${roleId}, minutes=${minutes}`);
-    console.log(`[addMinutesForRole DEBUG] timer.expires_at=${timer?.expires_at} (type: ${typeof timer?.expires_at}), timerExpiry=${timerExpiry}`);
-    console.log(`[addMinutesForRole DEBUG] now=${now}, base=${base}`);
+    console.log(`[addMinutesForRole DEBUG] timer.expires_at=${timer?.expires_at} (type: ${typeof timer?.expires_at}), base=${base}`);
     console.log(`[addMinutesForRole DEBUG] calculated expiresAt=${expiresAt}`);
 
     const result = await pool.query(
@@ -146,9 +150,8 @@ async function addMinutesForRole(userId, roleId, minutes) {
        RETURNING expires_at`,
       [userId, roleId, expiresAt]
     );
-    const returnedValue = result.rows[0]?.expires_at;
-    const finalValue = Number(returnedValue || expiresAt);
-    console.log(`[addMinutesForRole DEBUG] returned from DB=${returnedValue} (type: ${typeof returnedValue}), final=${finalValue}`);
+    const finalValue = result.rows[0]?.expires_at || expiresAt;
+    console.log(`[addMinutesForRole DEBUG] returned from DB=${result.rows[0]?.expires_at} (type: ${typeof result.rows[0]?.expires_at}), final=${finalValue}`);
     return finalValue;
   } catch (err) {
     console.error("addMinutesForRole error:", err);
@@ -162,7 +165,7 @@ async function removeMinutesForRole(userId, roleId, minutes) {
     if (!timer) return null;
 
     const now = Date.now();
-    const newExpiry = Number(timer.expires_at) - minutes * 60 * 1000;
+    const newExpiry = timer.expires_at - minutes * 60 * 1000;  // Already numbers
 
     if (newExpiry <= now) {
       // Delete the timer
@@ -180,7 +183,7 @@ async function removeMinutesForRole(userId, roleId, minutes) {
        RETURNING expires_at`,
       [userId, roleId, newExpiry]
     );
-    return Number(result.rows[0]?.expires_at || newExpiry);
+    return result.rows[0]?.expires_at || newExpiry;  // Already a number
   } catch (err) {
     console.error("removeMinutesForRole error:", err);
     return null;
@@ -208,7 +211,7 @@ async function pauseTimer(userId, roleId) {
     if (!timer) return null;
 
     const now = Date.now();
-    const remainingMs = Math.max(0, Number(timer.expires_at) - now);
+    const remainingMs = Math.max(0, timer.expires_at - now);  // Already numbers
 
     await pool.query(
       `UPDATE role_timers 
@@ -228,7 +231,7 @@ async function resumeTimer(userId, roleId) {
     const timer = await getTimerForRole(userId, roleId);
     if (!timer || !timer.paused) return null;
 
-    const remainingMs = Math.max(0, Number(timer.paused_remaining_ms || 0));
+    const remainingMs = Math.max(0, timer.paused_remaining_ms || 0);  // Already numbers
     const newExpiresAt = Date.now() + remainingMs;
 
     const result = await pool.query(
@@ -238,7 +241,7 @@ async function resumeTimer(userId, roleId) {
        RETURNING expires_at`,
       [userId, roleId, newExpiresAt]
     );
-    return Number(result.rows[0]?.expires_at || newExpiresAt);
+    return result.rows[0]?.expires_at || newExpiresAt;  // Already a number
   } catch (err) {
     console.error("resumeTimer error:", err);
     return null;
