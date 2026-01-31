@@ -82,6 +82,19 @@ async function initDatabase() {
         UNIQUE(guild_id, role_id, channel_id)
       );
     `);
+
+    // Add missing column if it doesn't exist (for existing databases)
+    try {
+      await client.query(`
+        ALTER TABLE rolestatus_schedules 
+        ADD COLUMN IF NOT EXISTS last_message_id VARCHAR(255);
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration info:", err.message);
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
