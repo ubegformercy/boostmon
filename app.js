@@ -885,7 +885,7 @@ if (interaction.commandName === "removetime") {
               { name: "Time Remaining", value: "0 minutes", inline: true }
             )
             .setFooter({ text: "BoostMon • No Timer" });
-          return interaction.reply({ embeds: [embed], ephemeral: true });
+          return interaction.reply({ embeds: [embed] });
         }
         
         // Calculate remaining time
@@ -907,7 +907,7 @@ if (interaction.commandName === "removetime") {
               { name: "Time Remaining", value: "0 minutes (expired)", inline: true }
             )
             .setFooter({ text: "BoostMon • Expired" });
-          return interaction.reply({ embeds: [embed], ephemeral: true });
+          return interaction.reply({ embeds: [embed] });
         }
 
         const expiresAt = Date.now() + remainingMs;
@@ -932,7 +932,7 @@ if (interaction.commandName === "removetime") {
           )
           .setFooter({ text: statusFooter });
         
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({ embeds: [embed] });
       }
 
       const currentRoleId = await getFirstTimedRoleId(targetUser.id);
@@ -947,7 +947,7 @@ if (interaction.commandName === "removetime") {
             { name: "Status", value: "No timed roles found", inline: true }
           )
           .setFooter({ text: "BoostMon" });
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({ embeds: [embed] });
       }
 
       const timer = await db.getTimerForRole(targetUser.id, currentRoleId);
@@ -964,7 +964,7 @@ if (interaction.commandName === "removetime") {
             { name: "Status", value: "No timed role found", inline: true }
           )
           .setFooter({ text: "BoostMon" });
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({ embeds: [embed] });
       }
 
       let remainingMs = Number(timer.expires_at) - Date.now();
@@ -985,7 +985,7 @@ if (interaction.commandName === "removetime") {
             { name: "Time Remaining", value: "0 minutes (expired)", inline: true }
           )
           .setFooter({ text: "BoostMon • Expired" });
-        return interaction.reply({ embeds: [embed], ephemeral: true });
+        return interaction.reply({ embeds: [embed] });
       }
 
       const expiresAt = Date.now() + remainingMs;
@@ -1010,7 +1010,7 @@ if (interaction.commandName === "removetime") {
         )
         .setFooter({ text: statusFooter });
       
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({ embeds: [embed] });
     }
   } catch (err) {
     console.error("Command error:", err);
