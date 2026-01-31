@@ -874,58 +874,143 @@ if (interaction.commandName === "removetime") {
       if (role) {
         const timer = await db.getTimerForRole(targetUser.id, role.id);
         if (!timer) {
-          return interaction.reply({
-            content: `${targetUser} has 0 time left for ${role.name}.`,
-            ephemeral: true,
-          });
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("No Active Timer")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Target User", value: `${targetUser}`, inline: true },
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Time Remaining", value: "0 minutes", inline: true }
+            )
+            .setFooter({ text: "BoostMon • No Timer" });
+          return interaction.reply({ embeds: [embed], ephemeral: true });
         }
         
         // Calculate remaining time
         let remainingMs = Number(timer.expires_at) - Date.now();
-        if (timer.paused && timer.paused_remaining_ms) {
+        const isPaused = timer.paused;
+        if (isPaused && timer.paused_remaining_ms) {
           remainingMs = Number(timer.paused_remaining_ms);
         }
         
         if (remainingMs <= 0) {
-          return interaction.reply({
-            content: `${targetUser} has 0 time left for ${role.name}.`,
-            ephemeral: true,
-          });
+          const embed = new EmbedBuilder()
+            .setColor(0xE74C3C) // red
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Timer Expired")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Target User", value: `${targetUser}`, inline: true },
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Time Remaining", value: "0 minutes (expired)", inline: true }
+            )
+            .setFooter({ text: "BoostMon • Expired" });
+          return interaction.reply({ embeds: [embed], ephemeral: true });
         }
-        return interaction.reply({
-          content: `${targetUser} has ${formatMs(remainingMs)} remaining for ${role.name} (expires <t:${Math.floor((Date.now() + remainingMs) / 1000)}:R>).`,
-          ephemeral: true,
-        });
+
+        const expiresAt = Date.now() + remainingMs;
+        const statusColor = isPaused ? 0xF1C40F : 0x2ECC71; // yellow if paused, green if active
+        const statusTitle = isPaused ? "⏸️ Timer Paused" : "⏱️ Timer Active";
+        const statusFooter = isPaused ? "BoostMon • Paused Timer" : "BoostMon • Active Timer";
+
+        const embed = new EmbedBuilder()
+          .setColor(statusColor)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(statusTitle)
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Role", value: `${role.name}`, inline: true },
+            { name: "Time Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
+            { 
+              name: "Expires", 
+              value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`, 
+              inline: false 
+            }
+          )
+          .setFooter({ text: statusFooter });
+        
+        return interaction.reply({ embeds: [embed], ephemeral: true });
       }
 
       const currentRoleId = await getFirstTimedRoleId(targetUser.id);
       if (!currentRoleId) {
-        return interaction.reply({ content: `${targetUser} has 0 time left.`, ephemeral: true });
+        const embed = new EmbedBuilder()
+          .setColor(0x95A5A6) // grey
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("No Active Timers")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Status", value: "No timed roles found", inline: true }
+          )
+          .setFooter({ text: "BoostMon" });
+        return interaction.reply({ embeds: [embed], ephemeral: true });
       }
 
       const timer = await db.getTimerForRole(targetUser.id, currentRoleId);
       const roleObj = interaction.guild?.roles?.cache?.get(currentRoleId);
 
       if (!timer) {
-        return interaction.reply({ content: `${targetUser} has 0 time left.`, ephemeral: true });
+        const embed = new EmbedBuilder()
+          .setColor(0x95A5A6) // grey
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("No Active Timer")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Status", value: "No timed role found", inline: true }
+          )
+          .setFooter({ text: "BoostMon" });
+        return interaction.reply({ embeds: [embed], ephemeral: true });
       }
 
       let remainingMs = Number(timer.expires_at) - Date.now();
-      if (timer.paused && timer.paused_remaining_ms) {
+      const isPaused = timer.paused;
+      if (isPaused && timer.paused_remaining_ms) {
         remainingMs = Number(timer.paused_remaining_ms);
       }
 
       if (remainingMs <= 0) {
-        return interaction.reply({ content: `${targetUser} has 0 time left.`, ephemeral: true });
+        const embed = new EmbedBuilder()
+          .setColor(0xE74C3C) // red
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Timer Expired")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Role", value: roleObj ? `${roleObj.name}` : "Unknown", inline: true },
+            { name: "Time Remaining", value: "0 minutes (expired)", inline: true }
+          )
+          .setFooter({ text: "BoostMon • Expired" });
+        return interaction.reply({ embeds: [embed], ephemeral: true });
       }
 
-      return interaction.reply({
-        content:
-          `${targetUser} has ${formatMs(remainingMs)} remaining` +
-          (roleObj ? ` for ${roleObj.name}` : "") +
-          ` (expires <t:${Math.floor((Date.now() + remainingMs) / 1000)}:R>).`,
-        ephemeral: true,
-      });
+      const expiresAt = Date.now() + remainingMs;
+      const statusColor = isPaused ? 0xF1C40F : 0x2ECC71; // yellow if paused, green if active
+      const statusTitle = isPaused ? "⏸️ Timer Paused" : "⏱️ Timer Active";
+      const statusFooter = isPaused ? "BoostMon • Paused Timer" : "BoostMon • Active Timer";
+
+      const embed = new EmbedBuilder()
+        .setColor(statusColor)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle(statusTitle)
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Target User", value: `${targetUser}`, inline: true },
+          { name: "Role", value: roleObj ? `${roleObj.name}` : "Unknown", inline: true },
+          { name: "Time Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
+          { 
+            name: "Expires", 
+            value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`, 
+            inline: false 
+          }
+        )
+        .setFooter({ text: statusFooter });
+      
+      return interaction.reply({ embeds: [embed], ephemeral: true });
     }
   } catch (err) {
     console.error("Command error:", err);
