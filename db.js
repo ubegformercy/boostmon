@@ -11,6 +11,8 @@ types.setTypeParser(20, (val) => parseInt(val, 10)); // Parse BIGINT as number
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 5000,  // 5 second timeout for connections
+  statement_timeout: 10000,        // 10 second timeout for queries
 });
 
 pool.on("error", (err) => {
@@ -19,9 +21,20 @@ pool.on("error", (err) => {
 
 // Initialize database schema on startup
 async function initDatabase() {
-  const client = await pool.connect();
   try {
-    await client.query(`
+    if (!process.env.DATABASE_URL) {
+      console.error("DATABASE_URL environment variable is not set. Skipping database initialization.");
+      console.error("For local development: Set DATABASE_URL to a valid PostgreSQL connection string");
+      console.error("For Railway deployment: DATABASE_URL will be automatically set");
+      return;
+    }
+
+    const client = await pool.connect().catch(err => {
+      throw new Error(`Failed to connect to database: ${err.message}`);
+    });
+
+    try {
+      await client.query(`
       CREATE TABLE IF NOT EXISTS role_timers (
         id SERIAL PRIMARY KEY,
         user_id VARCHAR(255) NOT NULL,
@@ -53,6 +66,21 @@ async function initDatabase() {
         UNIQUE(guild_id, channel_id)
       );
     `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS rolestatus_schedules (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        role_id VARCHAR(255) NOT NULL,
+        channel_id VARCHAR(255) NOT NULL,
+        interval_minutes INTEGER NOT NULL,
+        enabled BOOLEAN DEFAULT true,
+        last_report_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(guild_id, role_id, channel_id)
+      );
+    `);
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -62,22 +90,25 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_role_timers_paused_expires ON role_timers(paused, expires_at)',
       'CREATE INDEX IF NOT EXISTS idx_autopurge_settings_guild_channel ON autopurge_settings(guild_id, channel_id)',
       'CREATE INDEX IF NOT EXISTS idx_autopurge_settings_enabled ON autopurge_settings(enabled)',
+      'CREATE INDEX IF NOT EXISTS idx_rolestatus_schedules_enabled ON rolestatus_schedules(enabled)',
+      'CREATE INDEX IF NOT EXISTS idx_rolestatus_schedules_guild_role ON rolestatus_schedules(guild_id, role_id)',
     ];
 
-    for (const indexQuery of indexes) {
-      try {
-        await client.query(indexQuery);
-      } catch (err) {
-        if (!err.message.includes("already exists")) {
-          console.warn("Index creation info:", err.message);
+      for (const indexQuery of indexes) {
+        try {
+          await client.query(indexQuery);
+        } catch (err) {
+          if (!err.message.includes("already exists")) {
+            console.warn("Index creation info:", err.message);
+          }
         }
       }
+      console.log("✓ Indexes created/verified");
+    } finally {
+      client.release();
     }
-    console.log("✓ Indexes created/verified");
   } catch (err) {
     console.error("Failed to initialize database:", err);
-  } finally {
-    client.release();
   }
 }
 
@@ -423,6 +454,79 @@ async function updateAutopurgeLastPurge(guildId, channelId) {
   }
 }
 
+// ===== ROLESTATUS SCHEDULE OPERATIONS =====
+
+async function createRolestatusSchedule(guildId, roleId, channelId, intervalMinutes) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO rolestatus_schedules (guild_id, role_id, channel_id, interval_minutes, enabled, last_report_at)
+       VALUES ($1, $2, $3, $4, true, NULL)
+       ON CONFLICT (guild_id, role_id, channel_id) DO UPDATE SET
+         interval_minutes = $4,
+         enabled = true,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [guildId, roleId, channelId, intervalMinutes]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("createRolestatusSchedule error:", err);
+    return null;
+  }
+}
+
+async function getRolestatusSchedule(guildId, roleId, channelId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM rolestatus_schedules WHERE guild_id = $1 AND role_id = $2 AND channel_id = $3",
+      [guildId, roleId, channelId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getRolestatusSchedule error:", err);
+    return null;
+  }
+}
+
+async function getAllRolestatusSchedules(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM rolestatus_schedules WHERE guild_id = $1 AND enabled = true ORDER BY created_at ASC",
+      [guildId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getAllRolestatusSchedules error:", err);
+    return [];
+  }
+}
+
+async function disableRolestatusSchedule(guildId, roleId) {
+  try {
+    await pool.query(
+      "UPDATE rolestatus_schedules SET enabled = false, updated_at = CURRENT_TIMESTAMP WHERE guild_id = $1 AND role_id = $2",
+      [guildId, roleId]
+    );
+    return true;
+  } catch (err) {
+    console.error("disableRolestatusSchedule error:", err);
+    return false;
+  }
+}
+
+async function updateRolestatusLastReport(guildId, roleId, channelId) {
+  try {
+    await pool.query(
+      "UPDATE rolestatus_schedules SET last_report_at = CURRENT_TIMESTAMP WHERE guild_id = $1 AND role_id = $2 AND channel_id = $3",
+      [guildId, roleId, channelId]
+    );
+    return true;
+  } catch (err) {
+    console.error("updateRolestatusLastReport error:", err);
+    return false;
+  }
+}
+
 async function closePool() {
   await pool.end();
   console.log("Database connection pool closed");
@@ -449,5 +553,10 @@ module.exports = {
   disableAutopurgeSetting,
   deleteAutopurgeSetting,
   updateAutopurgeLastPurge,
+  createRolestatusSchedule,
+  getRolestatusSchedule,
+  getAllRolestatusSchedules,
+  disableRolestatusSchedule,
+  updateRolestatusLastReport,
   closePool,
 };

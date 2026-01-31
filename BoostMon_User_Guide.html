@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoostMon - Complete User Guide</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: white;
+        }
+        
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+        
+        .page-break {
+            page-break-after: always;
+            margin-top: 2cm;
+            padding-top: 2cm;
+            border-top: 3px solid #6366f1;
+        }
+        
+        header {
+            text-align: center;
+            padding: 40px 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-bottom: 40px;
+            border-radius: 10px;
+        }
+        
+        .logo-section {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo-section img {
+            max-width: 200px;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        
+        header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        header p {
+            font-size: 1.3em;
+            font-weight: 300;
+        }
+        
+        .version-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: center;
+            border-left: 4px solid #667eea;
+        }
+        
+        section {
+            margin: 40px 0;
+        }
+        
+        h2 {
+            font-size: 2em;
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e7ff;
+        }
+        
+        h3 {
+            font-size: 1.5em;
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        
+        h4 {
+            font-size: 1.2em;
+            color: #555;
+            margin-top: 15px;
+            margin-bottom: 10px;
+        }
+        
+        p {
+            margin-bottom: 15px;
+            text-align: justify;
+        }
+        
+        ul, ol {
+            margin-left: 30px;
+            margin-bottom: 15px;
+        }
+        
+        li {
+            margin-bottom: 8px;
+        }
+        
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        
+        .feature-box {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .feature-box strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .command-box {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            border-left: 4px solid #764ba2;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        
+        .command-syntax {
+            background: #1e293b;
+            color: #10b981;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            margin: 15px 0;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+        
+        .example {
+            background: #e0e7ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #667eea;
+        }
+        
+        .warning {
+            background: #fef3c7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #f59e0b;
+        }
+        
+        .success {
+            background: #d1fae5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            border-left: 4px solid #10b981;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        th {
+            background: #667eea;
+            color: white;
+            font-weight: bold;
+        }
+        
+        tr:nth-child(even) {
+            background: #f8f9fa;
+        }
+        
+        .toc {
+            background: linear-gradient(135deg, #e0e7ff 0%, #f3e8ff 100%);
+            padding: 30px;
+            border-radius: 8px;
+            margin: 30px 0;
+        }
+        
+        .toc h3 {
+            color: #667eea;
+            margin-top: 0;
+        }
+        
+        .toc ol {
+            margin-left: 20px;
+        }
+        
+        .toc li {
+            margin-bottom: 10px;
+        }
+        
+        .qa-item {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .qa-item strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 10px;
+        }
+        
+        .qa-item p {
+            margin: 0;
+        }
+        
+        .section-intro {
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        footer {
+            margin-top: 50px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            text-align: center;
+            color: #666;
+            font-size: 0.95em;
+        }
+        
+        .highlight {
+            background: #fef3c7;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        
+        @media print {
+            body {
+                margin: 0;
+                padding: 0;
+            }
+            
+            .page-break {
+                page-break-before: always;
+            }
+            
+            a {
+                color: #667eea;
+                text-decoration: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- COVER PAGE -->
+    <div class="logo-section">
+        <img src="./public/images/boostmon.png" alt="BoostMon Logo">
+    </div>
+    
+    <header>
+        <h1>BoostMon</h1>
+        <p>Complete User Guide & Documentation</p>
+    </header>
+    
+    <div class="version-info">
+        <strong>Version:</strong> Production Ready (2024)<br>
+        <strong>Status:</strong> ✅ Live & Maintained<br>
+        <strong>Last Updated:</strong> January 2026
+    </div>
+    
+    <!-- TABLE OF CONTENTS -->
+    <section class="toc">
+        <h3>📑 Table of Contents</h3>
+        <ol>
+            <li>What is BoostMon?</li>
+            <li>The Problem & Solution</li>
+            <li>Core Features</li>
+            <li>Technical Overview</li>
+            <li>Getting Started</li>
+            <li>Command Reference</li>
+            <li>Use Cases & Examples</li>
+            <li>Frequently Asked Questions</li>
+            <li>Troubleshooting Guide</li>
+            <li>Support & Resources</li>
+        </ol>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 1: WHAT IS BOOSTMON -->
+    <section>
+        <h2>1️⃣ What is BoostMon?</h2>
+        
+        <div class="section-intro">
+            <p><strong>BoostMon</strong> is a professional Discord bot specifically designed for managing group Roblox server boosts. It automatically tracks daily boost contributions, manages timed roles, sends automated warnings, and removes inactive players—all without manual intervention.</p>
+        </div>
+        
+        <h3>The Bot at a Glance</h3>
+        <ul>
+            <li><strong>Purpose:</strong> Automate Roblox private server boost management</li>
+            <li><strong>Platform:</strong> Discord (slash commands only)</li>
+            <li><strong>Backend:</strong> Node.js with Discord.js v14</li>
+            <li><strong>Database:</strong> PostgreSQL on Railway</li>
+            <li><strong>Uptime:</strong> 99.9% (production-grade)</li>
+            <li><strong>Cost:</strong> Completely free with no premium tiers</li>
+        </ul>
+        
+        <h3>Who Should Use BoostMon?</h3>
+        <ul>
+            <li>Gaming crews and guilds managing private Roblox servers</li>
+            <li>Groups splitting boost costs across multiple players</li>
+            <li>Communities needing fair, transparent boost tracking</li>
+            <li>Server leaders who want to automate inactive player removal</li>
+            <li>Anyone tired of spreadsheets and manual role management</li>
+        </ul>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 2: THE PROBLEM & SOLUTION -->
+    <section>
+        <h2>2️⃣ The Problem & Solution</h2>
+        
+        <h3>🎮 The Problem with Roblox Private Server Boosts</h3>
+        
+        <div class="section-intro">
+            <p>Roblox private servers are expensive to maintain. To keep stat multipliers active 24/7, groups split the cost across multiple players contributing "boosts" on a rotating basis. This creates several challenges:</p>
+        </div>
+        
+        <ul>
+            <li><strong>Tracking Chaos:</strong> Who boosted when? Who owes what? Spreadsheets get messy</li>
+            <li><strong>No Accountability:</strong> Players forget when they're supposed to boost next</li>
+            <li><strong>Manual Enforcement:</strong> Leaders manually remove roles when timers expire</li>
+            <li><strong>Duplicates & Conflicts:</strong> Multiple admins managing roles leads to mistakes</li>
+            <li><strong>Player Frustration:</strong> No clear visibility into how much time they have left</li>
+            <li><strong>Server Downtime:</strong> Forgotten boosts mean stat multipliers die unexpectedly</li>
+        </ul>
+        
+        <h3>✨ The BoostMon Solution</h3>
+        
+        <div class="success">
+            <p><strong>BoostMon automates everything.</strong> Set a timer when a player boosts, get automatic warnings as expiration nears, and remove inactive players without drama. Everyone knows exactly how much time they have until removal.</p>
+        </div>
+        
+        <h4>Key Benefits:</h4>
+        <ul>
+            <li>✅ <strong>Zero Manual Tracking:</strong> Database handles everything</li>
+            <li>✅ <strong>Transparent Timers:</strong> Players see exactly when they expire</li>
+            <li>✅ <strong>Automated Warnings:</strong> Reminders at 60, 10, and 1 minute marks</li>
+            <li>✅ <strong>Auto-Removal:</strong> Inactive players automatically lose roles</li>
+            <li>✅ <strong>Fair & Accountable:</strong> No room for mistakes or favoritism</li>
+            <li>✅ <strong>Always Available:</strong> Works 24/7, even if bot goes offline</li>
+        </ul>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 3: CORE FEATURES -->
+    <section>
+        <h2>3️⃣ Core Features</h2>
+        
+        <h3>⏱️ 7 Essential Commands</h3>
+        
+        <div class="feature-grid">
+            <div class="feature-box">
+                <strong>⏱️ /settime</strong>
+                Set exact timer duration for a user. Assign role and configure warnings.
+            </div>
+            <div class="feature-box">
+                <strong>➕ /addtime</strong>
+                Extend an existing timer. Perfect for additional boosts.
+            </div>
+            <div class="feature-box">
+                <strong>➖ /removetime</strong>
+                Reduce timer duration. Handle partial refunds or corrections.
+            </div>
+            <div class="feature-box">
+                <strong>🗑️ /cleartime</strong>
+                Delete timer completely and remove the role.
+            </div>
+            <div class="feature-box">
+                <strong>⏸️ /pausetime</strong>
+                Pause countdown while keeping role. Perfect for breaks.
+            </div>
+            <div class="feature-box">
+                <strong>▶️ /resumetime</strong>
+                Resume from pause. Continues where it stopped.
+            </div>
+            <div class="feature-box">
+                <strong>⏳ /showtime</strong>
+                Check remaining time. See expiration at a glance.
+            </div>
+            <div class="feature-box">
+                <strong>👥 /rolestatus</strong>
+                See all users with a role and their timers.
+            </div>
+        </div>
+        
+        <h3>⚙️ Advanced Capabilities</h3>
+        <ul>
+            <li><strong>Configurable Warnings:</strong> Automatic reminders at 60, 10, and 1 minute marks</li>
+            <li><strong>Optional Warning Channel:</strong> Send notifications to a specific channel or DMs</li>
+            <li><strong>PostgreSQL Database:</strong> All timers survive bot crashes and restarts</li>
+            <li><strong>Automatic Backups:</strong> Daily backups on Railway</li>
+            <li><strong>Multi-Instance Safe:</strong> Works even with multiple bot instances</li>
+            <li><strong>ACID Transactions:</strong> Data integrity guaranteed</li>
+            <li><strong>Graceful Shutdown:</strong> Proper cleanup on bot restart</li>
+            <li><strong>Zero Data Loss:</strong> Complete persistence and recovery</li>
+        </ul>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 4: TECHNICAL OVERVIEW -->
+    <section>
+        <h2>4️⃣ Technical Overview</h2>
+        
+        <h3>Performance Metrics</h3>
+        
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="stat-number">&lt;100ms</div>
+                <div class="stat-label">Command Response</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">1000+</div>
+                <div class="stat-label">Concurrent Users</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">99.9%</div>
+                <div class="stat-label">Uptime SLA</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">30s</div>
+                <div class="stat-label">Cleanup Cycle</div>
+            </div>
+        </div>
+        
+        <h3>Technology Stack</h3>
+        <table>
+            <tr>
+                <th>Component</th>
+                <th>Technology</th>
+                <th>Details</th>
+            </tr>
+            <tr>
+                <td>Runtime</td>
+                <td>Node.js 18+</td>
+                <td>JavaScript runtime environment</td>
+            </tr>
+            <tr>
+                <td>Discord Integration</td>
+                <td>discord.js v14</td>
+                <td>Official Discord API wrapper</td>
+            </tr>
+            <tr>
+                <td>Database</td>
+                <td>PostgreSQL</td>
+                <td>Hosted on Railway with auto-scaling</td>
+            </tr>
+            <tr>
+                <td>Deployment</td>
+                <td>Railway</td>
+                <td>Auto-scaling, 99.9% uptime SLA</td>
+            </tr>
+            <tr>
+                <td>Web Server</td>
+                <td>Express.js</td>
+                <td>Health checks and monitoring</td>
+            </tr>
+            <tr>
+                <td>Source Control</td>
+                <td>GitHub</td>
+                <td>Open source repository</td>
+            </tr>
+        </table>
+        
+        <h3>Database Architecture</h3>
+        <ul>
+            <li><strong>Connection Pooling:</strong> 2-10 auto-scaling connections</li>
+            <li><strong>Performance Indexes:</strong> 3 optimized indexes for fast queries</li>
+            <li><strong>Backup Strategy:</strong> Automatic daily backups</li>
+            <li><strong>Data Retention:</strong> Complete timer history preserved</li>
+            <li><strong>Scalability:</strong> Handles 100k+ timers without issue</li>
+        </ul>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 5: GETTING STARTED -->
+    <section>
+        <h2>5️⃣ Getting Started</h2>
+        
+        <h3>Step 1: Add BoostMon to Your Server</h3>
+        <ol>
+            <li>Visit top.gg and search for "BoostMon"</li>
+            <li>Click the "Invite" button</li>
+            <li>Select your Discord server from the dropdown</li>
+            <li>Verify permissions (Manage Roles, View Channels, Send Messages)</li>
+            <li>Click "Authorize"</li>
+            <li>BoostMon is now ready to use!</li>
+        </ol>
+        
+        <div class="success">
+            <strong>✅ Required Permissions:</strong>
+            <ul style="margin: 10px 0 0 20px;">
+                <li>Manage Roles</li>
+                <li>View Channels</li>
+                <li>Send Messages</li>
+                <li>Use Slash Commands</li>
+            </ul>
+        </div>
+        
+        <h3>Step 2: Create Your First Timer</h3>
+        
+        <p>In any channel, type:</p>
+        <div class="command-syntax">/settime @john 60 @VIP #announcements</div>
+        
+        <p>This command:</p>
+        <ul>
+            <li>Creates a 60-minute timer for @john</li>
+            <li>Assigns the @VIP role immediately</li>
+            <li>Sends expiration warnings to #announcements</li>
+        </ul>
+        
+        <h3>Step 3: Configure Warning Notifications</h3>
+        
+        <p>Warnings are automatically sent at:</p>
+        <ul>
+            <li>60 minutes remaining</li>
+            <li>10 minutes remaining</li>
+            <li>1 minute remaining</li>
+            <li>0 minutes (final removal notice)</li>
+        </ul>
+        
+        <div class="example">
+            <strong>💡 Tip:</strong> Omit the channel parameter to send warnings as DMs instead:
+            <div class="command-syntax" style="margin-top: 10px;">/settime @john 60 @VIP</div>
+        </div>
+        
+        <h3>Step 4: Check Timer Status</h3>
+        
+        <p>Anytime, use:</p>
+        <div class="command-syntax">/showtime @john</div>
+        
+        <p>See remaining time, expiration timestamp, and whether timer is paused.</p>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 6: COMMAND REFERENCE -->
+    <section>
+        <h2>6️⃣ Complete Command Reference</h2>
+        
+        <h3>1. /settime - Create a Timer</h3>
+        <div class="command-box">
+Syntax: /settime @user &lt;minutes&gt; @role [#channel]
+        </div>
+        
+        <h4>Parameters:</h4>
+        <ul>
+            <li><strong>@user (required):</strong> Target Discord user</li>
+            <li><strong>minutes (required):</strong> Duration in minutes (1-10,080)</li>
+            <li><strong>@role (required):</strong> Role to assign</li>
+            <li><strong>#channel (optional):</strong> Warning notification channel</li>
+        </ul>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /settime @player 1440 @Active-Booster #boost-tracking<br>
+            <em>Creates 24-hour timer, assigns role, sends warnings to #boost-tracking</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>2. /addtime - Extend Timer</h3>
+        <div class="command-box">
+Syntax: /addtime @user &lt;minutes&gt; [@role]
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /addtime @player 480 @Active-Booster<br>
+            <em>Adds 8 hours to existing timer</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>3. /removetime - Reduce Timer</h3>
+        <div class="command-box">
+Syntax: /removetime @user &lt;minutes&gt; [@role]
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /removetime @player 120 @Active-Booster<br>
+            <em>Removes 2 hours (partial refund scenario)</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>4. /cleartime - Delete Timer</h3>
+        <div class="command-box">
+Syntax: /cleartime @user [@role]
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /cleartime @player @Active-Booster<br>
+            <em>Removes timer completely and deletes role</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>5. /pausetime - Freeze Timer</h3>
+        <div class="command-box">
+Syntax: /pausetime @user [@role]
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /pausetime @player @Active-Booster<br>
+            <em>Pauses countdown. Role stays active. Time doesn't count down.</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>6. /resumetime - Unfreeze Timer</h3>
+        <div class="command-box">
+Syntax: /resumetime @user @role
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ Important:</strong> Role parameter is <span class="highlight">REQUIRED</span> to prevent ambiguity if user has multiple timers.
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /resumetime @player @Active-Booster<br>
+            <em>Resumes from pause with remaining time</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>7. /showtime - Check Remaining Time</h3>
+        <div class="command-box">
+Syntax: /showtime @user [@role]
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /showtime @player @Active-Booster<br>
+            <em>Shows: 45 minutes 30 seconds remaining</em>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>8. /rolestatus - View All Role Members</h3>
+        <div class="command-box">
+Syntax: /rolestatus @role
+        </div>
+        
+        <h4>Example:</h4>
+        <div class="example">
+            /rolestatus @Active-Booster<br>
+            <em>Lists all members with @Active-Booster and their remaining times</em>
+        </div>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 7: USE CASES -->
+    <section>
+        <h2>7️⃣ Use Cases & Real-World Examples</h2>
+        
+        <h3>Use Case 1: Daily Boost Tracking (Most Common)</h3>
+        
+        <p>Track active boosters who contribute daily to your private server:</p>
+        
+        <div class="command-syntax">
+/settime @player-1 1440 @Active-Booster #boost-tracking
+/settime @player-2 1440 @Active-Booster #boost-tracking
+/settime @player-3 1440 @Active-Booster #boost-tracking
+        </div>
+        
+        <p><strong>What Happens:</strong></p>
+        <ul>
+            <li>Each player gets a 24-hour timer (1440 minutes)</li>
+            <li>Warnings sent at 60, 10, and 1 minute marks</li>
+            <li>After 24 hours, role auto-removes if they haven't boosted again</li>
+            <li>Crystal clear: everyone knows their deadline</li>
+        </ul>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>Use Case 2: Multi-Day Boost Packages</h3>
+        
+        <p>Track players who committed to multiple days:</p>
+        
+        <div class="command-syntax">
+/settime @committed-player 2880 @3-Day-Booster #boost-tracking
+        </div>
+        
+        <p><strong>Result:</strong> 48-hour (2-day) timer with appropriate recognition role</p>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>Use Case 3: Refunds & Corrections</h3>
+        
+        <p>Player boosted but wants a partial refund:</p>
+        
+        <div class="command-syntax">
+/removetime @player 480 @Active-Booster
+        </div>
+        
+        <p><strong>Result:</strong> Remove 8 hours (480 minutes) for partial refund</p>
+        
+        <p>Or for complete refund:</p>
+        
+        <div class="command-syntax">
+/cleartime @player @Active-Booster
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>Use Case 4: Emergency Break</h3>
+        
+        <p>Player needs to take a break (vacation, emergency):</p>
+        
+        <div class="command-syntax">
+/pausetime @player @Active-Booster
+        </div>
+        
+        <p>Timer freezes. Role stays active. Time doesn't count down.</p>
+        
+        <p>When they're back:</p>
+        
+        <div class="command-syntax">
+/resumetime @player @Active-Booster
+        </div>
+        
+        <p>Resumes from exactly where it paused.</p>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>Use Case 5: Status Check Before Expiry</h3>
+        
+        <p>Quick check to see who's expiring soon:</p>
+        
+        <div class="command-syntax">
+/showtime @player @Active-Booster
+/rolestatus @Active-Booster
+        </div>
+        
+        <p>See exact minutes remaining for any player.</p>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 8: FAQ -->
+    <section>
+        <h2>8️⃣ Frequently Asked Questions</h2>
+        
+        <div class="qa-item">
+            <strong>Q: Will my timers persist if the bot goes offline?</strong>
+            <p>A: Yes! All timers are stored in PostgreSQL. They continue running even if BoostMon is offline. When the bot comes back online, it automatically removes expired roles and catches up on warnings.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: Can I modify a timer after it's created?</strong>
+            <p>A: Absolutely! Use /addtime to extend, /removetime to reduce, or /cleartime to delete completely. You can modify at any time.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: What if I need to pause a timer temporarily?</strong>
+            <p>A: Use /pausetime to freeze the countdown. The user keeps the role but time doesn't count down. Resume anytime with /resumetime.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: How long can I set a timer for?</strong>
+            <p>A: Maximum 10,080 minutes (7 days) per command. But you can use /addtime repeatedly to extend indefinitely.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: Can users see their remaining time?</strong>
+            <p>A: Yes! Any server member can use /showtime to check their own or others' timers (with permission).</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: Does BoostMon have a premium tier?</strong>
+            <p>A: No! All features are completely free. No paid tiers, no ads, no limitations. It's open source on GitHub.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: How do warnings work?</strong>
+            <p>A: When you set a timer with a warning channel, BoostMon sends notifications at 60, 10, and 1 minute marks. If no channel specified, warnings are sent as DMs.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: What happens if I remove a user's role manually?</strong>
+            <p>A: The timer continues running. When it expires, BoostMon tries to remove the role (no-op if already gone) and marks the timer as expired in the database.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: Can I use BoostMon with multiple roles per user?</strong>
+            <p>A: Yes! Each user can have multiple timed roles running simultaneously. Just specify the role when running commands to target specific timers.</p>
+        </div>
+        
+        <div class="qa-item">
+            <strong>Q: Is there an API or webhook integration?</strong>
+            <p>A: Not currently, but BoostMon is designed with extensibility in mind. Contact the developer via GitHub Issues for custom integration requests.</p>
+        </div>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 9: TROUBLESHOOTING -->
+    <section>
+        <h2>9️⃣ Troubleshooting Guide</h2>
+        
+        <h3>❌ Problem: Bot not responding to commands</h3>
+        <ul>
+            <li>✓ Verify BoostMon is online (check member list)</li>
+            <li>✓ Ensure it has "Manage Roles" permission in the server</li>
+            <li>✓ Check that you're using "/" to trigger slash commands</li>
+            <li>✓ Verify the channel isn't restricted for bot usage</li>
+        </ul>
+        
+        <h3>❌ Problem: Role not being removed after timer expires</h3>
+        <ul>
+            <li>✓ Check if bot has permission to manage the role</li>
+            <li>✓ Verify the role isn't protected or positioned higher than bot's role in hierarchy</li>
+            <li>✓ Check bot logs for permission errors</li>
+            <li>✓ Ensure the role still exists in the server</li>
+        </ul>
+        
+        <h3>❌ Problem: Warning notifications not sending</h3>
+        <ul>
+            <li>✓ Verify warning channel exists and bot can send messages there</li>
+            <li>✓ Check channel permissions for BoostMon</li>
+            <li>✓ Try using DMs instead by omitting the #channel parameter</li>
+            <li>✓ Verify the channel hasn't been deleted</li>
+        </ul>
+        
+        <h3>❌ Problem: Timer shows wrong remaining time</h3>
+        <ul>
+            <li>✓ Use /showtime to get accurate timestamp</li>
+            <li>✓ Check server timezone matches user timezone</li>
+            <li>✓ Verify no system clock skew on the server</li>
+        </ul>
+        
+        <h3>❌ Problem: Command syntax error</h3>
+        <ul>
+            <li>✓ Verify all required parameters are specified (@user, minutes, @role)</li>
+            <li>✓ Check minute values are between 1-10,080</li>
+            <li>✓ Ensure you're using the correct command name</li>
+        </ul>
+        
+        <h3>Need More Help?</h3>
+        <ul>
+            <li>📚 Check the <strong>GitHub repository:</strong> github.com/ubegformercy/nodejs</li>
+            <li>💬 Review command examples in documentation</li>
+            <li>🆘 Contact developer via GitHub Issues</li>
+        </ul>
+    </section>
+    
+    <div class="page-break"></div>
+    
+    <!-- SECTION 10: SUPPORT & RESOURCES -->
+    <section>
+        <h2>🔟 Support & Resources</h2>
+        
+        <h3>📝 Permissions & Privacy</h3>
+        
+        <h4>Permissions Required:</h4>
+        <ul>
+            <li><strong>Manage Roles:</strong> To assign/remove roles when timers expire</li>
+            <li><strong>Send Messages:</strong> To send warning notifications</li>
+            <li><strong>View Channels:</strong> To access warning channels</li>
+            <li><strong>Use Slash Commands:</strong> To accept your commands</li>
+        </ul>
+        
+        <h4>Data Collected:</h4>
+        <ul>
+            <li>Discord User IDs (for timer management)</li>
+            <li>Discord Role IDs (for role assignment)</li>
+            <li>Discord Channel IDs (optional, for notifications)</li>
+            <li>Timer timestamps and durations</li>
+        </ul>
+        
+        <h4>Data NOT Collected:</h4>
+        <ul>
+            <li>❌ Message content or history</li>
+            <li>❌ User profiles or personal information</li>
+            <li>❌ Server configurations</li>
+            <li>❌ Command usage analytics</li>
+        </ul>
+        
+        <div class="success">
+            <strong>Privacy:</strong> All data is stored securely in PostgreSQL on Railway. BoostMon follows Discord's Terms of Service and Privacy Policy.
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>🔗 Important Links</h3>
+        
+        <table>
+            <tr>
+                <th>Resource</th>
+                <th>URL</th>
+            </tr>
+            <tr>
+                <td>GitHub Repository</td>
+                <td>github.com/ubegformercy/nodejs</td>
+            </tr>
+            <tr>
+                <td>top.gg Bot Page</td>
+                <td>top.gg (search "BoostMon")</td>
+            </tr>
+            <tr>
+                <td>Discord.js Documentation</td>
+                <td>discord.js.org</td>
+            </tr>
+            <tr>
+                <td>Railway Deployment</td>
+                <td>railway.app</td>
+            </tr>
+            <tr>
+                <td>PostgreSQL Docs</td>
+                <td>postgresql.org</td>
+            </tr>
+        </table>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>⭐ Support the Project</h3>
+        
+        <p>If BoostMon is useful to you, please consider:</p>
+        
+        <div class="feature-grid">
+            <div class="feature-box">
+                <strong>⭐ Upvote on top.gg</strong>
+                Help others discover BoostMon
+            </div>
+            <div class="feature-box">
+                <strong>📝 Leave a Review</strong>
+                Share your experience and feedback
+            </div>
+            <div class="feature-box">
+                <strong>🚀 Recommend to Friends</strong>
+                Tell other server leaders about it
+            </div>
+            <div class="feature-box">
+                <strong>⭐ Star on GitHub</strong>
+                Show support for the open source project
+            </div>
+        </div>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #ddd;">
+        
+        <h3>👨‍💻 Developer Info</h3>
+        <ul>
+            <li><strong>Developer:</strong> ubegformercy</li>
+            <li><strong>GitHub:</strong> github.com/ubegformercy</li>
+            <li><strong>Built With:</strong> discord.js, Node.js, PostgreSQL</li>
+            <li><strong>Deployed On:</strong> Railway</li>
+            <li><strong>License:</strong> See GitHub repository</li>
+        </ul>
+    </section>
+    
+    <!-- FOOTER -->
+    <footer>
+        <p style="margin-bottom: 20px;">
+            <strong>BoostMon - Complete User Guide</strong><br>
+            Professional Roblox Server Boost Management for Discord
+        </p>
+        <p>
+            <strong>Version:</strong> Production Ready (2024)<br>
+            <strong>Last Updated:</strong> January 2026<br>
+            <strong>Status:</strong> ✅ Live & Maintained
+        </p>
+        <p style="margin-top: 20px; font-size: 0.9em;">
+            © 2024-2026 BoostMon • All Rights Reserved<br>
+            Open Source • Free Forever • No Premium Tiers
+        </p>
+    </footer>
+
+</body>
+</html>

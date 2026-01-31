@@ -21,6 +21,7 @@ console.log("=== BoostMon app.js booted ===");
 console.log("DISCORD_TOKEN present:", Boolean(process.env.DISCORD_TOKEN));
 console.log("DISCORD_CLIENT_ID present:", Boolean(process.env.DISCORD_CLIENT_ID));
 console.log("DISCORD_GUILD_ID present:", Boolean(process.env.DISCORD_GUILD_ID));
+console.log("DATABASE_URL present:", Boolean(process.env.DATABASE_URL));
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -222,8 +223,44 @@ client.once("ready", async () => {
 
     new SlashCommandBuilder()
       .setName("rolestatus")
-      .setDescription("Show all users with a specific role and their remaining times.")
-      .addRoleOption((o) => o.setName("role").setDescription("Role to check").setRequired(true)),
+      .setDescription("View role members or manage automated role status reports.")
+      .addSubcommand((s) =>
+        s
+          .setName("view")
+          .setDescription("Show all users with a specific role and their remaining times.")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to check").setRequired(true))
+      )
+      .addSubcommandGroup((g) =>
+        g
+          .setName("schedule")
+          .setDescription("Manage automated role status reports")
+          .addSubcommand((s) =>
+            s
+              .setName("set")
+              .setDescription("Start automatic role status reports")
+              .addRoleOption((o) => o.setName("role").setDescription("Role to monitor").setRequired(true))
+              .addChannelOption((o) => o.setName("channel").setDescription("Channel to post reports").setRequired(true))
+              .addIntegerOption((o) =>
+                o
+                  .setName("interval")
+                  .setDescription("Minutes between reports (15-1440)")
+                  .setRequired(true)
+                  .setMinValue(15)
+                  .setMaxValue(1440)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("disable")
+              .setDescription("Stop automated reports for a role")
+              .addRoleOption((o) => o.setName("role").setDescription("Role to stop monitoring").setRequired(true))
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("list")
+              .setDescription("Show all active automated role status reports in this server")
+          )
+      ),
 
     new SlashCommandBuilder()
       .setName("autopurge")
@@ -1065,120 +1102,263 @@ if (interaction.commandName === "removetime") {
         return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
       }
 
-      // Defer because this can take a while
-      await interaction.deferReply().catch(() => null);
-
-      const roleOption = interaction.options.getRole("role", true);
+      const subcommand = interaction.options.getSubcommand();
+      const subcommandGroup = interaction.options.getSubcommandGroup();
       const guild = interaction.guild;
 
-      // OPTIMIZATION: Query database FIRST to get timers for this role
-      // Then fetch only those members from Discord
-      const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
-      
-      if (timersFromDb.length === 0) {
-        const embed = new EmbedBuilder()
-          .setColor(0x95A5A6) // grey
-          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-          .setTitle("Role Status")
-          .setTimestamp(new Date())
-          .addFields(
-            { name: "Role", value: `${roleOption.name}`, inline: true },
-            { name: "Members", value: "0", inline: true },
-            { name: "Status", value: "No members have timers for this role", inline: false }
-          )
-          .setFooter({ text: "BoostMon • Role Status" });
-        return interaction.editReply({ embeds: [embed] });
-      }
+      // ===== ROLESTATUS VIEW =====
+      if (subcommand === "view") {
+        // Defer because this can take a while
+        await interaction.deferReply().catch(() => null);
 
-      // Fetch only the members that have timers for this role
-      const timersList = [];
-      for (const timer of timersFromDb) {
-        try {
-          const member = await guild.members.fetch(timer.user_id).catch(() => null);
-          if (member) {
-            timersList.push({ member, timer });
+        const roleOption = interaction.options.getRole("role", true);
+
+        // OPTIMIZATION: Query database FIRST to get timers for this role
+        // Then fetch only those members from Discord
+        const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
+        
+        if (timersFromDb.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Role Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${roleOption.name}`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "No members have timers for this role", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Role Status" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        // Fetch only the members that have timers for this role
+        const timersList = [];
+        for (const timer of timersFromDb) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            if (member) {
+              timersList.push({ member, timer });
+            }
+          } catch (err) {
+            console.error(`Failed to fetch member ${timer.user_id}:`, err);
           }
-        } catch (err) {
-          console.error(`Failed to fetch member ${timer.user_id}:`, err);
         }
-      }
 
-      // If no members found, they may have left the server
-      if (timersList.length === 0) {
+        // If no members found, they may have left the server
+        if (timersList.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Role Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${roleOption.name}`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "Members with timers have left the server", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Role Status" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        // Sort by time remaining (ascending - expires soonest first)
+        timersList.sort((a, b) => {
+          let aMs = Number(a.timer.expires_at) - Date.now();
+          let bMs = Number(b.timer.expires_at) - Date.now();
+          
+          if (a.timer.paused && a.timer.paused_remaining_ms) {
+            aMs = Number(a.timer.paused_remaining_ms);
+          }
+          if (b.timer.paused && b.timer.paused_remaining_ms) {
+            bMs = Number(b.timer.paused_remaining_ms);
+          }
+          
+          return aMs - bMs;
+        });
+
+        // Build field list (max 25 fields per embed, but Discord recommends less)
+        const fields = [];
+        let totalMembers = 0;
+        let activeMembers = 0;
+        let pausedMembers = 0;
+
+        for (const { member, timer } of timersList) {
+          totalMembers++;
+          const isPaused = timer.paused;
+          if (isPaused) pausedMembers++;
+          else activeMembers++;
+
+          let remainingMs = Number(timer.expires_at) - Date.now();
+          if (isPaused && timer.paused_remaining_ms) {
+            remainingMs = Number(timer.paused_remaining_ms);
+          }
+
+          const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
+          const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+          
+          // Limit to 20 members per embed (leave room for summary field)
+          if (fields.length < 20) {
+            fields.push({
+              name: `${member.user.username}`,
+              value: `${status} • ${timeText}`,
+              inline: false
+            });
+          }
+        }
+
         const embed = new EmbedBuilder()
-          .setColor(0x95A5A6) // grey
+          .setColor(0x2ECC71) // green
           .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-          .setTitle("Role Status")
+          .setTitle(`${roleOption.name} - Status Report`)
           .setTimestamp(new Date())
+          .addFields(...fields)
           .addFields(
-            { name: "Role", value: `${roleOption.name}`, inline: true },
-            { name: "Members", value: "0", inline: true },
-            { name: "Status", value: "Members with timers have left the server", inline: false }
+            { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
+            { name: "Total Members", value: `${totalMembers}`, inline: true },
+            { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
+            { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
           )
-          .setFooter({ text: "BoostMon • Role Status" });
+          .setFooter({ text: `BoostMon • Showing ${Math.min(timersList.length, 20)} members` });
+
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // Sort by time remaining (ascending - expires soonest first)
-      timersList.sort((a, b) => {
-        let aMs = Number(a.timer.expires_at) - Date.now();
-        let bMs = Number(b.timer.expires_at) - Date.now();
-        
-        if (a.timer.paused && a.timer.paused_remaining_ms) {
-          aMs = Number(a.timer.paused_remaining_ms);
+      // ===== ROLESTATUS SCHEDULE SUBCOMMANDS =====
+      if (subcommandGroup === "schedule") {
+        const scheduleSubcommand = interaction.options.getSubcommand();
+
+        if (scheduleSubcommand === "set") {
+          // Check permissions
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.reply({
+              content: "You need **Manage Messages** permission to set up automated reports.",
+              ephemeral: true,
+            });
+          }
+
+          const role = interaction.options.getRole("role", true);
+          const channel = interaction.options.getChannel("channel", true);
+          const interval = interaction.options.getInteger("interval", true);
+
+          // Validate channel is text-based
+          if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+            return interaction.reply({
+              content: "Channel must be a text or announcement channel.",
+              ephemeral: true,
+            });
+          }
+
+          // Check bot permissions in target channel
+          const me = await guild.members.fetchMe();
+          const perms = channel.permissionsFor(me);
+
+          if (!perms?.has(PermissionFlagsBits.SendMessages)) {
+            return interaction.reply({
+              content: `I don't have permission to send messages in ${channel}.`,
+              ephemeral: true,
+            });
+          }
+
+          // Create schedule in database
+          const schedule = await db.createRolestatusSchedule(guild.id, role.id, channel.id, interval);
+          
+          if (!schedule) {
+            return interaction.reply({
+              content: "Failed to create schedule. Please try again.",
+              ephemeral: true,
+            });
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("✅ Schedule Created")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Channel", value: `${channel.name}`, inline: true },
+              { name: "Interval", value: `Every ${interval} minutes`, inline: true },
+              { name: "Status", value: "🟢 Active - Reports will begin shortly", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Scheduled Report Started" });
+
+          return interaction.reply({ embeds: [embed] });
         }
-        if (b.timer.paused && b.timer.paused_remaining_ms) {
-          bMs = Number(b.timer.paused_remaining_ms);
+
+        if (scheduleSubcommand === "disable") {
+          // Check permissions
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.reply({
+              content: "You need **Manage Messages** permission to disable automated reports.",
+              ephemeral: true,
+            });
+          }
+
+          const role = interaction.options.getRole("role", true);
+
+          // Disable all schedules for this role
+          const success = await db.disableRolestatusSchedule(guild.id, role.id);
+
+          if (!success) {
+            return interaction.reply({
+              content: `No active schedules found for ${role.name}.`,
+              ephemeral: true,
+            });
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0xE74C3C)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("⛔ Schedule Disabled")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Status", value: "🔴 Inactive - Reports stopped", inline: true }
+            )
+            .setFooter({ text: "BoostMon • Scheduled Report Stopped" });
+
+          return interaction.reply({ embeds: [embed] });
         }
-        
-        return aMs - bMs;
-      });
 
-      // Build field list (max 25 fields per embed, but Discord recommends less)
-      const fields = [];
-      let totalMembers = 0;
-      let activeMembers = 0;
-      let pausedMembers = 0;
+        if (scheduleSubcommand === "list") {
+          const schedules = await db.getAllRolestatusSchedules(guild.id);
 
-      for (const { member, timer } of timersList) {
-        totalMembers++;
-        const isPaused = timer.paused;
-        if (isPaused) pausedMembers++;
-        else activeMembers++;
+          if (schedules.length === 0) {
+            return interaction.reply({
+              content: "No active role status schedules in this server.",
+              ephemeral: true,
+            });
+          }
 
-        let remainingMs = Number(timer.expires_at) - Date.now();
-        if (isPaused && timer.paused_remaining_ms) {
-          remainingMs = Number(timer.paused_remaining_ms);
-        }
+          const fields = [];
+          for (const schedule of schedules) {
+            try {
+              const role = await guild.roles.fetch(schedule.role_id).catch(() => null);
+              const channel = await guild.channels.fetch(schedule.channel_id).catch(() => null);
 
-        const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
-        const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
-        
-        // Limit to 20 members per embed (leave room for summary field)
-        if (fields.length < 20) {
-          fields.push({
-            name: `${member.user.username}`,
-            value: `${status} • ${timeText}`,
-            inline: false
-          });
+              if (role && channel) {
+                fields.push({
+                  name: `${role.name}`,
+                  value: `📢 Posts to ${channel.name}\n⏱️ Every ${schedule.interval_minutes} min`,
+                  inline: false,
+                });
+              }
+            } catch (err) {
+              console.error("Error fetching schedule details:", err);
+            }
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0x3498DB)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("📋 Active Role Status Schedules")
+            .setTimestamp(new Date())
+            .addFields(...fields)
+            .setFooter({ text: `BoostMon • ${schedules.length} schedule(s) active` });
+
+          return interaction.reply({ embeds: [embed] });
         }
       }
-
-      const embed = new EmbedBuilder()
-        .setColor(0x2ECC71) // green
-        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle(`${roleOption.name} - Status Report`)
-        .setTimestamp(new Date())
-        .addFields(...fields)
-        .addFields(
-          { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
-          { name: "Total Members", value: `${totalMembers}`, inline: true },
-          { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
-          { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
-        )
-        .setFooter({ text: `BoostMon • Showing ${Math.min(timersList.length, 20)} members` });
-
-      return interaction.editReply({ embeds: [embed] });
     }
 
     // ---------- /autopurge ----------
@@ -1360,83 +1540,153 @@ app.listen(PORT, () => {
 // SECTION 8 — Timers: Warnings + Expiry Cleanup
 //----------------------------------------
 
-async function trySendToChannel(guild, channelId, content) {
-  const channel = await guild.channels.fetch(channelId).catch(() => null);
-  if (!channel) return { ok: false, reason: "Channel not found" };
+// ===== SCHEDULED ROLESTATUS REPORTING =====
 
-  if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
-    return { ok: false, reason: "Not a text/announcement channel" };
-  }
-
-  const me = await guild.members.fetchMe();
-  const perms = channel.permissionsFor(me);
-
-  const canView = perms?.has(PermissionFlagsBits.ViewChannel);
-  const canSend = perms?.has(PermissionFlagsBits.SendMessages);
-
-  if (!canView || !canSend) {
-    return { ok: false, reason: "Missing ViewChannel or SendMessages" };
-  }
-
-  await channel.send({ content });
-  return { ok: true };
-}
-
-async function tryDmUser(userId, content) {
-  const user = await client.users.fetch(userId).catch(() => null);
-  if (!user) return { ok: false, reason: "User fetch failed" };
-  await user.send({ content });
-  return { ok: true };
-}
-
-async function sendWarningOrDm(guild, userId, roleId, minutesLeft, warnChannelId) {
-  const roleObj = guild.roles.cache.get(roleId);
-  const roleName = roleObj ? roleObj.name : "that role";
-
-  const content = `<@${userId}> warning: your access for **${roleName}** expires in **${minutesLeft} minute(s)**.`;
-
-  if (warnChannelId) {
-    try {
-      const res = await trySendToChannel(guild, warnChannelId, content);
-      if (res.ok) return;
-      console.warn(`[WARN] Could not post warning to channel ${warnChannelId}: ${res.reason}`);
-    } catch (e) {
-      console.warn(`[WARN] Channel send failed for ${warnChannelId}:`, e?.message || e);
-    }
-  }
-
+async function executeScheduledRolestatus(guild, now) {
   try {
-    const dmRes = await tryDmUser(userId, content);
-    if (!dmRes.ok) console.warn(`[WARN] Could not DM user ${userId}: ${dmRes.reason}`);
-  } catch (e) {
-    console.warn(`[WARN] DM send failed for user ${userId}:`, e?.message || e);
-  }
-}
+    const schedules = await db.getAllRolestatusSchedules(guild.id).catch(() => []);
 
-async function sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId) {
-  const roleObj = guild.roles.cache.get(roleId);
-  const roleName = roleObj ? roleObj.name : "that role";
+    for (const schedule of schedules) {
+      const channel = guild.channels.cache.get(schedule.channel_id);
+      if (!channel) continue;
 
-  const content = `<@${userId}> notice: your access for **${roleName}** has expired.`;
+      // Check if it's time to run the report
+      const lastReportTime = schedule.last_report_at ? new Date(schedule.last_report_at).getTime() : 0;
+      const timeSinceLastReport = now - lastReportTime;
+      const intervalMs = schedule.interval_minutes * 60 * 1000;
 
-  if (warnChannelId) {
-    try {
-      const res = await trySendToChannel(guild, warnChannelId, content);
-      if (res.ok) return;
-      console.warn(`[WARN] Could not post expiry notice to channel ${warnChannelId}: ${res.reason}`);
-    } catch (e) {
-      console.warn(`[WARN] Channel send failed for ${warnChannelId}:`, e?.message || e);
+      if (timeSinceLastReport < intervalMs) {
+        continue; // Not time yet
+      }
+
+      try {
+        // Get timers for this role (same logic as /rolestatus view)
+        const timersFromDb = await db.getTimersForRole(schedule.role_id).catch(() => []);
+
+        if (timersFromDb.length === 0) {
+          // No timers - send empty report
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("📋 Role Status Report")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `<@&${schedule.role_id}>`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "No members have active timers", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Automated Report" });
+
+          await channel.send({ embeds: [embed] }).catch(() => null);
+          await db.updateRolestatusLastReport(guild.id, schedule.role_id, schedule.channel_id);
+          continue;
+        }
+
+        // Fetch members
+        const timersList = [];
+        for (const timer of timersFromDb) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            if (member) {
+              timersList.push({ member, timer });
+            }
+          } catch (err) {
+            console.error(`Failed to fetch member ${timer.user_id}:`, err);
+          }
+        }
+
+        if (timersList.length === 0) {
+          // Timers exist but members left server
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("📋 Role Status Report")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `<@&${schedule.role_id}>`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "Members with timers have left the server", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Automated Report" });
+
+          await channel.send({ embeds: [embed] }).catch(() => null);
+          await db.updateRolestatusLastReport(guild.id, schedule.role_id, schedule.channel_id);
+          continue;
+        }
+
+        // Sort by time remaining (expires soonest first)
+        timersList.sort((a, b) => {
+          let aMs = Number(a.timer.expires_at) - now;
+          let bMs = Number(b.timer.expires_at) - now;
+          
+          if (a.timer.paused && a.timer.paused_remaining_ms) {
+            aMs = Number(a.timer.paused_remaining_ms);
+          }
+          if (b.timer.paused && b.timer.paused_remaining_ms) {
+            bMs = Number(b.timer.paused_remaining_ms);
+          }
+          
+          return aMs - bMs;
+        });
+
+        // Build field list
+        const fields = [];
+        let totalMembers = 0;
+        let activeMembers = 0;
+        let pausedMembers = 0;
+
+        for (const { member, timer } of timersList) {
+          totalMembers++;
+          const isPaused = timer.paused;
+          if (isPaused) pausedMembers++;
+          else activeMembers++;
+
+          let remainingMs = Number(timer.expires_at) - now;
+          if (isPaused && timer.paused_remaining_ms) {
+            remainingMs = Number(timer.paused_remaining_ms);
+          }
+
+          const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
+          const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+          
+          // Limit to 20 members per embed
+          if (fields.length < 20) {
+            fields.push({
+              name: `${member.user.username}`,
+              value: `${status} • ${timeText}`,
+              inline: false
+            });
+          }
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("📋 Role Status Report")
+          .setTimestamp(new Date())
+          .addFields(...fields)
+          .addFields(
+            { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
+            { name: "Total Members", value: `${totalMembers}`, inline: true },
+            { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
+            { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
+          )
+          .setFooter({ text: `BoostMon • Automated Report (showing ${Math.min(timersList.length, 20)}/${totalMembers})` });
+
+        await channel.send({ embeds: [embed] }).catch((err) => {
+          console.warn(`[SCHEDULED-REPORT] Failed to send report to ${channel.name}: ${err.message}`);
+        });
+
+        // Update last report time
+        await db.updateRolestatusLastReport(guild.id, schedule.role_id, schedule.channel_id);
+      } catch (err) {
+        console.error(`[SCHEDULED-REPORT] Error processing schedule for role ${schedule.role_id}:`, err.message);
+      }
     }
-  }
-
-  try {
-    const dmRes = await tryDmUser(userId, content);
-    if (!dmRes.ok) console.warn(`[WARN] Could not DM user ${userId}: ${dmRes.reason}`);
-  } catch (e) {
-    console.warn(`[WARN] DM send failed for user ${userId}:`, e?.message || e);
+  } catch (err) {
+    console.error("executeScheduledRolestatus error:", err);
   }
 }
-
 
 async function executeAutopurges(guild, now) {
   try {
@@ -1578,6 +1828,9 @@ async function cleanupAndWarn() {
 
     // Execute autopurge tasks
     await executeAutopurges(guild, now);
+
+    // Execute scheduled rolestatus reports
+    await executeScheduledRolestatus(guild, now);
   } catch (e) {
     console.error("cleanupAndWarn error:", e);
   }
