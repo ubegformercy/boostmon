@@ -1030,15 +1030,11 @@ if (interaction.commandName === "removetime") {
       const roleOption = interaction.options.getRole("role", true);
       const guild = interaction.guild;
 
-      // Get all members with this role
-      const members = await guild.members.fetch().catch(() => null);
-      if (!members) {
-        return interaction.editReply({ content: "Could not fetch server members." });
-      }
-
-      const membersWithRole = members.filter(m => m.roles.cache.has(roleOption.id));
+      // OPTIMIZATION: Query database FIRST to get timers for this role
+      // Then fetch only those members from Discord
+      const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
       
-      if (membersWithRole.size === 0) {
+      if (timersFromDb.length === 0) {
         const embed = new EmbedBuilder()
           .setColor(0x95A5A6) // grey
           .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
@@ -1047,19 +1043,39 @@ if (interaction.commandName === "removetime") {
           .addFields(
             { name: "Role", value: `${roleOption.name}`, inline: true },
             { name: "Members", value: "0", inline: true },
-            { name: "Status", value: "No members have this role", inline: false }
+            { name: "Status", value: "No members have timers for this role", inline: false }
           )
           .setFooter({ text: "BoostMon • Role Status" });
         return interaction.editReply({ embeds: [embed] });
       }
 
-      // Get timers for all members with this role
+      // Fetch only the members that have timers for this role
       const timersList = [];
-      for (const member of membersWithRole.values()) {
-        const timer = await db.getTimerForRole(member.id, roleOption.id).catch(() => null);
-        if (timer) {
-          timersList.push({ member, timer });
+      for (const timer of timersFromDb) {
+        try {
+          const member = await guild.members.fetch(timer.user_id).catch(() => null);
+          if (member) {
+            timersList.push({ member, timer });
+          }
+        } catch (err) {
+          console.error(`Failed to fetch member ${timer.user_id}:`, err);
         }
+      }
+
+      // If no members found, they may have left the server
+      if (timersList.length === 0) {
+        const embed = new EmbedBuilder()
+          .setColor(0x95A5A6) // grey
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Role Status")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Role", value: `${roleOption.name}`, inline: true },
+            { name: "Members", value: "0", inline: true },
+            { name: "Status", value: "Members with timers have left the server", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Role Status" });
+        return interaction.editReply({ embeds: [embed] });
       }
 
       // Sort by time remaining (ascending - expires soonest first)

@@ -95,6 +95,19 @@ async function getTimersForUser(userId) {
   }
 }
 
+async function getTimersForRole(roleId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM role_timers WHERE role_id = $1 ORDER BY expires_at ASC",
+      [roleId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getTimersForRole error:", err);
+    return [];
+  }
+}
+
 async function getAllActiveTimers() {
   try {
     const result = await pool.query(
@@ -315,6 +328,7 @@ module.exports = {
   initDatabase,
   getTimerForRole,
   getTimersForUser,
+  getTimersForRole,
   getAllActiveTimers,
   setMinutesForRole,
   addMinutesForRole,
