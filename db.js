@@ -125,7 +125,8 @@ async function setMinutesForRole(userId, roleId, minutes, warnChannelId = null) 
        RETURNING expires_at`,
       [userId, roleId, expiresAt, warnChannelId, JSON.stringify({})]
     );
-    return result.rows[0]?.expires_at || expiresAt;  // Already a number
+    // CRITICAL: Ensure it's a number - type parser may not always work
+    return Number(result.rows[0]?.expires_at) || expiresAt;
   } catch (err) {
     console.error("setMinutesForRole error:", err);
     return null;
@@ -156,7 +157,10 @@ async function addMinutesForRole(userId, roleId, minutes) {
     );
     const returnedValue = result.rows[0]?.expires_at;
     console.log(`[addMinutesForRole] returned from DB: ${returnedValue} (type: ${typeof returnedValue})`);
-    return returnedValue || expiresAt;
+    // CRITICAL: Ensure it's a number - type parser may not always work
+    const finalValue = Number(returnedValue);
+    console.log(`[addMinutesForRole] final value: ${finalValue} (type: ${typeof finalValue})`);
+    return finalValue || expiresAt;
   } catch (err) {
     console.error("addMinutesForRole error:", err);
     return null;
@@ -187,7 +191,8 @@ async function removeMinutesForRole(userId, roleId, minutes) {
        RETURNING expires_at`,
       [userId, roleId, newExpiry]
     );
-    return result.rows[0]?.expires_at || newExpiry;  // Already a number
+    // CRITICAL: Ensure it's a number - type parser may not always work
+    return Number(result.rows[0]?.expires_at) || newExpiry;
   } catch (err) {
     console.error("removeMinutesForRole error:", err);
     return null;
@@ -245,7 +250,8 @@ async function resumeTimer(userId, roleId) {
        RETURNING expires_at`,
       [userId, roleId, newExpiresAt]
     );
-    return result.rows[0]?.expires_at || newExpiresAt;  // Already a number
+    // CRITICAL: Ensure it's a number - type parser may not always work
+    return Number(result.rows[0]?.expires_at) || newExpiresAt;
   } catch (err) {
     console.error("resumeTimer error:", err);
     return null;
