@@ -219,6 +219,11 @@ client.once("ready", async () => {
       .setDescription("Show remaining timed role time for a user (and optional role).")
       .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
       .addRoleOption((o) => o.setName("role").setDescription("Role to check (optional)").setRequired(false)),
+
+    new SlashCommandBuilder()
+      .setName("rolestatus")
+      .setDescription("Show all users with a specific role and their remaining times.")
+      .addRoleOption((o) => o.setName("role").setDescription("Role to check").setRequired(true)),
   ].map((c) => c.toJSON());
 
   console.log("Registering command names:", commands.map((c) => c.name).join(", "));
@@ -1012,6 +1017,110 @@ if (interaction.commandName === "removetime") {
       
       return interaction.reply({ embeds: [embed] });
     }
+
+    // ---------- /rolestatus ----------
+    if (interaction.commandName === "rolestatus") {
+      if (!interaction.guild) {
+        return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+      }
+
+      const roleOption = interaction.options.getRole("role", true);
+      const guild = interaction.guild;
+
+      // Get all members with this role
+      const members = await guild.members.fetch().catch(() => null);
+      if (!members) {
+        return interaction.reply({ content: "Could not fetch server members.", ephemeral: true });
+      }
+
+      const membersWithRole = members.filter(m => m.roles.cache.has(roleOption.id));
+      
+      if (membersWithRole.size === 0) {
+        const embed = new EmbedBuilder()
+          .setColor(0x95A5A6) // grey
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Role Status")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Role", value: `${roleOption.name}`, inline: true },
+            { name: "Members", value: "0", inline: true },
+            { name: "Status", value: "No members have this role", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Role Status" });
+        return interaction.reply({ embeds: [embed] });
+      }
+
+      // Get timers for all members with this role
+      const timersList = [];
+      for (const member of membersWithRole.values()) {
+        const timer = await db.getTimerForRole(member.id, roleOption.id).catch(() => null);
+        if (timer) {
+          timersList.push({ member, timer });
+        }
+      }
+
+      // Sort by time remaining (ascending - expires soonest first)
+      timersList.sort((a, b) => {
+        let aMs = Number(a.timer.expires_at) - Date.now();
+        let bMs = Number(b.timer.expires_at) - Date.now();
+        
+        if (a.timer.paused && a.timer.paused_remaining_ms) {
+          aMs = Number(a.timer.paused_remaining_ms);
+        }
+        if (b.timer.paused && b.timer.paused_remaining_ms) {
+          bMs = Number(b.timer.paused_remaining_ms);
+        }
+        
+        return aMs - bMs;
+      });
+
+      // Build field list (max 25 fields per embed, but Discord recommends less)
+      const fields = [];
+      let totalMembers = 0;
+      let activeMembers = 0;
+      let pausedMembers = 0;
+
+      for (const { member, timer } of timersList) {
+        totalMembers++;
+        const isPaused = timer.paused;
+        if (isPaused) pausedMembers++;
+        else activeMembers++;
+
+        let remainingMs = Number(timer.expires_at) - Date.now();
+        if (isPaused && timer.paused_remaining_ms) {
+          remainingMs = Number(timer.paused_remaining_ms);
+        }
+
+        const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
+        const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+        
+        // Limit to 20 members per embed (leave room for summary field)
+        if (fields.length < 20) {
+          fields.push({
+            name: `${member.user.username}`,
+            value: `${status} • ${timeText}`,
+            inline: false
+          });
+        }
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x2ECC71) // green
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle(`${roleOption.name} - Status Report`)
+        .setTimestamp(new Date())
+        .addFields(...fields)
+        .addFields(
+          { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
+          { name: "Total Members", value: `${totalMembers}`, inline: true },
+          { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
+          { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
+        )
+        .setFooter({ text: `BoostMon • Showing ${Math.min(timersList.length, 20)} members` });
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
   } catch (err) {
     console.error("Command error:", err);
 
