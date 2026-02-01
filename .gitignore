@@ -4,11 +4,52 @@
 .env.*.local
 .env.production.local
 
-# Documentation with secrets (precaution)
-RAILWAY_OAUTH_SETUP.md
-*_OAUTH_SETUP.md
-*_CREDENTIALS*.md
-CREDENTIALS*.md
+# Development & Internal Documentation (keep local only)
+# Only README.md, LICENSE, OAUTH2_SETUP.md, and SECURITY.md are tracked
+ARCHITECTURE.md
+AUTOPURGE_*.md
+BUGFIX_*.md
+COMMANDS_*.md
+DASHBOARD_*.md
+DEPLOYMENT_*.md
+DOCUMENTATION_*.md
+ENV_*.md
+FINAL_*.md
+GIT_COMMIT_*.md
+IMPLEMENTATION_*.txt
+INDEX.md
+INTERACTION_TIMEOUT_*.md
+MESSAGE_DELETION_*.md
+MIGRATION_*.md
+MULTI_SERVER_*.md
+OAUTH2_CREDENTIALS*.md
+PHASE_*.md
+POST_DEPLOYMENT_*.md
+PRE_DEPLOYMENT_*.md
+PRODUCTION_*.md
+QUICKREF.md
+RAILWAY_*.md
+README_*.md
+READY_TO_*.md
+REDEPLOYMENT_*.md
+ROLE_REMOVAL_*.md
+SCALABILITY_*.md
+SCALING_*.md
+SCHEDULED_ROLESTATUS_*.md
+SECURITY_AUDIT_*.md
+SECURITY_REMEDIATION_*.txt
+SECURITY_VERIFICATION_*.md
+SECURITY_SECRETS_*.md
+SESSION_SUMMARY_*.md
+TOPGG_*.md
+*_SUMMARY*.md
+*_COMPLETE.md
+*_GUIDE.md
+*_CHECKLIST.md
+*_REPORT.md
+*_INDEX.md
+*_QUICKREF.md
+*_README.md
 
 # Logs
 logs
