@@ -6,6 +6,7 @@
   "author": "ubegformercy",
   "license": "Apache-2.0",
   "dependencies": {
+    "cookie-parser": "^1.4.7",
     "discord.js": "^14.14.1",
     "express": "^5.1.0",
     "pdfkit": "^0.17.2",

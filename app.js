@@ -4,6 +4,7 @@
 
 const express = require("express");
 const path = require("path");
+const cookieParser = require("cookie-parser");
 const {
   Client,
   GatewayIntentBits,
@@ -15,6 +16,7 @@ const {
   EmbedBuilder,  
 } = require("discord.js");
 const indexRouter = require("./routes/index");
+const authRouter = require("./routes/auth");
 const dashboardRouter = require("./routes/dashboard");
 const db = require("./db");
 const BOOSTMON_ICON_URL = "https://raw.githubusercontent.com/ubegformercy/nodejs/main/public/images/boostmon.png";
@@ -158,6 +160,9 @@ function clearRoleTimer(userId, roleId) {
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
+
+// Expose client globally for dashboard API
+global.botClient = client;
 
 client.once("ready", async () => {
   console.log(`BoostMon logged in as ${client.user.tag}`);
@@ -1535,8 +1540,10 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(cookieParser());
 app.use(express.static(path.resolve(__dirname, "public")));
 app.use("/", indexRouter);
+app.use("/auth", authRouter);
 app.use("/", dashboardRouter);
 
 app.use((req, res) => {

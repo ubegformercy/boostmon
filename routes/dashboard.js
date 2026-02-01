@@ -3,12 +3,65 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+// Helper function to resolve Discord IDs to names
+async function resolveUserName(client, userId) {
+  try {
+    const user = await client.users.fetch(userId);
+    return user.username || userId;
+  } catch (err) {
+    console.error(`Failed to resolve user ${userId}:`, err.message);
+    return `Unknown (${userId})`;
+  }
+}
+
+async function resolveRoleName(guild, roleId) {
+  try {
+    if (!guild) return `Unknown (${roleId})`;
+    const role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId);
+    return role?.name || `Unknown (${roleId})`;
+  } catch (err) {
+    console.error(`Failed to resolve role ${roleId}:`, err.message);
+    return `Unknown (${roleId})`;
+  }
+}
+
+async function resolveChannelName(guild, channelId) {
+  try {
+    if (!guild) return `Unknown (${channelId})`;
+    const channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId);
+    return channel?.name || `Unknown (${channelId})`;
+  } catch (err) {
+    console.error(`Failed to resolve channel ${channelId}:`, err.message);
+    return `Unknown (${channelId})`;
+  }
+}
+
 /**
  * GET /api/dashboard
  * Returns stats and data for the dashboard
+ * Query params:
+ *   - guildId: Discord Guild ID (required for name resolution)
+ *   - token: Discord bot token with appropriate access
  */
 router.get('/api/dashboard', async (req, res) => {
   try {
+    const guildId = req.query.guildId;
+    
+    // Import Discord client to get guild data
+    let client = null;
+    let guild = null;
+    
+    try {
+      // Try to get the main bot client if guildId provided
+      if (guildId && global.botClient) {
+        client = global.botClient;
+        guild = client.guilds.cache.get(guildId) || await client.guilds.fetch(guildId);
+      }
+    } catch (err) {
+      console.warn('Could not fetch guild:', err.message);
+      // Continue without guild data - will display IDs instead
+    }
+
     // Get all timers (global, not guild-specific)
     let allTimers = [];
     try {
@@ -41,63 +94,124 @@ router.get('/api/dashboard', async (req, res) => {
       autopurges = [];
     }
 
-    // Format timers for display
-    const formattedTimers = (allTimers || []).map(timer => {
-      const remaining = Math.max(0, Number(timer.expires_at) - Date.now());
-      const hours = Math.floor(remaining / (1000 * 60 * 60));
-      const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+    // Format timers for display with name resolution
+    const formattedTimers = await Promise.all(
+      (allTimers || []).map(async (timer) => {
+        const remaining = Math.max(0, Number(timer.expires_at) - Date.now());
+        const hours = Math.floor(remaining / (1000 * 60 * 60));
+        const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+        const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
 
-      return {
-        user: `<@${timer.user_id}>`,
-        role: `<@&${timer.role_id}>`,
-        remaining: remaining,
-        formattedTime: `${hours}h ${minutes}m ${seconds}s`,
-        expiresAt: timer.expires_at,
-        paused: timer.paused,
-      };
-    }).filter(t => t !== null && t !== undefined);
+        // Resolve user and role names
+        let userName = `Unknown (${timer.user_id})`;
+        let roleName = `Unknown (${timer.role_id})`;
 
-    // Format schedules for display
-    const formattedSchedules = (schedules || []).map(schedule => {
-      const lastReport = schedule.last_report_at 
-        ? new Date(schedule.last_report_at).toLocaleString()
-        : 'Never';
-      
-      const nextReportMs = schedule.last_report_at 
-        ? new Date(schedule.last_report_at).getTime() + (schedule.interval_minutes * 60 * 1000)
-        : Date.now() + (schedule.interval_minutes * 60 * 1000);
-      
-      const nextReport = new Date(nextReportMs).toLocaleString();
+        if (client) {
+          try {
+            userName = await resolveUserName(client, timer.user_id);
+          } catch (e) {
+            console.error('Error resolving user:', e);
+          }
+          
+          if (guild) {
+            try {
+              roleName = await resolveRoleName(guild, timer.role_id);
+            } catch (e) {
+              console.error('Error resolving role:', e);
+            }
+          }
+        }
 
-      return {
-        role: `<@&${schedule.role_id}>`,
-        channel: `<#${schedule.channel_id}>`,
-        interval: schedule.interval_minutes,
-        lastReport: lastReport,
-        nextReport: nextReport,
-      };
-    }).filter(s => s !== null && s !== undefined);
+        return {
+          user: userName,
+          userId: timer.user_id,
+          role: roleName,
+          roleId: timer.role_id,
+          remaining: remaining,
+          formattedTime: `${hours}h ${minutes}m ${seconds}s`,
+          expiresAt: timer.expires_at,
+          paused: timer.paused,
+        };
+      })
+    ).then(timers => timers.filter(t => t !== null && t !== undefined));
 
-    // Format autopurge settings for display
-    const formattedAutopurge = (autopurges || []).map(setting => {
-      const lastPurge = setting.last_purge_at
-        ? new Date(setting.last_purge_at).toLocaleString()
-        : 'Never';
+    // Format schedules for display with name resolution
+    const formattedSchedules = await Promise.all(
+      (schedules || []).map(async (schedule) => {
+        const lastReport = schedule.last_report_at 
+          ? new Date(schedule.last_report_at).toLocaleString()
+          : 'Never';
+        
+        const nextReportMs = schedule.last_report_at 
+          ? new Date(schedule.last_report_at).getTime() + (schedule.interval_minutes * 60 * 1000)
+          : Date.now() + (schedule.interval_minutes * 60 * 1000);
+        
+        const nextReport = new Date(nextReportMs).toLocaleString();
 
-      return {
-        channel: `<#${setting.channel_id}>`,
-        type: setting.type,
-        lines: setting.lines,
-        interval: Math.ceil(setting.interval_seconds / 60),
-        lastPurge: lastPurge,
-      };
-    }).filter(a => a !== null && a !== undefined);
+        // Resolve role and channel names
+        let roleName = `Unknown (${schedule.role_id})`;
+        let channelName = `Unknown (${schedule.channel_id})`;
+
+        if (guild) {
+          try {
+            roleName = await resolveRoleName(guild, schedule.role_id);
+          } catch (e) {
+            console.error('Error resolving role:', e);
+          }
+          
+          try {
+            channelName = await resolveChannelName(guild, schedule.channel_id);
+          } catch (e) {
+            console.error('Error resolving channel:', e);
+          }
+        }
+
+        return {
+          role: roleName,
+          roleId: schedule.role_id,
+          channel: channelName,
+          channelId: schedule.channel_id,
+          interval: schedule.interval_minutes,
+          lastReport: lastReport,
+          nextReport: nextReport,
+        };
+      })
+    ).then(schedules => schedules.filter(s => s !== null && s !== undefined));
+
+    // Format autopurge settings for display with name resolution
+    const formattedAutopurge = await Promise.all(
+      (autopurges || []).map(async (setting) => {
+        const lastPurge = setting.last_purge_at
+          ? new Date(setting.last_purge_at).toLocaleString()
+          : 'Never';
+
+        // Resolve channel name
+        let channelName = `Unknown (${setting.channel_id})`;
+
+        if (guild) {
+          try {
+            channelName = await resolveChannelName(guild, setting.channel_id);
+          } catch (e) {
+            console.error('Error resolving channel:', e);
+          }
+        }
+
+        return {
+          channel: channelName,
+          channelId: setting.channel_id,
+          type: setting.type,
+          lines: setting.lines,
+          interval: Math.ceil(setting.interval_seconds / 60),
+          lastPurge: lastPurge,
+        };
+      })
+    ).then(autopurges => autopurges.filter(a => a !== null && a !== undefined));
 
     console.log('Dashboard data loaded:', {
       timersCount: formattedTimers.length,
       schedulesCount: formattedSchedules.length,
       autopurgesCount: formattedAutopurge.length,
+      guildId: guildId || 'none',
     });
 
     // Build response
@@ -112,6 +226,7 @@ router.get('/api/dashboard', async (req, res) => {
       reports: formattedSchedules,
       autopurge: formattedAutopurge,
       timestamp: new Date().toISOString(),
+      guildId: guildId,
     };
 
     res.json(response);
