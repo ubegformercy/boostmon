@@ -560,6 +560,7 @@ async function closePool() {
 }
 
 module.exports = {
+  pool,
   initDatabase,
   getTimerForRole,
   getTimersForUser,

@@ -9,21 +9,40 @@ const db = require('../db');
  */
 router.get('/api/dashboard', async (req, res) => {
   try {
-    // Get all timers
-    const allTimers = await db.getAllActiveTimers().catch(() => []);
+    // Get all timers (global, not guild-specific)
+    let allTimers = [];
+    try {
+      allTimers = await db.getAllActiveTimers().catch(() => []);
+    } catch (err) {
+      console.error('Error fetching timers:', err);
+    }
     
-    // Get all role status schedules
-    const schedules = await db.query(
-      'SELECT * FROM rolestatus_schedules WHERE enabled = true'
-    ).then(result => result.rows).catch(() => []);
+    // Get all role status schedules - need to get from all guilds
+    let schedules = [];
+    try {
+      const result = await db.pool.query(
+        'SELECT * FROM rolestatus_schedules WHERE enabled = true'
+      );
+      schedules = result.rows || [];
+    } catch (err) {
+      console.error('Error fetching schedules:', err);
+      schedules = [];
+    }
 
-    // Get all autopurge settings
-    const autopurges = await db.query(
-      'SELECT * FROM autopurge_settings WHERE enabled = true'
-    ).then(result => result.rows).catch(() => []);
+    // Get all autopurge settings - need to get from all guilds
+    let autopurges = [];
+    try {
+      const result = await db.pool.query(
+        'SELECT * FROM autopurge_settings WHERE enabled = true'
+      );
+      autopurges = result.rows || [];
+    } catch (err) {
+      console.error('Error fetching autopurges:', err);
+      autopurges = [];
+    }
 
     // Format timers for display
-    const formattedTimers = allTimers.map(timer => {
+    const formattedTimers = (allTimers || []).map(timer => {
       const remaining = Math.max(0, Number(timer.expires_at) - Date.now());
       const hours = Math.floor(remaining / (1000 * 60 * 60));
       const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
@@ -37,10 +56,10 @@ router.get('/api/dashboard', async (req, res) => {
         expiresAt: timer.expires_at,
         paused: timer.paused,
       };
-    });
+    }).filter(t => t !== null && t !== undefined);
 
     // Format schedules for display
-    const formattedSchedules = schedules.map(schedule => {
+    const formattedSchedules = (schedules || []).map(schedule => {
       const lastReport = schedule.last_report_at 
         ? new Date(schedule.last_report_at).toLocaleString()
         : 'Never';
@@ -58,10 +77,10 @@ router.get('/api/dashboard', async (req, res) => {
         lastReport: lastReport,
         nextReport: nextReport,
       };
-    });
+    }).filter(s => s !== null && s !== undefined);
 
     // Format autopurge settings for display
-    const formattedAutopurge = autopurges.map(setting => {
+    const formattedAutopurge = (autopurges || []).map(setting => {
       const lastPurge = setting.last_purge_at
         ? new Date(setting.last_purge_at).toLocaleString()
         : 'Never';
@@ -73,15 +92,21 @@ router.get('/api/dashboard', async (req, res) => {
         interval: Math.ceil(setting.interval_seconds / 60),
         lastPurge: lastPurge,
       };
+    }).filter(a => a !== null && a !== undefined);
+
+    console.log('Dashboard data loaded:', {
+      timersCount: formattedTimers.length,
+      schedulesCount: formattedSchedules.length,
+      autopurgesCount: formattedAutopurge.length,
     });
 
     // Build response
     const response = {
       botStatus: 'online',
       stats: {
-        activeTimers: allTimers.length,
-        scheduledReports: schedules.length,
-        autopurgeSettings: autopurges.length,
+        activeTimers: formattedTimers.length,
+        scheduledReports: formattedSchedules.length,
+        autopurgeSettings: formattedAutopurge.length,
       },
       timers: formattedTimers,
       reports: formattedSchedules,
@@ -94,6 +119,7 @@ router.get('/api/dashboard', async (req, res) => {
     console.error('Dashboard API error:', err);
     res.status(500).json({
       error: 'Failed to load dashboard data',
+      details: err.message,
       timestamp: new Date().toISOString(),
     });
   }
