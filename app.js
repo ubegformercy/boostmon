@@ -223,6 +223,50 @@ client.once("ready", async () => {
     console.error('[Backfill] Error:', err.message);
   }
 
+  // ===== START TIMER EXPIRATION CHECKER =====
+  // Check every 30 seconds for expired timers and remove roles
+  setInterval(async () => {
+    try {
+      const expiredTimers = await db.pool.query(
+        `SELECT id, user_id, role_id, guild_id FROM role_timers 
+         WHERE expires_at > 0 AND expires_at <= $1 AND guild_id IS NOT NULL`,
+        [Date.now()]
+      );
+
+      if (expiredTimers.rows.length === 0) return;
+
+      for (const timer of expiredTimers.rows) {
+        try {
+          const guild = client.guilds.cache.get(timer.guild_id);
+          if (!guild) continue;
+
+          const member = await guild.members.fetch(timer.user_id).catch(() => null);
+          const role = guild.roles.cache.get(timer.role_id);
+
+          // Remove the role from the member
+          if (member && role && member.roles.cache.has(timer.role_id)) {
+            await member.roles.remove(timer.role_id).catch(err => {
+              console.warn(`Failed to remove role ${timer.role_id} from ${timer.user_id}:`, err.message);
+            });
+          }
+
+          // Mark timer as cleared in database
+          await db.pool.query(
+            `DELETE FROM role_timers WHERE id = $1`,
+            [timer.id]
+          );
+
+          console.log(`[Timer Expired] Removed ${role?.name || 'unknown role'} from ${member?.user?.username || timer.user_id}`);
+        } catch (err) {
+          console.error(`[Timer Expiration] Error processing timer ${timer.id}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error('[Timer Expiration Checker] Error:', err.message);
+    }
+  }, 30000); // Check every 30 seconds
+  // ===== END TIMER EXPIRATION CHECKER =====
+
   if (!CLIENT_ID) {
     console.log("Missing DISCORD_CLIENT_ID; skipping command registration.");
     return;
@@ -1163,7 +1207,7 @@ if (interaction.commandName === "removetime") {
           { 
             name: "Expires", 
             value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`, 
-            inline: false 
+              inline: false 
           }
         )
         .setFooter({ text: statusFooter });
