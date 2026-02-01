@@ -131,14 +131,14 @@ async function getFirstTimedRoleId(userId) {
 //----------------------------------------
 
 // Add minutes to a specific role timer (user+role)
-function addMinutesForRole(userId, roleId, minutes) {
-  return db.addMinutesForRole(userId, roleId, minutes);
+function addMinutesForRole(userId, roleId, minutes, guildId = null) {
+  return db.addMinutesForRole(userId, roleId, minutes, guildId);
 }
 
 // Set minutes exactly for a role timer (user+role) to now+minutes.
 // Also sets warnChannelId (nullable) and resets warningsSent.
-function setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull) {
-  return db.setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull ?? null);
+function setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull, guildId = null) {
+  return db.setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull ?? null, guildId);
 }
 
 // Remove minutes from a role timer (user+role)
@@ -610,7 +610,7 @@ return interaction.reply({ embeds: [embed] });
 
       const member = await guild.members.fetch(targetUser.id);
 
-      const expiresAt = await setMinutesForRole(targetUser.id, role.id, minutes, warnChannelId);
+      const expiresAt = await setMinutesForRole(targetUser.id, role.id, minutes, warnChannelId, guild.id);
       await member.roles.add(role.id);
 
 
@@ -689,7 +689,7 @@ return interaction.reply({ embeds: [embed] });
         return interaction.reply({ content: permCheck.reason, ephemeral: true });
       }
 
-      const expiresAt = await addMinutesForRole(targetUser.id, role.id, minutes);
+      const expiresAt = await addMinutesForRole(targetUser.id, role.id, minutes, guild.id);
 
       if (!member.roles.cache.has(role.id)) {
         await member.roles.add(role.id);

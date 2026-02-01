@@ -253,6 +253,7 @@
             padding: 16px;
             border-radius: 8px;
             margin-bottom: 20px;
+        }
 
         .footer {
             text-align: center;
@@ -341,8 +342,21 @@
         async function loadDashboard() {
             try {
                 const guildId = getGuildId();
-                const url = guildId ? `/api/dashboard?guildId=${guildId}` : '/api/dashboard';
+                if (!guildId) {
+                    window.location.href = '/guild-select.html';
+                    return;
+                }
+                
+                const url = `/api/dashboard?guildId=${guildId}`;
                 const response = await fetch(url);
+                
+                // If 403 (forbidden) or 401 (unauthorized), redirect to login
+                if (response.status === 403 || response.status === 401) {
+                    console.warn('Access denied to guild:', guildId);
+                    window.location.href = '/login.html';
+                    return;
+                }
+                
                 if (!response.ok) throw new Error('Failed to load dashboard data');
                 
                 const data = await response.json();

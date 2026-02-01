@@ -95,12 +95,25 @@ async function initDatabase() {
       }
     }
 
+    // Add guild_id to role_timers for multi-server support
+    try {
+      await client.query(`
+        ALTER TABLE role_timers 
+        ADD COLUMN IF NOT EXISTS guild_id VARCHAR(255);
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration info:", err.message);
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
     const indexes = [
       'CREATE INDEX IF NOT EXISTS idx_role_timers_expires_at ON role_timers(expires_at)',
       'CREATE INDEX IF NOT EXISTS idx_role_timers_user_id ON role_timers(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_role_timers_guild_id ON role_timers(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_role_timers_paused_expires ON role_timers(paused, expires_at)',
       'CREATE INDEX IF NOT EXISTS idx_autopurge_settings_guild_channel ON autopurge_settings(guild_id, channel_id)',
       'CREATE INDEX IF NOT EXISTS idx_autopurge_settings_enabled ON autopurge_settings(enabled)',
@@ -185,21 +198,22 @@ async function getAllActiveTimers() {
 
 // ===== WRITE OPERATIONS =====
 
-async function setMinutesForRole(userId, roleId, minutes, warnChannelId = null) {
+async function setMinutesForRole(userId, roleId, minutes, warnChannelId = null, guildId = null) {
   try {
     const expiresAt = Date.now() + minutes * 60 * 1000;
     const result = await pool.query(
-      `INSERT INTO role_timers (user_id, role_id, expires_at, warn_channel_id, warnings_sent, paused, paused_remaining_ms)
-       VALUES ($1, $2, $3, $4, $5, false, 0)
+      `INSERT INTO role_timers (user_id, role_id, expires_at, warn_channel_id, warnings_sent, paused, paused_remaining_ms, guild_id)
+       VALUES ($1, $2, $3, $4, $5, false, 0, $6)
        ON CONFLICT (user_id, role_id) DO UPDATE SET
          expires_at = $3,
          warn_channel_id = $4,
          warnings_sent = '{}',
          paused = false,
          paused_remaining_ms = 0,
+         guild_id = $6,
          updated_at = CURRENT_TIMESTAMP
        RETURNING expires_at`,
-      [userId, roleId, expiresAt, warnChannelId, JSON.stringify({})]
+      [userId, roleId, expiresAt, warnChannelId, JSON.stringify({}), guildId]
     );
     // CRITICAL: Ensure it's a number - type parser may not always work
     return Number(result.rows[0]?.expires_at) || expiresAt;
@@ -209,7 +223,7 @@ async function setMinutesForRole(userId, roleId, minutes, warnChannelId = null) 
   }
 }
 
-async function addMinutesForRole(userId, roleId, minutes) {
+async function addMinutesForRole(userId, roleId, minutes, guildId = null) {
   try {
     const timer = await getTimerForRole(userId, roleId);
     const now = Date.now();
@@ -222,14 +236,15 @@ async function addMinutesForRole(userId, roleId, minutes) {
     console.log(`[addMinutesForRole] calculated expiresAt=${expiresAt}`);
 
     const result = await pool.query(
-      `INSERT INTO role_timers (user_id, role_id, expires_at, warnings_sent)
-       VALUES ($1, $2, $3, '{}')
+      `INSERT INTO role_timers (user_id, role_id, expires_at, warnings_sent, guild_id)
+       VALUES ($1, $2, $3, '{}', $4)
        ON CONFLICT (user_id, role_id) DO UPDATE SET
          expires_at = $3,
          warnings_sent = '{}',
+         guild_id = $4,
          updated_at = CURRENT_TIMESTAMP
        RETURNING expires_at`,
-      [userId, roleId, expiresAt]
+      [userId, roleId, expiresAt, guildId]
     );
     const returnedValue = result.rows[0]?.expires_at;
     console.log(`[addMinutesForRole] returned from DB: ${returnedValue} (type: ${typeof returnedValue})`);

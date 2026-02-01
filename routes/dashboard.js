@@ -3,6 +3,49 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
+/**
+ * Middleware to verify user is authenticated
+ */
+function requireAuth(req, res, next) {
+  try {
+    const authCookie = req.cookies.boostmon_auth;
+    if (!authCookie) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    req.user = JSON.parse(authCookie);
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid session' });
+  }
+}
+
+/**
+ * Middleware to verify user has access to the requested guild
+ */
+function requireGuildAccess(req, res, next) {
+  const guildId = req.query.guildId;
+  
+  if (!guildId) {
+    return res.status(400).json({ error: 'Guild ID required' });
+  }
+
+  // Check if user's authorized guilds include this guildId
+  const userGuilds = req.user.guilds || [];
+  const hasAccess = userGuilds.some(g => g.id === guildId);
+
+  if (!hasAccess) {
+    console.warn(`Unauthorized guild access attempt: userId=${req.user.userId}, guildId=${guildId}, authorizedGuilds=${userGuilds.map(g => g.id).join(',')}`);
+    return res.status(403).json({ 
+      error: 'Unauthorized guild access',
+      message: 'You do not have permission to access this guild'
+    });
+  }
+
+  req.guildId = guildId;
+  next();
+}
+
 // Helper function to resolve Discord IDs to names
 async function resolveUserName(client, userId) {
   try {
@@ -40,12 +83,13 @@ async function resolveChannelName(guild, channelId) {
  * GET /api/dashboard
  * Returns stats and data for the dashboard
  * Query params:
- *   - guildId: Discord Guild ID (required for name resolution)
- *   - token: Discord bot token with appropriate access
+ *   - guildId: Discord Guild ID (required, must be user's authorized guild)
+ * 
+ * Protected: Requires authentication and guild membership
  */
-router.get('/api/dashboard', async (req, res) => {
+router.get('/api/dashboard', requireAuth, requireGuildAccess, async (req, res) => {
   try {
-    const guildId = req.query.guildId;
+    const guildId = req.guildId;
     
     // Import Discord client to get guild data
     let client = null;
@@ -62,19 +106,24 @@ router.get('/api/dashboard', async (req, res) => {
       // Continue without guild data - will display IDs instead
     }
 
-    // Get all timers (global, not guild-specific)
+    // Get timers for this guild only
     let allTimers = [];
     try {
-      allTimers = await db.getAllActiveTimers().catch(() => []);
+      const result = await db.pool.query(
+        `SELECT * FROM role_timers WHERE guild_id = $1 AND expires_at > 0 ORDER BY expires_at ASC`,
+        [guildId]
+      );
+      allTimers = result.rows || [];
     } catch (err) {
       console.error('Error fetching timers:', err);
     }
     
-    // Get all role status schedules - need to get from all guilds
+    // Get role status schedules for this guild only
     let schedules = [];
     try {
       const result = await db.pool.query(
-        'SELECT * FROM rolestatus_schedules WHERE enabled = true'
+        `SELECT * FROM rolestatus_schedules WHERE guild_id = $1 AND enabled = true ORDER BY created_at DESC`,
+        [guildId]
       );
       schedules = result.rows || [];
     } catch (err) {
@@ -82,11 +131,12 @@ router.get('/api/dashboard', async (req, res) => {
       schedules = [];
     }
 
-    // Get all autopurge settings - need to get from all guilds
+    // Get autopurge settings for this guild only
     let autopurges = [];
     try {
       const result = await db.pool.query(
-        'SELECT * FROM autopurge_settings WHERE enabled = true'
+        `SELECT * FROM autopurge_settings WHERE guild_id = $1 AND enabled = true ORDER BY created_at DESC`,
+        [guildId]
       );
       autopurges = result.rows || [];
     } catch (err) {
