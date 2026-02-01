@@ -51,6 +51,10 @@ TOPGG_*.md
 *_QUICKREF.md
 *_README.md
 
+# Temporary files
+*.sh
+BoostMon_User_Guide.html
+
 # Logs
 logs
 *.log
