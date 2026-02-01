@@ -4,6 +4,12 @@
 .env.*.local
 .env.production.local
 
+# Documentation with secrets (precaution)
+RAILWAY_OAUTH_SETUP.md
+*_OAUTH_SETUP.md
+*_CREDENTIALS*.md
+CREDENTIALS*.md
+
 # Logs
 logs
 *.log
