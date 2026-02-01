@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoostMon - Select Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 16px;
+            opacity: 0.9;
+        }
+
+        .guilds-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .guild-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .guild-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2);
+        }
+
+        .guild-icon {
+            width: 100%;
+            height: 150px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            color: white;
+        }
+
+        .guild-info {
+            padding: 20px;
+        }
+
+        .guild-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .guild-id {
+            font-size: 12px;
+            color: #999;
+            font-family: 'Courier New', monospace;
+        }
+
+        .footer {
+            text-align: center;
+            color: white;
+        }
+
+        .footer a {
+            color: white;
+            text-decoration: underline;
+            margin: 0 10px;
+        }
+
+        @media (max-width: 600px) {
+            .guilds-grid {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 22px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Select Your Server</h1>
+            <p>Choose which server to manage with BoostMon</p>
+        </header>
+
+        <div class="guilds-grid" id="guildsContainer">
+            <p style="color: white; text-align: center;">Loading your servers...</p>
+        </div>
+
+        <div class="footer">
+            <a href="/auth/logout">Logout</a>
+        </div>
+    </div>
+
+    <script>
+        async function loadGuilds() {
+            try {
+                const response = await fetch('/auth/user');
+                if (!response.ok) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                const user = await response.json();
+                const container = document.getElementById('guildsContainer');
+
+                if (!user.guilds || user.guilds.length === 0) {
+                    container.innerHTML = `
+                        <div style="grid-column: 1 / -1; text-align: center; color: white;">
+                            <h2>No Servers Found</h2>
+                            <p>You don't have admin access to any servers with BoostMon.</p>
+                            <a href="/auth/logout" style="color: white; text-decoration: underline;">Try Again</a>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = user.guilds.map(guild => `
+                    <a href="/dashboard.html?guild=${guild.id}" style="text-decoration: none; color: inherit;">
+                        <div class="guild-card">
+                            <div class="guild-icon">${guild.name.charAt(0).toUpperCase()}</div>
+                            <div class="guild-info">
+                                <div class="guild-name">${guild.name}</div>
+                                <div class="guild-id">${guild.id}</div>
+                            </div>
+                        </div>
+                    </a>
+                `).join('');
+            } catch (err) {
+                console.error('Error loading guilds:', err);
+                document.getElementById('guildsContainer').innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; color: white;">
+                        <h2>Error Loading Servers</h2>
+                        <p>${err.message}</p>
+                        <a href="/auth/logout" style="color: white; text-decoration: underline;">Try Again</a>
+                    </div>
+                `;
+            }
+        }
+
+        loadGuilds();
+    </script>
+</body>
+</html>
