@@ -173,6 +173,56 @@ client.once("ready", async () => {
   // Initialize database
   await db.initDatabase();
 
+  // Backfill guild_id for timers that don't have it yet
+  try {
+    let totalUpdated = 0;
+    let batchNum = 0;
+    
+    while (true) {
+      const result = await db.pool.query(
+        `SELECT id, user_id, role_id FROM role_timers WHERE guild_id IS NULL LIMIT 100`
+      );
+      const nullGuildTimers = result.rows;
+      
+      if (nullGuildTimers.length === 0) {
+        console.log(`[Backfill] Complete! Updated ${totalUpdated} timers total with guild_id`);
+        break;
+      }
+      
+      batchNum++;
+      console.log(`[Backfill] Batch ${batchNum}: Found ${nullGuildTimers.length} timers without guild_id, searching...`);
+      let batchUpdated = 0;
+      
+      for (const timer of nullGuildTimers) {
+        // Check all guilds the bot is in
+        for (const guild of client.guilds.cache.values()) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            
+            if (member && member.roles.cache.has(timer.role_id)) {
+              await db.pool.query(
+                `UPDATE role_timers SET guild_id = $1 WHERE id = $2`,
+                [guild.id, timer.id]
+              );
+              batchUpdated++;
+              totalUpdated++;
+              break;
+            }
+          } catch (e) {
+            // Continue to next guild
+          }
+        }
+      }
+      
+      console.log(`[Backfill] Batch ${batchNum}: Updated ${batchUpdated}/${nullGuildTimers.length} timers`);
+      
+      // Small delay between batches to avoid overwhelming the bot
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  } catch (err) {
+    console.error('[Backfill] Error:', err.message);
+  }
+
   if (!CLIENT_ID) {
     console.log("Missing DISCORD_CLIENT_ID; skipping command registration.");
     return;
