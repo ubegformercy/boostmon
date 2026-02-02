@@ -1641,6 +1641,7 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(express.json()); // Parse JSON request bodies
 app.use(cookieParser());
 app.use(express.static(path.resolve(__dirname, "public")));
 app.use("/", indexRouter);
