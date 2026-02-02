@@ -452,4 +452,97 @@ router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, 
   }
 });
 
+/**
+ * GET /api/dropdown-data
+ * Get available users, roles, and channels for form dropdowns
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ * 
+ * Returns:
+ *   - users: Array of { id, name }
+ *   - roles: Array of { id, name }
+ *   - channels: Array of { id, name }
+ * 
+ * Protected: Requires authentication and guild access
+ */
+router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const guildId = req.guildId;
+    let guild = null;
+    const data = {
+      users: [],
+      roles: [],
+      channels: []
+    };
+
+    // Get guild from Discord client
+    if (global.botClient) {
+      try {
+        guild = global.botClient.guilds.cache.get(guildId) || await global.botClient.guilds.fetch(guildId);
+      } catch (err) {
+        console.warn('Could not fetch guild:', err.message);
+        return res.status(400).json({ error: 'Could not access guild' });
+      }
+    } else {
+      return res.status(500).json({ error: 'Discord client not available' });
+    }
+
+    // Get all members (users) in the guild
+    try {
+      if (guild) {
+        const members = await guild.members.fetch({ limit: 0 });
+        data.users = members
+          .filter(m => !m.user.bot) // Exclude bots
+          .map(m => ({
+            id: m.user.id,
+            name: m.user.username,
+            displayName: m.displayName || m.user.username
+          }))
+          .sort((a, b) => a.displayName.localeCompare(b.displayName))
+          .slice(0, 100); // Limit to 100 for performance
+      }
+    } catch (err) {
+      console.error('Error fetching guild members:', err);
+      data.users = [];
+    }
+
+    // Get all roles in the guild
+    try {
+      if (guild) {
+        data.roles = guild.roles.cache
+          .filter(r => r.id !== guildId) // Exclude @everyone role
+          .map(r => ({
+            id: r.id,
+            name: r.name
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+    } catch (err) {
+      console.error('Error fetching guild roles:', err);
+      data.roles = [];
+    }
+
+    // Get all text channels in the guild
+    try {
+      if (guild) {
+        data.channels = guild.channels.cache
+          .filter(c => c.isTextBased())
+          .map(c => ({
+            id: c.id,
+            name: c.name
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      }
+    } catch (err) {
+      console.error('Error fetching guild channels:', err);
+      data.channels = [];
+    }
+
+    res.json(data);
+  } catch (err) {
+    console.error('Error fetching dropdown data:', err);
+    res.status(500).json({ error: 'Failed to fetch dropdown data', details: err.message });
+  }
+});
+
 module.exports = router;

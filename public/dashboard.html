@@ -596,27 +596,33 @@
                 <h3 style="color: #667eea; margin-bottom: 16px; font-size: 16px;">➕ Add New Timer Entry</h3>
                 <div class="form-grid">
                     <div class="form-group">
-                        <label for="newUser">User ID</label>
-                        <input type="text" id="newUser" placeholder="Discord User ID" required>
+                        <label for="newUser">Select User</label>
+                        <select id="newUser" required>
+                            <option value="">-- Select User --</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <label for="newMinutes">Minutes</label>
                         <input type="number" id="newMinutes" placeholder="30" min="1" max="10080" required>
                     </div>
                     <div class="form-group">
-                        <label for="newRole">Role ID</label>
-                        <input type="text" id="newRole" placeholder="Discord Role ID" required>
+                        <label for="newRole">Select Role</label>
+                        <select id="newRole" required>
+                            <option value="">-- Select Role --</option>
+                        </select>
                     </div>
                     <div class="form-group">
-                        <label for="newChannel">Channel ID (Optional)</label>
-                        <input type="text" id="newChannel" placeholder="Leave empty for DM">
+                        <label for="newChannel">Select Channel (Optional)</label>
+                        <select id="newChannel">
+                            <option value="">-- DM User --</option>
+                        </select>
                     </div>
                     <div class="form-group">
                         <button class="btn btn-primary" onclick="addNewTimer()" style="margin-top: 24px;">➕ Add Entry</button>
                     </div>
                 </div>
                 <div class="form-note">
-                    ℹ️ If no channel is provided, a DM will be sent to the user when their time is about to expire.
+                    ℹ️ If "DM User" is selected, a DM will be sent to the user when their time is about to expire.
                 </div>
             </div>
 
@@ -1010,12 +1016,63 @@
             container.innerHTML = html;
         }
 
+        /**
+         * Load dropdown data (users, roles, channels) for the add entry form
+         */
+        async function loadDropdownData() {
+            try {
+                const response = await fetch(`/api/dropdown-data?guildId=${guildId}`);
+                
+                if (!response.ok) {
+                    console.error('Failed to load dropdown data:', response.status);
+                    return;
+                }
+
+                const data = await response.json();
+
+                // Populate user dropdown
+                const userSelect = document.getElementById('newUser');
+                userSelect.innerHTML = '<option value="">-- Select User --</option>';
+                data.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.id;
+                    option.textContent = user.displayName || user.name;
+                    userSelect.appendChild(option);
+                });
+
+                // Populate role dropdown
+                const roleSelect = document.getElementById('newRole');
+                roleSelect.innerHTML = '<option value="">-- Select Role --</option>';
+                data.roles.forEach(role => {
+                    const option = document.createElement('option');
+                    option.value = role.id;
+                    option.textContent = role.name;
+                    roleSelect.appendChild(option);
+                });
+
+                // Populate channel dropdown
+                const channelSelect = document.getElementById('newChannel');
+                channelSelect.innerHTML = '<option value="">-- DM User --</option>';
+                data.channels.forEach(channel => {
+                    const option = document.createElement('option');
+                    option.value = channel.id;
+                    option.textContent = '#' + channel.name;
+                    channelSelect.appendChild(option);
+                });
+
+            } catch (err) {
+                console.error('Error loading dropdown data:', err);
+            }
+        }
+
         // Load dashboard on page load
         (async () => {
             const isAuth = await checkAuth();
             if (isAuth) {
                 loadDashboard();
+                loadDropdownData();
                 setInterval(loadDashboard, 30000);
+                setInterval(loadDropdownData, 60000); // Refresh dropdowns every minute
             }
         })();
     </script>
