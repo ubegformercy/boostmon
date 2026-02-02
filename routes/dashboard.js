@@ -293,4 +293,163 @@ router.get('/api/dashboard', requireAuth, requireGuildAccess, async (req, res) =
   }
 });
 
+/**
+ * POST /api/timer/add
+ * Create a new timer entry
+ * 
+ * Body:
+ *   - userId: Discord user ID (required)
+ *   - roleId: Discord role ID (required)
+ *   - minutes: Timer duration in minutes (required)
+ *   - channelId: Discord channel ID for warnings (optional, defaults to DM)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ * 
+ * Protected: Requires authentication and guild access
+ */
+router.post('/api/timer/add', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { userId, roleId, minutes, channelId } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!userId || !roleId || !minutes || minutes <= 0) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: userId, roleId, and positive minutes' 
+      });
+    }
+
+    const expiresAt = Date.now() + (minutes * 60 * 1000);
+
+    // Check if timer already exists for this user/role
+    const existing = await db.pool.query(
+      `SELECT id FROM role_timers WHERE user_id = $1 AND role_id = $2 AND guild_id = $3`,
+      [userId, roleId, guildId]
+    );
+
+    let result;
+    if (existing.rows.length > 0) {
+      // Update existing timer
+      result = await db.pool.query(
+        `UPDATE role_timers 
+         SET expires_at = $1, warn_channel_id = $2, paused = false, updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $3 AND role_id = $4 AND guild_id = $5
+         RETURNING *`,
+        [expiresAt, channelId || null, userId, roleId, guildId]
+      );
+    } else {
+      // Create new timer
+      result = await db.pool.query(
+        `INSERT INTO role_timers (user_id, role_id, expires_at, warn_channel_id, guild_id)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [userId, roleId, expiresAt, channelId || null, guildId]
+      );
+    }
+
+    res.json({ 
+      success: true, 
+      timer: result.rows[0],
+      message: `Timer ${existing.rows.length > 0 ? 'updated' : 'created'} successfully`
+    });
+  } catch (err) {
+    console.error('Error adding timer:', err);
+    res.status(500).json({ error: 'Failed to add timer', details: err.message });
+  }
+});
+
+/**
+ * PATCH /api/timer/update
+ * Update timer expiration time
+ * 
+ * Body:
+ *   - timerId: Timer ID (required)
+ *   - minutes: New duration in minutes (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ * 
+ * Protected: Requires authentication and guild access
+ */
+router.patch('/api/timer/update', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { timerId, minutes } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!timerId || !minutes || minutes <= 0) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: timerId and positive minutes' 
+      });
+    }
+
+    const expiresAt = Date.now() + (minutes * 60 * 1000);
+
+    const result = await db.pool.query(
+      `UPDATE role_timers 
+       SET expires_at = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND guild_id = $3
+       RETURNING *`,
+      [expiresAt, timerId, guildId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Timer not found' });
+    }
+
+    res.json({ 
+      success: true, 
+      timer: result.rows[0],
+      message: 'Timer updated successfully'
+    });
+  } catch (err) {
+    console.error('Error updating timer:', err);
+    res.status(500).json({ error: 'Failed to update timer', details: err.message });
+  }
+});
+
+/**
+ * DELETE /api/timer/delete
+ * Delete a timer entry
+ * 
+ * Body:
+ *   - timerId: Timer ID (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ * 
+ * Protected: Requires authentication and guild access
+ */
+router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { timerId } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!timerId) {
+      return res.status(400).json({ error: 'Timer ID is required' });
+    }
+
+    const result = await db.pool.query(
+      `DELETE FROM role_timers 
+       WHERE id = $1 AND guild_id = $2
+       RETURNING id`,
+      [timerId, guildId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Timer not found' });
+    }
+
+    res.json({ 
+      success: true, 
+      message: 'Timer deleted successfully'
+    });
+  } catch (err) {
+    console.error('Error deleting timer:', err);
+    res.status(500).json({ error: 'Failed to delete timer', details: err.message });
+  }
+});
+
 module.exports = router;
