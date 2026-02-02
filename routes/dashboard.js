@@ -455,13 +455,14 @@ router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, 
 /**
  * GET /api/dropdown-data
  * Get available users, roles, and channels for form dropdowns
+ * Uses CACHED Discord data only (no network fetches to avoid timeouts)
  * Query params:
  *   - guildId: Discord Guild ID (required)
  * 
  * Returns:
- *   - users: Array of { id, name }
- *   - roles: Array of { id, name }
- *   - channels: Array of { id, name }
+ *   - users: Array of { id, name } (from cached members)
+ *   - roles: Array of { id, name } (all roles in guild)
+ *   - channels: Array of { id, name } (all text channels in guild)
  * 
  * Protected: Requires authentication and guild access
  */
@@ -475,23 +476,20 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
       channels: []
     };
 
-    // Get guild from Discord client
+    // Get guild from Discord client cache only (no fetch to avoid timeouts)
     if (global.botClient) {
-      try {
-        guild = global.botClient.guilds.cache.get(guildId) || await global.botClient.guilds.fetch(guildId);
-      } catch (err) {
-        console.warn('Could not fetch guild:', err.message);
-        return res.status(400).json({ error: 'Could not access guild' });
+      guild = global.botClient.guilds.cache.get(guildId);
+      if (!guild) {
+        return res.status(400).json({ error: 'Guild not in bot cache' });
       }
     } else {
       return res.status(500).json({ error: 'Discord client not available' });
     }
 
-    // Get all members (users) in the guild
+    // Get cached members (no fetch, just use what's already cached)
     try {
       if (guild) {
-        const members = await guild.members.fetch({ limit: 0 });
-        data.users = members
+        data.users = guild.members.cache
           .filter(m => !m.user.bot) // Exclude bots
           .map(m => ({
             id: m.user.id,
@@ -499,10 +497,10 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
             displayName: m.displayName || m.user.username
           }))
           .sort((a, b) => a.displayName.localeCompare(b.displayName))
-          .slice(0, 100); // Limit to 100 for performance
+          .slice(0, 500); // Allow up to 500 cached members
       }
     } catch (err) {
-      console.error('Error fetching guild members:', err);
+      console.error('Error processing cached guild members:', err);
       data.users = [];
     }
 
@@ -518,7 +516,7 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
           .sort((a, b) => a.name.localeCompare(b.name));
       }
     } catch (err) {
-      console.error('Error fetching guild roles:', err);
+      console.error('Error processing guild roles:', err);
       data.roles = [];
     }
 
@@ -534,10 +532,11 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
           .sort((a, b) => a.name.localeCompare(b.name));
       }
     } catch (err) {
-      console.error('Error fetching guild channels:', err);
+      console.error('Error processing guild channels:', err);
       data.channels = [];
     }
 
+    console.log(`[Dropdown] Serving ${data.users.length} users, ${data.roles.length} roles, ${data.channels.length} channels for guild ${guildId}`);
     res.json(data);
   } catch (err) {
     console.error('Error fetching dropdown data:', err);

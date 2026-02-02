@@ -1024,45 +1024,56 @@
                 const response = await fetch(`/api/dropdown-data?guildId=${guildId}`);
                 
                 if (!response.ok) {
-                    console.error('Failed to load dropdown data:', response.status);
+                    console.warn('Failed to load dropdown data:', response.status);
+                    // Don't show error - form will still work with manual IDs
                     return;
                 }
-
+                
                 const data = await response.json();
-
-                // Populate user dropdown
+                
+                // Populate User dropdown
                 const userSelect = document.getElementById('newUser');
-                userSelect.innerHTML = '<option value="">-- Select User --</option>';
-                data.users.forEach(user => {
-                    const option = document.createElement('option');
-                    option.value = user.id;
-                    option.textContent = user.displayName || user.name;
-                    userSelect.appendChild(option);
-                });
-
-                // Populate role dropdown
+                if (userSelect && data.users && data.users.length > 0) {
+                    data.users.forEach(user => {
+                        const option = document.createElement('option');
+                        option.value = user.id;
+                        option.textContent = user.displayName || user.name;
+                        userSelect.appendChild(option);
+                    });
+                }
+                
+                // Populate Role dropdown
                 const roleSelect = document.getElementById('newRole');
-                roleSelect.innerHTML = '<option value="">-- Select Role --</option>';
-                data.roles.forEach(role => {
-                    const option = document.createElement('option');
-                    option.value = role.id;
-                    option.textContent = role.name;
-                    roleSelect.appendChild(option);
-                });
-
-                // Populate channel dropdown
+                if (roleSelect && data.roles && data.roles.length > 0) {
+                    data.roles.forEach(role => {
+                        const option = document.createElement('option');
+                        option.value = role.id;
+                        option.textContent = role.name;
+                        roleSelect.appendChild(option);
+                    });
+                }
+                
+                // Populate Channel dropdown
                 const channelSelect = document.getElementById('newChannel');
-                channelSelect.innerHTML = '<option value="">-- DM User --</option>';
-                data.channels.forEach(channel => {
-                    const option = document.createElement('option');
-                    option.value = channel.id;
-                    option.textContent = '#' + channel.name;
-                    channelSelect.appendChild(option);
-                });
-
+                if (channelSelect && data.channels && data.channels.length > 0) {
+                    data.channels.forEach(channel => {
+                        const option = document.createElement('option');
+                        option.value = channel.id;
+                        option.textContent = '#' + channel.name;
+                        channelSelect.appendChild(option);
+                    });
+                }
+                
+                console.log(`[Dropdown] Loaded: ${data.users.length} users, ${data.roles.length} roles, ${data.channels.length} channels`);
             } catch (err) {
                 console.error('Error loading dropdown data:', err);
+                // Don't show error - form will still work
             }
+        }
+
+        async function loadDashboardAndDropdowns() {
+            await loadDashboard();
+            await loadDropdownData();
         }
 
         // Load dashboard on page load
