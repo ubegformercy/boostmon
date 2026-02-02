@@ -321,6 +321,51 @@
             font-family: inherit;
         }
 
+        .edit-input-field {
+            padding: 8px !important;
+            border: 2px solid #667eea !important;
+            border-radius: 4px !important;
+            font-size: 14px !important;
+            font-family: inherit !important;
+        }
+
+        .edit-input-field:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+            border-color: #5568d3 !important;
+        }
+
+        .save-edit-btn,
+        .cancel-edit-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .save-edit-btn {
+            background: #2ecc71;
+            color: white;
+        }
+
+        .save-edit-btn:hover {
+            background: #27ae60;
+            transform: translateY(-1px);
+        }
+
+        .cancel-edit-btn {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .cancel-edit-btn:hover {
+            background: #c0392b;
+            transform: translateY(-1px);
+        }
+
         .edit-actions {
             display: flex;
             gap: 6px;
@@ -801,29 +846,73 @@
 
         function editTime(timerId, currentTime) {
             const cell = event.target.closest('.editable-cell');
-            const minutes = Math.ceil((allTimers.find(t => t.id === timerId).remaining) / 60000);
+            if (!cell) return;
             
+            // Find the timer and calculate minutes
+            const timer = allTimers.find(t => t.id === timerId);
+            if (!timer) {
+                console.error('Timer not found:', timerId);
+                showAlert('Error: Timer not found', 'error');
+                return;
+            }
+            
+            // Calculate minutes from remaining milliseconds
+            const minutes = Math.ceil(timer.remaining / 60000);
+            console.log(`[Edit] Timer ${timerId}: remaining=${timer.remaining}ms, minutes=${minutes}`);
+            
+            if (minutes < 1 || isNaN(minutes)) {
+                showAlert('Invalid timer data', 'error');
+                return;
+            }
+            
+            // Replace cell content with editable input
             cell.innerHTML = `
-                <div>
-                    <input type="number" class="edit-input" id="edit-input-${timerId}" value="${minutes}" min="1" max="10080">
-                    <div class="edit-actions">
-                        <button class="save" onclick="saveTime(${timerId})">Save</button>
-                        <button class="cancel" onclick="cancelEdit(${timerId})">Cancel</button>
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <input type="text" class="edit-input-field" id="edit-input-${timerId}" value="${minutes}" style="width: 100%; padding: 8px; border: 2px solid #667eea; border-radius: 4px; font-size: 14px;">
+                    <div style="display: flex; gap: 4px;">
+                        <button class="save-edit-btn" onclick="saveTime(${timerId})">✓ Save</button>
+                        <button class="cancel-edit-btn" onclick="cancelEdit(${timerId})">✕ Cancel</button>
                     </div>
                 </div>
             `;
             
-            document.getElementById(`edit-input-${timerId}`).focus();
+            // Focus and select the input
+            const input = document.getElementById(`edit-input-${timerId}`);
+            if (input) {
+                setTimeout(() => {
+                    input.focus();
+                    input.select();
+                }, 0);
+            }
         }
 
         async function saveTime(timerId) {
             const input = document.getElementById(`edit-input-${timerId}`);
-            const minutes = parseInt(input.value);
+            if (!input) {
+                showAlert('Error: Input field not found', 'error');
+                return;
+            }
+            
+            const value = input.value.trim();
+            const minutes = parseInt(value);
 
-            if (!minutes || minutes <= 0) {
+            // Validation
+            if (!value || isNaN(minutes)) {
                 showAlert('Please enter a valid number of minutes', 'error');
                 return;
             }
+            
+            if (minutes <= 0) {
+                showAlert('Minutes must be greater than 0', 'error');
+                return;
+            }
+            
+            if (minutes > 10080) {
+                showAlert('Minutes cannot exceed 10080 (7 days)', 'error');
+                return;
+            }
+
+            console.log(`[Save] Updating timer ${timerId} to ${minutes} minutes`);
 
             try {
                 const response = await fetch(`/api/timer/update?guildId=${guildId}`, {
@@ -837,6 +926,8 @@
                     throw new Error(error.error || 'Failed to update timer');
                 }
 
+                const result = await response.json();
+                console.log('[Save] Update successful:', result);
                 showAlert('Timer updated successfully!', 'success');
                 loadDashboard();
             } catch (err) {
