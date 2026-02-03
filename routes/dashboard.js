@@ -501,14 +501,12 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
       return res.status(500).json({ error: 'Discord client not available' });
     }
 
-    // Fetch all members in the guild
+    // Get users from guild member cache (avoid timeout issues with large guilds)
     try {
       if (guild) {
-        // Fetch all members to populate the dropdown completely
-        const members = await guild.members.fetch({ limit: 1000 });
-        
-        // Convert Collection to array and process
-        data.users = Array.from(members.values())
+        // Use cache directly to avoid GuildMembersTimeout errors
+        // For dropdown, cached members are sufficient - they're typically active users
+        data.users = Array.from(guild.members.cache.values())
           .filter(m => !m.user.bot) // Exclude bots
           .map(m => {
             // Determine user type/status
@@ -531,35 +529,13 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
             };
           })
           .sort((a, b) => a.displayName.localeCompare(b.displayName));
+        
+        console.log(`[Dropdown] Using cached members: ${data.users.length} users available`);
       }
     } catch (err) {
-      console.error('Error fetching guild members:', err);
-      // Fallback to cache if fetch fails
-      try {
-        if (guild) {
-          data.users = Array.from(guild.members.cache.values())
-            .filter(m => !m.user.bot)
-            .map(m => {
-              let userType = 'member';
-              if (m.user.bot) {
-                userType = 'bot';
-              }
-              
-              return {
-                id: m.user.id,
-                name: m.user.username,
-                displayName: m.displayName || m.user.username,
-                userType: userType,
-                status: m.user.presence?.status || 'offline',
-                isBot: m.user.bot || false
-              };
-            })
-            .sort((a, b) => a.displayName.localeCompare(b.displayName));
-        }
-      } catch (cacheErr) {
-        console.error('Error processing cached members:', cacheErr);
-        data.users = [];
-      }
+      console.error('Error processing guild members cache:', err);
+      // Fallback to empty array if cache processing fails
+      data.users = [];
     }
 
     // Get all roles in the guild
