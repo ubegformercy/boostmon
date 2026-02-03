@@ -1027,7 +1027,7 @@
         </div>
 
         <div class="footer">
-            <p>BoostMon Dashboard • v2.1.3 • Last Updated: <span id="lastUpdate">Never</span></p>
+            <p>BoostMon Dashboard • v<span id="versionDisplay">2.1.4</span> • Last Updated: <span id="lastUpdate">Never</span></p>
         </div>
     </div>
 
@@ -1874,10 +1874,26 @@
             await loadDropdownData();
         }
 
+        // Fetch and display version dynamically
+        async function loadVersion() {
+            try {
+                const response = await fetch('/api/version');
+                if (response.ok) {
+                    const versionData = await response.json();
+                    document.getElementById('versionDisplay').textContent = versionData.version;
+                    console.log('[Version] Dashboard v' + versionData.version);
+                }
+            } catch (err) {
+                console.warn('[Version] Could not fetch version:', err.message);
+                // Version display already has fallback value
+            }
+        }
+
         // Load dashboard on page load
         (async () => {
             const isAuth = await checkAuth();
             if (isAuth) {
+                loadVersion(); // Load version info
                 loadDashboard();
                 await loadDropdownData();
                 initSearchableDropdown(); // Initialize the searchable dropdown

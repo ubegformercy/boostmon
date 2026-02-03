@@ -5,6 +5,14 @@
 // Load environment variables from .env file
 require('dotenv').config();
 
+// Load version info
+let VERSION = { version: '2.0.0', major: 2, minor: 0, patch: 0 };
+try {
+  VERSION = require('./version.json');
+} catch (err) {
+  console.warn('Warning: Could not load version.json, using default');
+}
+
 const express = require("express");
 const path = require("path");
 const cookieParser = require("cookie-parser");
@@ -1647,6 +1655,11 @@ app.use(express.static(path.resolve(__dirname, "public")));
 app.use("/", indexRouter);
 app.use("/auth", authRouter);
 app.use("/", dashboardRouter);
+
+// Version endpoint - available to all
+app.get('/api/version', (req, res) => {
+  res.json(VERSION);
+});
 
 app.use((req, res) => {
   res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
