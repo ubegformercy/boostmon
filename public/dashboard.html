@@ -563,6 +563,82 @@
             text-align: left;
         }
 
+        /* Debug Panel Styles */
+        .debug-panel {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 350px;
+            max-height: 400px;
+            background: #1e1e1e;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 0;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            z-index: 2000;
+            display: flex;
+            flex-direction: column;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+        }
+
+        .debug-panel-header {
+            background: #667eea;
+            color: white;
+            padding: 8px 12px;
+            font-weight: 600;
+            border-radius: 6px 6px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .debug-panel-toggle {
+            cursor: pointer;
+            padding: 4px 8px;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .debug-panel-logs {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 12px;
+            color: #0f0;
+            line-height: 1.4;
+        }
+
+        .debug-log {
+            margin-bottom: 4px;
+            word-break: break-all;
+            white-space: pre-wrap;
+        }
+
+        .debug-log.error {
+            color: #ff6b6b;
+        }
+
+        .debug-log.warn {
+            color: #ffd93d;
+        }
+
+        .debug-log.info {
+            color: #6bcf7f;
+        }
+
+        .debug-log.success {
+            color: #4ade80;
+        }
+
+        .debug-log-time {
+            color: #888;
+            font-size: 10px;
+        }
+
         @media (max-width: 768px) {
             header {
                 flex-direction: column;
@@ -835,6 +911,15 @@
         </div>
     </div>
 
+    <!-- Debug Panel -->
+    <div class="debug-panel" id="debugPanel">
+        <div class="debug-panel-header">
+            <span>🐛 Debug Console</span>
+            <button class="debug-panel-toggle" onclick="toggleDebugPanel()">Hide</button>
+        </div>
+        <div class="debug-panel-logs" id="debugLogs"></div>
+    </div>
+
     <script>
         let guildId = null;
         let pendingDeleteId = null;
@@ -842,6 +927,51 @@
         let selectedRoleId = null;
         let allRoles = [];
         let filteredTimers = [];
+        let debugLogs = [];
+
+        // Debug Logging System
+        function addDebugLog(message, type = 'info') {
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 });
+            const logEntry = { message, type, time };
+            debugLogs.push(logEntry);
+            
+            // Keep only last 50 logs
+            if (debugLogs.length > 50) {
+                debugLogs.shift();
+            }
+            
+            // Update UI
+            const logsContainer = document.getElementById('debugLogs');
+            if (logsContainer) {
+                const logEl = document.createElement('div');
+                logEl.className = `debug-log ${type}`;
+                logEl.innerHTML = `<span class="debug-log-time">[${time}]</span> ${message}`;
+                logsContainer.appendChild(logEl);
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            }
+            
+            // Also log to console for visibility
+            const consoleStyle = type === 'error' ? 'color: red; font-weight: bold;' : 
+                                type === 'warn' ? 'color: orange; font-weight: bold;' :
+                                type === 'success' ? 'color: green; font-weight: bold;' :
+                                'color: cyan;';
+            console.log(`%c[${type.toUpperCase()}] ${message}`, consoleStyle);
+        }
+
+        function toggleDebugPanel() {
+            const panel = document.getElementById('debugPanel');
+            const logsContainer = document.getElementById('debugLogs');
+            if (logsContainer.style.display === 'none') {
+                logsContainer.style.display = 'block';
+            } else {
+                logsContainer.style.display = 'none';
+            }
+        }
+
+        // Intercept console.log for debug panel
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
 
         // Check authentication on page load
         async function checkAuth() {
@@ -1216,60 +1346,73 @@
 
         function deleteTimer(timerId, event) {
             // Get the button element to extract data attributes
-            console.log('[Delete] deleteTimer called with timerId:', timerId, 'event:', event);
+            addDebugLog(`🔴 deleteTimer called with timerId: ${timerId}`, 'info');
+            addDebugLog(`Event object type: ${event?.type || 'undefined'}`, 'info');
             
             const button = event.currentTarget || event.target;
-            console.log('[Delete] Button element:', button);
+            addDebugLog(`Button element: ${button ? button.tagName : 'null'}`, 'info');
+            
+            if (!button) {
+                addDebugLog('ERROR: Button element not found!', 'error');
+                return;
+            }
             
             const userName = button.getAttribute('data-user') || 'Unknown User';
             const roleName = button.getAttribute('data-role') || 'Unknown Role';
             
-            console.log(`[Delete] Attempting to delete timer ${timerId} for ${userName} (role: ${roleName})`);
+            addDebugLog(`Attempting to delete timer for ${userName} (role: ${roleName})`, 'info');
             
             pendingDeleteId = timerId;
-            console.log('[Delete] Set pendingDeleteId to:', pendingDeleteId);
+            addDebugLog(`Set pendingDeleteId to: ${pendingDeleteId}`, 'success');
             
             const confirmMsg = `Are you sure you want to delete the timer for ${userName} with role ${roleName}?`;
-            console.log('[Delete] Setting modal message to:', confirmMsg);
+            addDebugLog(`Setting modal message: ${confirmMsg}`, 'info');
             
             document.getElementById('confirmMessage').textContent = confirmMsg;
             const modal = document.getElementById('confirmModal');
-            console.log('[Delete] Modal element:', modal);
-            modal.classList.add('active');
-            console.log('[Delete] Modal shown');
+            addDebugLog(`Modal element found: ${modal ? 'yes' : 'no'}`, 'info');
+            
+            if (modal) {
+                modal.classList.add('active');
+                addDebugLog('✅ Modal shown (active class added)', 'success');
+            } else {
+                addDebugLog('ERROR: Modal element not found!', 'error');
+            }
         }
 
         async function confirmDelete() {
-            console.log('[Delete-Confirm] confirmDelete() called');
-            console.log('[Delete-Confirm] pendingDeleteId:', pendingDeleteId);
-            console.log('[Delete-Confirm] guildId:', guildId);
+            addDebugLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
+            addDebugLog('🗑️ confirmDelete() STARTED', 'info');
+            addDebugLog(`pendingDeleteId: ${pendingDeleteId}`, 'info');
+            addDebugLog(`guildId: ${guildId}`, 'info');
             
             if (!pendingDeleteId) {
-                console.warn('[Delete-Confirm] No pendingDeleteId set - ABORTING');
+                addDebugLog('❌ ABORT: No pendingDeleteId set', 'error');
                 return;
             }
 
-            console.log(`[Delete-Confirm] Confirming deletion of timer ${pendingDeleteId}`);
+            addDebugLog(`Confirming deletion of timer ${pendingDeleteId}`, 'info');
 
             try {
                 // Ensure guildId is set
                 if (!guildId) {
-                    console.log('[Delete-Confirm] guildId not set, calling getGuildId()');
+                    addDebugLog('guildId not set, calling getGuildId()', 'warn');
                     guildId = getGuildId();
-                    console.log(`[Delete-Confirm] Retrieved guildId: ${guildId}`);
+                    addDebugLog(`Retrieved guildId: ${guildId}`, 'info');
                 }
 
                 if (!guildId) {
+                    addDebugLog('❌ Guild ID still not available - ABORTING', 'error');
                     throw new Error('Guild ID not available');
                 }
 
                 const url = `/api/timer/delete?guildId=${guildId}`;
-                console.log(`[Delete-Confirm] Constructed URL: ${url}`);
+                addDebugLog(`📤 Constructed URL: ${url}`, 'info');
                 
                 const requestBody = { timerId: pendingDeleteId };
-                console.log('[Delete-Confirm] Request body:', requestBody);
+                addDebugLog(`📦 Request body: ${JSON.stringify(requestBody)}`, 'info');
 
-                console.log('[Delete-Confirm] Sending DELETE request...');
+                addDebugLog('📡 Sending DELETE request...', 'info');
                 const response = await fetch(url, {
                     method: 'DELETE',
                     credentials: 'include',
@@ -1277,36 +1420,36 @@
                     body: JSON.stringify(requestBody)
                 });
 
-                console.log(`[Delete-Confirm] Response received - Status: ${response.status}`);
-                console.log(`[Delete-Confirm] Response headers:`, {
-                    'content-type': response.headers.get('content-type'),
-                    'content-length': response.headers.get('content-length')
-                });
+                addDebugLog(`📥 Response received - Status: ${response.status}`, 'info');
+                addDebugLog(`Content-Type: ${response.headers.get('content-type')}, Content-Length: ${response.headers.get('content-length')}`, 'info');
 
                 if (!response.ok) {
-                    console.error(`[Delete-Confirm] Response not OK (${response.status})`);
+                    addDebugLog(`❌ Response not OK (${response.status})`, 'error');
                     let errorData;
                     try {
                         errorData = await response.json();
                     } catch (e) {
+                        addDebugLog(`⚠️ Could not parse error response as JSON: ${e.message}`, 'warn');
                         errorData = { error: response.statusText };
                     }
-                    console.error('[Delete-Confirm] Error data:', errorData);
+                    addDebugLog(`Error data: ${JSON.stringify(errorData)}`, 'error');
                     throw new Error(errorData.error || `HTTP ${response.status}`);
                 }
 
                 const result = await response.json();
-                console.log('[Delete-Confirm] Success response:', result);
+                addDebugLog(`✅ SUCCESS! Response: ${JSON.stringify(result)}`, 'success');
                 showAlert('Timer deleted successfully!', 'success');
                 cancelDelete();
-                console.log('[Delete-Confirm] Calling loadDashboard()');
-                loadDashboard();
+                addDebugLog('Calling loadDashboard() to refresh...', 'info');
+                await loadDashboard();
+                addDebugLog('Dashboard refreshed', 'success');
             } catch (err) {
-                console.error('[Delete-Confirm] Error deleting timer:', err);
-                console.error('[Delete-Confirm] Stack:', err.stack);
+                addDebugLog(`❌ ERROR: ${err.message}`, 'error');
+                addDebugLog(`Stack: ${err.stack}`, 'error');
                 showAlert(`Error: ${err.message}`, 'error');
                 cancelDelete();
             }
+            addDebugLog('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'info');
         }
 
         function cancelDelete() {
