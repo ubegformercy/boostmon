@@ -1101,7 +1101,7 @@
                         <td><span class="badge ${badge}">${status}</span></td>
                         <td class="action-column">
                             <div class="action-buttons">
-                                <button class="delete-btn" onclick="deleteTimer(${timer.id})" data-user="${timer.user}" data-role="${timer.role}">✕</button>
+                                <button class="delete-btn" onclick="deleteTimer(${timer.id}, event)" data-user="${timer.user}" data-role="${timer.role}">✕</button>
                             </div>
                         </td>
                     </tr>
@@ -1214,11 +1214,13 @@
             loadDashboard();
         }
 
-        function deleteTimer(timerId) {
+        function deleteTimer(timerId, event) {
             // Get the button element to extract data attributes
-            const button = event.currentTarget;
+            const button = event.currentTarget || event.target;
             const userName = button.getAttribute('data-user') || 'Unknown User';
             const roleName = button.getAttribute('data-role') || 'Unknown Role';
+            
+            console.log(`[Delete] Attempting to delete timer ${timerId} for ${userName} (role: ${roleName})`);
             
             pendingDeleteId = timerId;
             document.getElementById('confirmMessage').textContent = 
@@ -1227,7 +1229,12 @@
         }
 
         async function confirmDelete() {
-            if (!pendingDeleteId) return;
+            if (!pendingDeleteId) {
+                console.warn('[Delete] No pendingDeleteId set');
+                return;
+            }
+
+            console.log(`[Delete] Confirming deletion of timer ${pendingDeleteId}`);
 
             try {
                 const response = await fetch(`/api/timer/delete?guildId=${guildId}`, {
@@ -1237,16 +1244,19 @@
                     body: JSON.stringify({ timerId: pendingDeleteId })
                 });
 
+                console.log(`[Delete] Response status: ${response.status}`);
+
                 if (!response.ok) {
                     const error = await response.json();
                     throw new Error(error.error || 'Failed to delete timer');
                 }
 
+                console.log('[Delete] Timer deleted successfully');
                 showAlert('Timer deleted successfully!', 'success');
                 cancelDelete();
                 loadDashboard();
             } catch (err) {
-                console.error('Error deleting timer:', err);
+                console.error('[Delete] Error deleting timer:', err);
                 showAlert(`Error: ${err.message}`, 'error');
                 cancelDelete();
             }
