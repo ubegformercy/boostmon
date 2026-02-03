@@ -423,14 +423,23 @@ router.patch('/api/timer/update', requireAuth, requireGuildAccess, async (req, r
  */
 router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, res) => {
   try {
+    console.log('[DELETE] Received delete request');
+    console.log('[DELETE] Request headers:', req.headers);
+    console.log('[DELETE] Request body:', req.body);
+    console.log('[DELETE] Request method:', req.method);
+    
     const { timerId } = req.body;
     const guildId = req.guildId;
 
+    console.log(`[DELETE] timerId: ${timerId}, guildId: ${guildId}`);
+
     // Validation
     if (!timerId) {
+      console.log('[DELETE] Error: timerId is missing');
       return res.status(400).json({ error: 'Timer ID is required' });
     }
 
+    console.log('[DELETE] Executing query to delete timer');
     const result = await db.pool.query(
       `DELETE FROM role_timers 
        WHERE id = $1 AND guild_id = $2
@@ -438,16 +447,21 @@ router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, 
       [timerId, guildId]
     );
 
+    console.log(`[DELETE] Query result: ${result.rows.length} rows affected`);
+
     if (result.rows.length === 0) {
+      console.log('[DELETE] Timer not found in database');
       return res.status(404).json({ error: 'Timer not found' });
     }
 
+    console.log('[DELETE] Timer deleted successfully');
     res.json({ 
       success: true, 
       message: 'Timer deleted successfully'
     });
   } catch (err) {
-    console.error('Error deleting timer:', err);
+    console.error('[DELETE] Error deleting timer:', err);
+    console.error('[DELETE] Error stack:', err.stack);
     res.status(500).json({ error: 'Failed to delete timer', details: err.message });
   }
 });

@@ -1216,32 +1216,47 @@
 
         function deleteTimer(timerId, event) {
             // Get the button element to extract data attributes
+            console.log('[Delete] deleteTimer called with timerId:', timerId, 'event:', event);
+            
             const button = event.currentTarget || event.target;
+            console.log('[Delete] Button element:', button);
+            
             const userName = button.getAttribute('data-user') || 'Unknown User';
             const roleName = button.getAttribute('data-role') || 'Unknown Role';
             
             console.log(`[Delete] Attempting to delete timer ${timerId} for ${userName} (role: ${roleName})`);
             
             pendingDeleteId = timerId;
-            document.getElementById('confirmMessage').textContent = 
-                `Are you sure you want to delete the timer for ${userName} with role ${roleName}?`;
-            document.getElementById('confirmModal').classList.add('active');
+            console.log('[Delete] Set pendingDeleteId to:', pendingDeleteId);
+            
+            const confirmMsg = `Are you sure you want to delete the timer for ${userName} with role ${roleName}?`;
+            console.log('[Delete] Setting modal message to:', confirmMsg);
+            
+            document.getElementById('confirmMessage').textContent = confirmMsg;
+            const modal = document.getElementById('confirmModal');
+            console.log('[Delete] Modal element:', modal);
+            modal.classList.add('active');
+            console.log('[Delete] Modal shown');
         }
 
         async function confirmDelete() {
+            console.log('[Delete-Confirm] confirmDelete() called');
+            console.log('[Delete-Confirm] pendingDeleteId:', pendingDeleteId);
+            console.log('[Delete-Confirm] guildId:', guildId);
+            
             if (!pendingDeleteId) {
-                console.warn('[Delete] No pendingDeleteId set');
+                console.warn('[Delete-Confirm] No pendingDeleteId set - ABORTING');
                 return;
             }
 
-            console.log(`[Delete] Confirming deletion of timer ${pendingDeleteId}`);
-            console.log(`[Delete] Current guildId: ${guildId}`);
+            console.log(`[Delete-Confirm] Confirming deletion of timer ${pendingDeleteId}`);
 
             try {
                 // Ensure guildId is set
                 if (!guildId) {
+                    console.log('[Delete-Confirm] guildId not set, calling getGuildId()');
                     guildId = getGuildId();
-                    console.log(`[Delete] Retrieved guildId from getGuildId: ${guildId}`);
+                    console.log(`[Delete-Confirm] Retrieved guildId: ${guildId}`);
                 }
 
                 if (!guildId) {
@@ -1249,31 +1264,46 @@
                 }
 
                 const url = `/api/timer/delete?guildId=${guildId}`;
-                console.log(`[Delete] Fetching: ${url}`);
+                console.log(`[Delete-Confirm] Constructed URL: ${url}`);
+                
+                const requestBody = { timerId: pendingDeleteId };
+                console.log('[Delete-Confirm] Request body:', requestBody);
 
+                console.log('[Delete-Confirm] Sending DELETE request...');
                 const response = await fetch(url, {
                     method: 'DELETE',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ timerId: pendingDeleteId })
+                    body: JSON.stringify(requestBody)
                 });
 
-                console.log(`[Delete] Response status: ${response.status}`);
-                console.log(`[Delete] Response headers: ${response.headers.get('content-type')}`);
+                console.log(`[Delete-Confirm] Response received - Status: ${response.status}`);
+                console.log(`[Delete-Confirm] Response headers:`, {
+                    'content-type': response.headers.get('content-type'),
+                    'content-length': response.headers.get('content-length')
+                });
 
                 if (!response.ok) {
-                    const error = await response.json().catch(() => ({ error: response.statusText }));
-                    throw new Error(error.error || `HTTP ${response.status}`);
+                    console.error(`[Delete-Confirm] Response not OK (${response.status})`);
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        errorData = { error: response.statusText };
+                    }
+                    console.error('[Delete-Confirm] Error data:', errorData);
+                    throw new Error(errorData.error || `HTTP ${response.status}`);
                 }
 
                 const result = await response.json();
-                console.log('[Delete] Response:', result);
+                console.log('[Delete-Confirm] Success response:', result);
                 showAlert('Timer deleted successfully!', 'success');
                 cancelDelete();
+                console.log('[Delete-Confirm] Calling loadDashboard()');
                 loadDashboard();
             } catch (err) {
-                console.error('[Delete] Error deleting timer:', err);
-                console.error('[Delete] Stack:', err.stack);
+                console.error('[Delete-Confirm] Error deleting timer:', err);
+                console.error('[Delete-Confirm] Stack:', err.stack);
                 showAlert(`Error: ${err.message}`, 'error');
                 cancelDelete();
             }
