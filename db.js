@@ -610,7 +610,7 @@ async function upsertGuildMember(guildId, userId, username, displayName, isBot, 
 async function getGuildMembers(guildId) {
   try {
     const result = await pool.query(
-      `SELECT user_id as id, username as name, display_name as displayName, is_bot as isBot, avatar_url as avatarUrl
+      `SELECT user_id as "id", username as "name", display_name as "displayName", is_bot as "isBot", avatar_url as "avatarUrl"
        FROM guild_members_cache 
        WHERE guild_id = $1 
        ORDER BY display_name ASC, username ASC`,
@@ -627,7 +627,7 @@ async function searchGuildMembers(guildId, query) {
   try {
     const searchQuery = `%${query}%`;
     const result = await pool.query(
-      `SELECT user_id as id, username as name, display_name as displayName, is_bot as isBot, avatar_url as avatarUrl
+      `SELECT user_id as "id", username as "name", display_name as "displayName", is_bot as "isBot", avatar_url as "avatarUrl"
        FROM guild_members_cache 
        WHERE guild_id = $1 AND (username ILIKE $2 OR display_name ILIKE $2 OR user_id = $3)
        ORDER BY display_name ASC, username ASC
