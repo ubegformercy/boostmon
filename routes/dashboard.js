@@ -940,4 +940,201 @@ router.get('/api/reports', requireAuth, requireGuildAccess, async (req, res) => 
   }
 });
 
+// ============================================
+// AUTO-PURGE SETTINGS MANAGEMENT ENDPOINTS
+// ============================================
+
+/**
+ * POST /api/autopurge/add
+ * Create a new auto-purge setting
+ * 
+ * Body:
+ *   - channelId: Discord channel ID (required)
+ *   - type: Purge type - 'all', 'bots', or 'embeds' (required)
+ *   - lines: Number of lines to keep (required)
+ *   - intervalMinutes: Purge interval in minutes (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.post('/api/autopurge/add', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { channelId, type, lines, intervalMinutes } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!channelId || !type || !lines || !intervalMinutes) {
+      return res.status(400).json({
+        error: 'Missing required fields: channelId, type, lines, and intervalMinutes'
+      });
+    }
+
+    if (!['all', 'bots', 'embeds'].includes(type)) {
+      return res.status(400).json({
+        error: 'Invalid type. Must be one of: all, bots, embeds'
+      });
+    }
+
+    if (lines <= 0 || intervalMinutes <= 0) {
+      return res.status(400).json({
+        error: 'Lines and interval must be positive numbers'
+      });
+    }
+
+    // Check if autopurge already exists for this channel
+    const existing = await db.pool.query(
+      `SELECT id FROM autopurge_settings WHERE guild_id = $1 AND channel_id = $2`,
+      [guildId, channelId]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        error: 'An auto-purge setting already exists for this channel'
+      });
+    }
+
+    // Create new autopurge setting
+    const result = await db.pool.query(
+      `INSERT INTO autopurge_settings (guild_id, channel_id, type, lines, interval_seconds, enabled)
+       VALUES ($1, $2, $3, $4, $5, true)
+       RETURNING *`,
+      [guildId, channelId, type, lines, intervalMinutes * 60]
+    );
+
+    res.json({
+      success: true,
+      setting: result.rows[0],
+      message: 'Auto-purge setting created successfully'
+    });
+  } catch (err) {
+    console.error('Error adding auto-purge setting:', err);
+    res.status(500).json({ error: 'Failed to add auto-purge setting', details: err.message });
+  }
+});
+
+/**
+ * PATCH /api/autopurge/update
+ * Update an auto-purge setting
+ * 
+ * Body:
+ *   - channelId: Discord channel ID (required)
+ *   - lines: New number of lines to keep (optional)
+ *   - intervalMinutes: New interval in minutes (optional)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.patch('/api/autopurge/update', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { channelId, lines, intervalMinutes } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!channelId) {
+      return res.status(400).json({
+        error: 'Channel ID is required'
+      });
+    }
+
+    if (lines !== undefined && lines <= 0) {
+      return res.status(400).json({
+        error: 'Lines must be a positive number'
+      });
+    }
+
+    if (intervalMinutes !== undefined && intervalMinutes <= 0) {
+      return res.status(400).json({
+        error: 'Interval must be a positive number'
+      });
+    }
+
+    // Build dynamic update query
+    const updates = [];
+    const values = [guildId, channelId];
+    let paramCount = 2;
+
+    if (lines !== undefined) {
+      paramCount++;
+      updates.push(`lines = $${paramCount}`);
+      values.push(lines);
+    }
+
+    if (intervalMinutes !== undefined) {
+      paramCount++;
+      updates.push(`interval_seconds = $${paramCount}`);
+      values.push(intervalMinutes * 60);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({
+        error: 'At least one field (lines or intervalMinutes) must be provided'
+      });
+    }
+
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+
+    const result = await db.pool.query(
+      `UPDATE autopurge_settings
+       SET ${updates.join(', ')}
+       WHERE guild_id = $1 AND channel_id = $2
+       RETURNING *`,
+      values
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Auto-purge setting not found' });
+    }
+
+    res.json({
+      success: true,
+      setting: result.rows[0],
+      message: 'Auto-purge setting updated successfully'
+    });
+  } catch (err) {
+    console.error('Error updating auto-purge setting:', err);
+    res.status(500).json({ error: 'Failed to update auto-purge setting', details: err.message });
+  }
+});
+
+/**
+ * DELETE /api/autopurge/delete
+ * Delete an auto-purge setting
+ * 
+ * Body:
+ *   - channelId: Discord channel ID (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.delete('/api/autopurge/delete', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { channelId } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!channelId) {
+      return res.status(400).json({ error: 'Channel ID is required' });
+    }
+
+    const result = await db.pool.query(
+      `DELETE FROM autopurge_settings
+       WHERE guild_id = $1 AND channel_id = $2
+       RETURNING id`,
+      [guildId, channelId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Auto-purge setting not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Auto-purge setting deleted successfully'
+    });
+  } catch (err) {
+    console.error('Error deleting auto-purge setting:', err);
+    res.status(500).json({ error: 'Failed to delete auto-purge setting', details: err.message });
+  }
+});
+
 module.exports = router;
