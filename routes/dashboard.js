@@ -214,10 +214,28 @@ router.get('/api/dashboard', requireAuth, requireGuildAccess, async (req, res) =
         const userName = await getUserName(timer.user_id);
         const roleName = getRoleName(timer.role_id);
 
+        // Get member for display name and online status
+        let displayName = userName;
+        let presence = 'offline';
+        try {
+          const guild = global.botClient?.guilds?.cache?.get(guildId);
+          if (guild) {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            if (member) {
+              displayName = member.displayName || userName;
+              presence = member.presence?.status || 'offline';
+            }
+          }
+        } catch (err) {
+          // Fallback to userName if member fetch fails
+        }
+
         return {
           id: timer.id,
           user: userName,
           userId: timer.user_id,
+          displayName: displayName,
+          presence: presence,
           role: roleName,
           roleId: timer.role_id,
           remaining: remaining,

@@ -831,7 +831,7 @@
         .control-group input {
             cursor: text;
             flex: 1;
-            min-width: 200px;
+            min-width: 300px;
         }
 
         .control-group input:focus,
@@ -1088,8 +1088,6 @@
                     <select id="sortBy" onchange="filterAndSortTimers()">
                         <option value="expires-asc">Expires Soonest</option>
                         <option value="expires-desc">Expires Latest</option>
-                        <option value="time-asc">Time Remaining (Low to High)</option>
-                        <option value="time-desc">Time Remaining (High to Low)</option>
                         <option value="user-asc">User (A-Z)</option>
                         <option value="user-desc">User (Z-A)</option>
                     </select>
@@ -1682,12 +1680,6 @@
                 case 'expires-desc':
                     filtered.sort((a, b) => b.expiresAt - a.expiresAt);
                     break;
-                case 'time-asc':
-                    filtered.sort((a, b) => a.remaining - b.remaining);
-                    break;
-                case 'time-desc':
-                    filtered.sort((a, b) => b.remaining - a.remaining);
-                    break;
                 case 'user-asc':
                     filtered.sort((a, b) => a.user.localeCompare(b.user));
                     break;
@@ -1733,9 +1725,22 @@
                 const badge = timer.paused ? 'badge-paused' : timer.remaining <= 0 ? 'badge-expired' : 'badge-active';
                 const status = timer.paused ? '⏸️ PAUSED' : timer.remaining <= 0 ? '🔴 EXPIRED' : '🟢 ACTIVE';
                 
+                // Presence indicator
+                const presenceEmoji = {
+                  'online': '🟢',
+                  'idle': '🟡',
+                  'dnd': '🔴',
+                  'offline': '⚫'
+                }[timer.presence] || '⚫';
+                
+                // Build user display with display name and presence
+                const userDisplay = timer.displayName !== timer.user 
+                  ? `${timer.user} (${timer.displayName})`
+                  : timer.user;
+                
                 html += `
                     <tr>
-                        <td>${timer.user}</td>
+                        <td title="${userDisplay}">${presenceEmoji} ${userDisplay}</td>
                         <td class="editable-cell" onclick="editTime(${timer.id})" title="Click to edit">
                             ${timer.formattedTime} ✏️
                         </td>
