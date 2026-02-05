@@ -221,6 +221,7 @@ router.get('/api/dashboard', requireAuth, requireGuildAccess, async (req, res) =
         }
 
         return {
+          id: schedule.id,
           role: roleName,
           roleId: schedule.role_id,
           channel: channelName,
@@ -763,6 +764,179 @@ router.get('/api/guild-member-count', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error getting member count:', err);
     res.status(500).json({ error: 'Failed to get member count', details: err.message });
+  }
+});
+
+// ============================================
+// SCHEDULED REPORTS MANAGEMENT ENDPOINTS
+// ============================================
+
+/**
+ * POST /api/report/add
+ * Create a new scheduled report
+ * 
+ * Body:
+ *   - roleId: Discord role ID (required)
+ *   - channelId: Discord channel ID for reports (required)
+ *   - intervalMinutes: Report interval in minutes (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.post('/api/report/add', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { roleId, channelId, intervalMinutes } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!roleId || !channelId || !intervalMinutes || intervalMinutes <= 0) {
+      return res.status(400).json({
+        error: 'Missing required fields: roleId, channelId, and positive intervalMinutes'
+      });
+    }
+
+    // Check if report already exists for this role/channel combination
+    const existing = await db.pool.query(
+      `SELECT id FROM rolestatus_schedules WHERE guild_id = $1 AND role_id = $2 AND channel_id = $3`,
+      [guildId, roleId, channelId]
+    );
+
+    if (existing.rows.length > 0) {
+      return res.status(409).json({
+        error: 'A scheduled report already exists for this role and channel combination'
+      });
+    }
+
+    // Create new scheduled report
+    const result = await db.pool.query(
+      `INSERT INTO rolestatus_schedules (guild_id, role_id, channel_id, interval_minutes, enabled)
+       VALUES ($1, $2, $3, $4, true)
+       RETURNING *`,
+      [guildId, roleId, channelId, intervalMinutes]
+    );
+
+    res.json({
+      success: true,
+      report: result.rows[0],
+      message: 'Scheduled report created successfully'
+    });
+  } catch (err) {
+    console.error('Error adding scheduled report:', err);
+    res.status(500).json({ error: 'Failed to add scheduled report', details: err.message });
+  }
+});
+
+/**
+ * PATCH /api/report/update
+ * Update a scheduled report
+ * 
+ * Body:
+ *   - reportId: Report ID (required)
+ *   - intervalMinutes: New interval in minutes (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.patch('/api/report/update', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { reportId, intervalMinutes } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!reportId || !intervalMinutes || intervalMinutes <= 0) {
+      return res.status(400).json({
+        error: 'Missing required fields: reportId and positive intervalMinutes'
+      });
+    }
+
+    const result = await db.pool.query(
+      `UPDATE rolestatus_schedules
+       SET interval_minutes = $1, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND guild_id = $3
+       RETURNING *`,
+      [intervalMinutes, reportId, guildId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Scheduled report not found' });
+    }
+
+    res.json({
+      success: true,
+      report: result.rows[0],
+      message: 'Scheduled report updated successfully'
+    });
+  } catch (err) {
+    console.error('Error updating scheduled report:', err);
+    res.status(500).json({ error: 'Failed to update scheduled report', details: err.message });
+  }
+});
+
+/**
+ * DELETE /api/report/delete
+ * Delete a scheduled report
+ * 
+ * Body:
+ *   - reportId: Report ID (required)
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.delete('/api/report/delete', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const { reportId } = req.body;
+    const guildId = req.guildId;
+
+    // Validation
+    if (!reportId) {
+      return res.status(400).json({ error: 'Report ID is required' });
+    }
+
+    const result = await db.pool.query(
+      `DELETE FROM rolestatus_schedules
+       WHERE id = $1 AND guild_id = $2
+       RETURNING id`,
+      [reportId, guildId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Scheduled report not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Scheduled report deleted successfully'
+    });
+  } catch (err) {
+    console.error('Error deleting scheduled report:', err);
+    res.status(500).json({ error: 'Failed to delete scheduled report', details: err.message });
+  }
+});
+
+/**
+ * GET /api/reports
+ * Get all scheduled reports for a guild
+ * 
+ * Query params:
+ *   - guildId: Discord Guild ID (required)
+ */
+router.get('/api/reports', requireAuth, requireGuildAccess, async (req, res) => {
+  try {
+    const guildId = req.guildId;
+
+    const result = await db.pool.query(
+      `SELECT * FROM rolestatus_schedules WHERE guild_id = $1 ORDER BY created_at DESC`,
+      [guildId]
+    );
+
+    res.json({
+      success: true,
+      reports: result.rows,
+      count: result.rows.length
+    });
+  } catch (err) {
+    console.error('Error fetching scheduled reports:', err);
+    res.status(500).json({ error: 'Failed to fetch scheduled reports', details: err.message });
   }
 });
 

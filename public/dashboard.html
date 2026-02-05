@@ -1035,7 +1035,56 @@
 
         <div class="section" id="reportsSection">
             <h2>📋 Scheduled Reports</h2>
-            <div id="reportsList" class="loading">Loading reports...</div>
+            
+            <!-- Add Report Form -->
+            <div class="add-report-form" id="addReportForm" style="margin-bottom: 30px;">
+                <h3 style="color: #667eea; margin-bottom: 16px; font-size: 16px;">➕ Add New Scheduled Report</h3>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="reportRole">Select Role</label>
+                        <select id="reportRole" required>
+                            <option value="">-- Select a Role --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="reportChannel">Select Channel</label>
+                        <select id="reportChannel" required>
+                            <option value="">-- Select a Channel --</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="reportInterval">Interval (minutes)</label>
+                        <input type="number" id="reportInterval" placeholder="60" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <button class="btn btn-primary" onclick="addNewReport()" style="margin-top: 24px;">➕ Add Report</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reports Table -->
+            <div class="table-wrapper">
+                <table id="reportsTable">
+                    <thead>
+                        <tr>
+                            <th>Role</th>
+                            <th>Channel</th>
+                            <th>Interval</th>
+                            <th>Last Report</th>
+                            <th>Next Report</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reportsTableBody">
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 40px; color: #999;">
+                                <div class="empty-state-icon">📋</div>
+                                <p>No scheduled reports yet</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
         <div class="section" id="autopurgeSection">
@@ -1852,47 +1901,199 @@
         }
 
         function updateReportsTable(reports) {
-            const container = document.getElementById('reportsList');
+            const tbody = document.getElementById('reportsTableBody');
             
-            if (reports.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">📋</div>
-                        <p>No scheduled reports</p>
-                    </div>
+            if (!reports || reports.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 40px; color: #999;">
+                            <div class="empty-state-icon">📋</div>
+                            <p>No scheduled reports yet</p>
+                        </td>
+                    </tr>
                 `;
                 return;
             }
 
-            let html = `
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Role</th>
-                            <th>Channel</th>
-                            <th>Interval</th>
-                            <th>Last Report</th>
-                            <th>Next Report</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            reports.forEach(report => {
-                html += `
+            tbody.innerHTML = reports.map(report => {
+                const lastReport = report.lastReport || 'Never';
+                const nextReport = report.nextReport || 'Pending';
+                
+                return `
                     <tr>
                         <td>${report.role}</td>
                         <td>${report.channel}</td>
-                        <td>${report.interval} min</td>
-                        <td>${report.lastReport || 'Never'}</td>
-                        <td>${report.nextReport}</td>
+                        <td class="editable-cell" onclick="editReportInterval(${report.id}, ${report.interval})">
+                            ${report.interval} min
+                        </td>
+                        <td>${lastReport}</td>
+                        <td>${nextReport}</td>
+                        <td class="action-column">
+                            <div class="action-buttons">
+                                <button class="delete-btn" onclick="deleteReport(${report.id})" title="Delete Report">🗑️</button>
+                            </div>
+                        </td>
                     </tr>
                 `;
-            });
-
-            html += '</tbody></table>';
-            container.innerHTML = html;
+            }).join('');
         }
+
+        async function loadReports() {
+            try {
+                const response = await fetch(`/api/reports?guildId=${guildId}`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    console.warn('Failed to load reports:', response.status);
+                    return;
+                }
+
+                const data = await response.json();
+                
+                if (data.reports && data.reports.length > 0) {
+                    // Resolve role and channel names
+                    const allRoles = Array.from(document.querySelectorAll('#reportRole option')).map(opt => ({ id: opt.value, name: opt.text }));
+                    const allChannels = Array.from(document.querySelectorAll('#reportChannel option')).map(opt => ({ id: opt.value, name: opt.text }));
+                    
+                    const formattedReports = data.reports.map(report => {
+                        const role = allRoles.find(r => r.id === report.role_id);
+                        const channel = allChannels.find(c => c.id === report.channel_id);
+                        
+                        const lastReport = report.last_report_at 
+                            ? new Date(report.last_report_at).toLocaleString()
+                            : 'Never';
+                        
+                        const nextReportMs = report.last_report_at 
+                            ? new Date(report.last_report_at).getTime() + (report.interval_minutes * 60 * 1000)
+                            : Date.now() + (report.interval_minutes * 60 * 1000);
+                        
+                        const nextReport = new Date(nextReportMs).toLocaleString();
+                        
+                        return {
+                            id: report.id,
+                            role: role?.name || `Unknown (${report.role_id})`,
+                            roleId: report.role_id,
+                            channel: channel?.name || `Unknown (${report.channel_id})`,
+                            channelId: report.channel_id,
+                            interval: report.interval_minutes,
+                            lastReport: lastReport,
+                            nextReport: nextReport
+                        };
+                    });
+                    
+                    updateReportsTable(formattedReports);
+                    console.log(`[Reports] Loaded ${formattedReports.length} scheduled reports`);
+                } else {
+                    updateReportsTable([]);
+                }
+            } catch (err) {
+                console.error('Error loading reports:', err);
+                updateReportsTable([]);
+            }
+        }
+
+        async function addNewReport() {
+            const roleId = document.getElementById('reportRole').value.trim();
+            const channelId = document.getElementById('reportChannel').value.trim();
+            const intervalMinutes = parseInt(document.getElementById('reportInterval').value);
+
+            if (!roleId || !channelId || !intervalMinutes) {
+                showAlert('Please fill in all required fields', 'error');
+                return;
+            }
+
+            if (intervalMinutes <= 0) {
+                showAlert('Interval must be greater than 0', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/report/add?guildId=${guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roleId, channelId, intervalMinutes })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add report');
+                }
+
+                showAlert('Scheduled report added successfully!', 'success');
+                document.getElementById('reportRole').value = '';
+                document.getElementById('reportChannel').value = '';
+                document.getElementById('reportInterval').value = '';
+                loadDashboard();
+            } catch (err) {
+                console.error('Error adding report:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            }
+        }
+
+        function editReportInterval(reportId, currentInterval) {
+            const newInterval = prompt(`Enter new interval (minutes):\nCurrent: ${currentInterval} minutes`, currentInterval);
+            
+            if (newInterval === null) return;
+            
+            const interval = parseInt(newInterval);
+            if (isNaN(interval) || interval <= 0) {
+                showAlert('Interval must be a positive number', 'error');
+                return;
+            }
+
+            updateReportInterval(reportId, interval);
+        }
+
+        async function updateReportInterval(reportId, intervalMinutes) {
+            try {
+                const response = await fetch(`/api/report/update?guildId=${guildId}`, {
+                    method: 'PATCH',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reportId, intervalMinutes })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to update report');
+                }
+
+                showAlert('Scheduled report updated successfully!', 'success');
+                loadDashboard();
+            } catch (err) {
+                console.error('Error updating report:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            }
+        }
+
+        async function deleteReport(reportId) {
+            if (!confirm('Are you sure you want to delete this scheduled report?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/report/delete?guildId=${guildId}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reportId })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to delete report');
+                }
+
+                showAlert('Scheduled report deleted successfully!', 'success');
+                loadDashboard();
+            } catch (err) {
+                console.error('Error deleting report:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            }
+        }
+
 
         function updateAutopurgeTable(autopurge) {
             const container = document.getElementById('autopurgeList');
@@ -2010,6 +2211,41 @@
                             option.value = channel.id;
                             option.textContent = '#' + channel.name;
                             channelSelect.appendChild(option);
+                        });
+                    }
+                }
+                
+                // Also populate the report dropdowns (reportRole and reportChannel)
+                const reportRoleSelect = document.getElementById('reportRole');
+                if (reportRoleSelect) {
+                    // Remove all options except the placeholder
+                    while (reportRoleSelect.options.length > 1) {
+                        reportRoleSelect.remove(1);
+                    }
+                    // Add new options if data available
+                    if (data.roles && data.roles.length > 0) {
+                        data.roles.forEach(role => {
+                            const option = document.createElement('option');
+                            option.value = role.id;
+                            option.textContent = role.name;
+                            reportRoleSelect.appendChild(option);
+                        });
+                    }
+                }
+                
+                const reportChannelSelect = document.getElementById('reportChannel');
+                if (reportChannelSelect) {
+                    // Remove all options except the placeholder
+                    while (reportChannelSelect.options.length > 1) {
+                        reportChannelSelect.remove(1);
+                    }
+                    // Add new options if data available
+                    if (data.channels && data.channels.length > 0) {
+                        data.channels.forEach(channel => {
+                            const option = document.createElement('option');
+                            option.value = channel.id;
+                            option.textContent = '#' + channel.name;
+                            reportChannelSelect.appendChild(option);
                         });
                     }
                 }
