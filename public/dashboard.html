@@ -1174,7 +1174,7 @@
                     </select>
                 </div>
                 <div class="form-row">
-                    <input id="autopurgeLines" type="number" min="1" placeholder="Lines to Keep" required>
+                    <input id="autopurgeLines" type="number" min="1" placeholder="Messages to Purge" required>
                     <input id="autopurgeInterval" type="number" min="1" placeholder="Interval (minutes)" required>
                     <button onclick="addNewAutopurgeSetting()">Add Setting</button>
                 </div>
@@ -1185,7 +1185,7 @@
                         <tr>
                             <th>Channel</th>
                             <th>Type</th>
-                            <th>Lines to Keep</th>
+                            <th>Messages to Purge</th>
                             <th>Interval</th>
                             <th>Last Purge</th>
                             <th>Actions</th>
@@ -2309,7 +2309,7 @@
         }
 
         function editAutopurgeSetting(channelId, field, currentValue) {
-            const fieldName = field === 'lines' ? 'Lines to Keep' : 'Interval (minutes)';
+            const fieldName = field === 'lines' ? 'Messages to Purge' : 'Interval (minutes)';
             const newValue = prompt(`Edit ${fieldName}:\nCurrent value: ${currentValue}`, currentValue);
             
             if (newValue === null) return;

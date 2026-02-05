@@ -964,7 +964,7 @@ router.get('/api/reports', requireAuth, requireGuildAccess, async (req, res) => 
  * Body:
  *   - channelId: Discord channel ID (required)
  *   - type: Purge type - 'all', 'bots', or 'embeds' (required)
- *   - lines: Number of lines to keep (required)
+ *   - lines: Number of messages to auto-purge per interval (required)
  *   - intervalMinutes: Purge interval in minutes (required)
  * 
  * Query params:
@@ -1051,7 +1051,7 @@ router.post('/api/autopurge/add', requireAuth, requireGuildAccess, async (req, r
  * 
  * Body:
  *   - channelId: Discord channel ID (required)
- *   - lines: New number of lines to keep (optional)
+ *   - lines: New number of messages to auto-purge per interval (optional)
  *   - intervalMinutes: New interval in minutes (optional)
  * 
  * Query params:
