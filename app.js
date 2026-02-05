@@ -436,6 +436,27 @@ client.once("ready", async () => {
           .setName("status")
           .setDescription("Show all auto-purge settings in this server")
       ),
+
+    new SlashCommandBuilder()
+      .setName("setup")
+      .setDescription("Configure dashboard access permissions")
+      .addSubcommand((s) =>
+        s
+          .setName("grant")
+          .setDescription("Grant a role dashboard access")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to grant access to").setRequired(true))
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("revoke")
+          .setDescription("Revoke dashboard access from a role")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to revoke access from").setRequired(true))
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("list")
+          .setDescription("List all roles with dashboard access")
+      ),
   ].map((c) => c.toJSON());
 
   console.log("Registering command names:", commands.map((c) => c.name).join(", "));
@@ -1673,6 +1694,130 @@ if (interaction.commandName === "removetime") {
           .addFields(...fields)
           .addFields({ name: "━━━━━━━━━━━━━━━", value: `Total: ${settings.length}`, inline: false })
           .setFooter({ text: "BoostMon • Active Settings" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+    }
+
+    // ---------- /setup ----------
+    if (interaction.commandName === "setup") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      // Only owner or admins can use this command
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) && interaction.guild.ownerId !== interaction.user.id) {
+        return interaction.editReply({
+          content: "⛔ Only **Server Owner** or users with **Administrator** permission can use this command.",
+          ephemeral: true
+        });
+      }
+
+      const subcommand = interaction.options.getSubcommand();
+      const guild = interaction.guild;
+      const role = interaction.options.getRole("role");
+
+      if (subcommand === "grant") {
+        if (!role) {
+          return interaction.editReply({ content: "Please specify a role." });
+        }
+
+        const result = await db.grantDashboardAccess(guild.id, role.id, interaction.user.id);
+        
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ Failed to grant access (role may already have access)`
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("✅ Dashboard Access Granted")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Role", value: `${role}`, inline: true },
+            { name: "Granted By", value: `${interaction.user}`, inline: true },
+            { name: "Status", value: "Members with this role can now access the dashboard", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "revoke") {
+        if (!role) {
+          return interaction.editReply({ content: "Please specify a role." });
+        }
+
+        const result = await db.revokeDashboardAccess(guild.id, role.id);
+        
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ Failed to revoke access (role may not have dashboard access)`
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0xE74C3C)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("❌ Dashboard Access Revoked")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Role", value: `${role}`, inline: true },
+            { name: "Revoked By", value: `${interaction.user}`, inline: true },
+            { name: "Status", value: "Members with this role can no longer access the dashboard", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "list") {
+        const accessRoles = await db.getDashboardAccessRoles(guild.id);
+
+        if (accessRoles.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Dashboard Access Roles")
+            .setTimestamp(new Date())
+            .addFields({
+              name: "Status",
+              value: "**Default Access:** Server Owner + Admins only\n**Custom Roles:** None configured",
+              inline: false
+            })
+            .setFooter({ text: "BoostMon • Setup" });
+
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const fields = [];
+        for (const access of accessRoles) {
+          const grantRole = guild.roles.cache.get(access.role_id);
+          const roleName = grantRole ? `${grantRole}` : `<@&${access.role_id}>`;
+          const grantedBy = access.created_by ? `<@${access.created_by}>` : "Unknown";
+          const createdAt = new Date(access.created_at).toLocaleString();
+
+          fields.push({
+            name: `${roleName}`,
+            value: `Granted by ${grantedBy} on ${createdAt}`,
+            inline: false
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Dashboard Access Roles")
+          .setTimestamp(new Date())
+          .addFields({ name: "Default Access", value: "Server Owner + Admins (always have access)", inline: false })
+          .addFields(...fields)
+          .addFields({ name: "Total Custom Roles", value: `${accessRoles.length}`, inline: false })
+          .setFooter({ text: "BoostMon • Setup" });
 
         return interaction.editReply({ embeds: [embed] });
       }

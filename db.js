@@ -99,6 +99,17 @@ async function initDatabase() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS dashboard_access (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        role_id VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by VARCHAR(255),
+        UNIQUE(guild_id, role_id)
+      );
+    `);
+
     // Add missing column if it doesn't exist (for existing databases)
     try {
       await client.query(`
@@ -667,6 +678,79 @@ async function getLastSyncTime(guildId) {
   }
 }
 
+// ===== DASHBOARD ACCESS CONTROL =====
+
+async function grantDashboardAccess(guildId, roleId, grantedBy = null) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO dashboard_access (guild_id, role_id, created_by) 
+       VALUES ($1, $2, $3)
+       ON CONFLICT (guild_id, role_id) DO NOTHING
+       RETURNING *`,
+      [guildId, roleId, grantedBy]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error('grantDashboardAccess error:', err);
+    return null;
+  }
+}
+
+async function revokeDashboardAccess(guildId, roleId) {
+  try {
+    const result = await pool.query(
+      `DELETE FROM dashboard_access WHERE guild_id = $1 AND role_id = $2 RETURNING *`,
+      [guildId, roleId]
+    );
+    return result.rows.length > 0;
+  } catch (err) {
+    console.error('revokeDashboardAccess error:', err);
+    return false;
+  }
+}
+
+async function getDashboardAccessRoles(guildId) {
+  try {
+    const result = await pool.query(
+      `SELECT role_id, created_by, created_at FROM dashboard_access WHERE guild_id = $1 ORDER BY created_at DESC`,
+      [guildId]
+    );
+    return result.rows || [];
+  } catch (err) {
+    console.error('getDashboardAccessRoles error:', err);
+    return [];
+  }
+}
+
+async function hasDashboardAccess(guildId, member) {
+  try {
+    // Owner always has access
+    const guild = global.botClient?.guilds?.cache?.get(guildId);
+    if (guild && guild.ownerId === member.id) {
+      return true;
+    }
+
+    // Admin always has access
+    if (member.permissions?.has('Administrator')) {
+      return true;
+    }
+
+    // Check if any of the member's roles have dashboard access
+    const accessRoles = await getDashboardAccessRoles(guildId);
+    if (accessRoles.length === 0) {
+      return false; // No roles have access, only owner/admin
+    }
+
+    const allowedRoleIds = new Set(accessRoles.map(r => r.role_id));
+    const memberRoleIds = member.roles?.cache?.keyArray?.() || [];
+    
+    return memberRoleIds.some(roleId => allowedRoleIds.has(roleId));
+  } catch (err) {
+    console.error('hasDashboardAccess error:', err);
+    return false;
+  }
+}
+
 async function closePool() {
   await pool.end();
   console.log("Database connection pool closed");
@@ -712,5 +796,12 @@ module.exports = {
   searchGuildMembers,
   clearGuildMemberCache,
   getLastSyncTime,
+  
+  // Dashboard access control
+  grantDashboardAccess,
+  revokeDashboardAccess,
+  getDashboardAccessRoles,
+  hasDashboardAccess,
+  
   closePool,
 };

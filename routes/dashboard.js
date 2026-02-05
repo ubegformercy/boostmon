@@ -49,6 +49,45 @@ function requireGuildAccess(req, res, next) {
   next();
 }
 
+/**
+ * Middleware to verify user has permission to access the dashboard
+ * Owner and Admins always have access
+ * Others must have a role with dashboard access granted
+ */
+async function requireDashboardAccess(req, res, next) {
+  const guildId = req.guildId;
+  const userId = req.user.userId;
+
+  try {
+    // Fetch member info from Discord
+    const guild = global.botClient?.guilds?.cache?.get(guildId);
+    if (!guild) {
+      return res.status(500).json({ error: 'Guild not found' });
+    }
+
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) {
+      return res.status(403).json({ error: 'Could not verify member status' });
+    }
+
+    // Check dashboard access
+    const hasAccess = await db.hasDashboardAccess(guildId, member);
+    if (!hasAccess) {
+      console.warn(`Dashboard access denied: userId=${userId}, guildId=${guildId}`);
+      return res.status(403).json({ 
+        error: 'Dashboard access denied',
+        message: 'You do not have permission to access this guild dashboard'
+      });
+    }
+
+    req.member = member;
+    next();
+  } catch (err) {
+    console.error(`[DashboardAccess] Error:`, err.message);
+    return res.status(500).json({ error: 'Permission check failed' });
+  }
+}
+
 // Helper function to resolve Discord IDs to names
 async function resolveUserName(client, userId) {
   try {
@@ -90,7 +129,7 @@ async function resolveChannelName(guild, channelId) {
  * 
  * Protected: Requires authentication and guild membership
  */
-router.get('/api/dashboard', requireAuth, requireGuildAccess, async (req, res) => {
+router.get('/api/dashboard', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const guildId = req.guildId;
     
@@ -341,7 +380,7 @@ router.get('/api/dashboard', requireAuth, requireGuildAccess, async (req, res) =
  * 
  * Protected: Requires authentication and guild access
  */
-router.post('/api/timer/add', requireAuth, requireGuildAccess, async (req, res) => {
+router.post('/api/timer/add', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { userId, roleId, minutes, channelId } = req.body;
     const guildId = req.guildId;
@@ -405,7 +444,7 @@ router.post('/api/timer/add', requireAuth, requireGuildAccess, async (req, res) 
  * 
  * Protected: Requires authentication and guild access
  */
-router.patch('/api/timer/update', requireAuth, requireGuildAccess, async (req, res) => {
+router.patch('/api/timer/update', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { timerId, minutes } = req.body;
     const guildId = req.guildId;
@@ -454,7 +493,7 @@ router.patch('/api/timer/update', requireAuth, requireGuildAccess, async (req, r
  * 
  * Protected: Requires authentication and guild access
  */
-router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, res) => {
+router.delete('/api/timer/delete', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     console.log('[DELETE] Received delete request');
     console.log('[DELETE] Request headers:', req.headers);
@@ -513,7 +552,7 @@ router.delete('/api/timer/delete', requireAuth, requireGuildAccess, async (req, 
  * 
  * Protected: Requires authentication and guild access
  */
-router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, res) => {
+router.get('/api/dropdown-data', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const guildId = req.guildId;
     let guild = null;
@@ -814,7 +853,7 @@ router.get('/api/guild-member-count', requireAuth, async (req, res) => {
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.post('/api/report/add', requireAuth, requireGuildAccess, async (req, res) => {
+router.post('/api/report/add', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { roleId, channelId, intervalMinutes } = req.body;
     const guildId = req.guildId;
@@ -868,7 +907,7 @@ router.post('/api/report/add', requireAuth, requireGuildAccess, async (req, res)
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.patch('/api/report/update', requireAuth, requireGuildAccess, async (req, res) => {
+router.patch('/api/report/update', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { reportId, intervalMinutes } = req.body;
     const guildId = req.guildId;
@@ -913,7 +952,7 @@ router.patch('/api/report/update', requireAuth, requireGuildAccess, async (req, 
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.delete('/api/report/delete', requireAuth, requireGuildAccess, async (req, res) => {
+router.delete('/api/report/delete', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { reportId } = req.body;
     const guildId = req.guildId;
@@ -951,7 +990,7 @@ router.delete('/api/report/delete', requireAuth, requireGuildAccess, async (req,
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.get('/api/reports', requireAuth, requireGuildAccess, async (req, res) => {
+router.get('/api/reports', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const guildId = req.guildId;
 
@@ -988,7 +1027,7 @@ router.get('/api/reports', requireAuth, requireGuildAccess, async (req, res) => 
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.post('/api/autopurge/add', requireAuth, requireGuildAccess, async (req, res) => {
+router.post('/api/autopurge/add', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { channelId, type, lines, intervalMinutes } = req.body;
     const guildId = req.guildId;
@@ -1075,7 +1114,7 @@ router.post('/api/autopurge/add', requireAuth, requireGuildAccess, async (req, r
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.patch('/api/autopurge/update', requireAuth, requireGuildAccess, async (req, res) => {
+router.patch('/api/autopurge/update', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { channelId, lines, intervalMinutes } = req.body;
     const guildId = req.guildId;
@@ -1157,7 +1196,7 @@ router.patch('/api/autopurge/update', requireAuth, requireGuildAccess, async (re
  * Query params:
  *   - guildId: Discord Guild ID (required)
  */
-router.delete('/api/autopurge/delete', requireAuth, requireGuildAccess, async (req, res) => {
+router.delete('/api/autopurge/delete', requireAuth, requireGuildAccess, requireDashboardAccess, async (req, res) => {
   try {
     const { channelId } = req.body;
     const guildId = req.guildId;
