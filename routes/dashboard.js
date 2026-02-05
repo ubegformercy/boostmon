@@ -543,7 +543,7 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
         // Also add users who have active timers but might not be in the guild anymore
         try {
           const timerUsers = await db.query(
-            `SELECT DISTINCT user_id, user_name FROM role_timers WHERE guild_id = $1`,
+            `SELECT DISTINCT user_id FROM role_timers WHERE guild_id = $1`,
             [guildId]
           );
           
@@ -554,8 +554,8 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, async (req, re
             if (!userMap.has(row.user_id)) {
               userMap.set(row.user_id, {
                 id: row.user_id,
-                name: row.user_name || row.user_id,
-                displayName: row.user_name || row.user_id,
+                name: row.user_id,
+                displayName: row.user_id,
                 userType: 'member',
                 status: 'offline',
                 isBot: false,
@@ -707,16 +707,16 @@ router.post('/api/search-user', requireAuth, async (req, res) => {
           // Try to search in timer history
           try {
             const dbResult = await db.query(
-              `SELECT DISTINCT user_id, user_name FROM role_timers WHERE guild_id = $1 AND (user_name ILIKE $2 OR user_id = $3)`,
-              [guildId, `%${searchQuery}%`, searchQuery]
+              `SELECT DISTINCT user_id FROM role_timers WHERE guild_id = $1 AND user_id = $2`,
+              [guildId, searchQuery]
             );
 
             if (dbResult.rows.length > 0) {
               const row = dbResult.rows[0];
               foundUser = {
                 id: row.user_id,
-                name: row.user_name || row.user_id,
-                displayName: row.user_name || row.user_id,
+                name: row.user_id,
+                displayName: row.user_id,
                 isBot: false,
                 status: 'offline',
                 source: 'timer-history'
