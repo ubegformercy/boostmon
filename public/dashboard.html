@@ -1459,10 +1459,10 @@
                             <div class="form-group">
                                 <label for="sortByTab">Sort By</label>
                                 <select id="sortByTab" onchange="filterAndSortTimersTab()">
-                                    <option value="time-asc">Time Remaining (Low to High)</option>
-                                    <option value="time-desc">Time Remaining (High to Low)</option>
-                                    <option value="name-asc">Username (A to Z)</option>
-                                    <option value="name-desc">Username (Z to A)</option>
+                                    <option value="expires-asc">Expires Soon (Ascending)</option>
+                                    <option value="expires-desc">Expires Last (Descending)</option>
+                                    <option value="user-asc">Username (A to Z)</option>
+                                    <option value="user-desc">Username (Z to A)</option>
                                 </select>
                             </div>
                         </div>
@@ -3174,20 +3174,31 @@
             }
 
             tbody.innerHTML = timers.map(timer => {
-                const timeRemaining = timer.timeRemaining || 'Unknown';
-                const expiresAt = timer.expiresAt || 'Unknown';
-                const statusEmoji = timer.status === 'active' ? '✅' : timer.status === 'paused' ? '⏸️' : '⏱️';
+                const badge = timer.paused ? 'badge-paused' : timer.remaining <= 0 ? 'badge-expired' : 'badge-active';
+                const status = timer.paused ? '⏸️ PAUSED' : timer.remaining <= 0 ? '🔴 EXPIRED' : '🟢 ACTIVE';
+                const presenceEmoji = {
+                  'online': '🟢',
+                  'idle': '🟡',
+                  'dnd': '🔴',
+                  'offline': '⚫'
+                }[timer.presence] || '⚫';
+                
+                const userDisplay = timer.displayName !== timer.user 
+                  ? `${timer.user} (${timer.displayName})`
+                  : timer.user;
                 
                 return `
                     <tr>
-                        <td>${timer.user}</td>
+                        <td title="${userDisplay}">${presenceEmoji} ${userDisplay}</td>
                         <td>${timer.role}</td>
-                        <td>${timeRemaining}</td>
-                        <td>${expiresAt}</td>
-                        <td>${statusEmoji} ${timer.status}</td>
+                        <td class="editable-cell" onclick="editTime(${timer.id})" title="Click to edit">
+                            ${timer.formattedTime} ✏️
+                        </td>
+                        <td>${new Date(timer.expiresAt).toLocaleString()}</td>
+                        <td><span class="badge ${badge}">${status}</span></td>
                         <td class="action-column">
                             <div class="action-buttons">
-                                <button class="delete-btn" onclick="deleteTimer(${timer.id})" title="Delete Timer">🗑️</button>
+                                <button class="delete-btn" onclick="deleteTimer(${timer.id}, event)" data-user="${timer.user}" data-role="${timer.role}">✕</button>
                             </div>
                         </td>
                     </tr>
@@ -3206,11 +3217,16 @@
         }
 
         function filterAndSortTimersTab() {
+            if (!selectedRoleId) {
+                document.getElementById('timersListTab').innerHTML = '';
+                return;
+            }
+            
             const searchInput = document.getElementById('userSearchTab');
             const statusFilter = document.getElementById('statusFilterTab');
             const sortBy = document.getElementById('sortByTab');
             
-            let filtered = [...allTimers];
+            let filtered = allTimers.filter(t => t.roleId === selectedRoleId);
             
             // Filter by search
             if (searchInput && searchInput.value) {
@@ -3220,27 +3236,26 @@
             
             // Filter by status
             if (statusFilter && statusFilter.value) {
-                filtered = filtered.filter(t => t.status === statusFilter.value);
+                const statusVal = statusFilter.value;
+                if (statusVal === 'active') {
+                    filtered = filtered.filter(t => !t.paused && t.remaining > 0);
+                } else if (statusVal === 'paused') {
+                    filtered = filtered.filter(t => t.paused);
+                } else if (statusVal === 'expired') {
+                    filtered = filtered.filter(t => t.remaining <= 0);
+                }
             }
             
             // Sort
             if (sortBy) {
                 const sort = sortBy.value;
-                if (sort === 'time-asc') {
-                    filtered.sort((a, b) => {
-                        const timeA = parseInt(a.timeRemaining) || 0;
-                        const timeB = parseInt(b.timeRemaining) || 0;
-                        return timeA - timeB;
-                    });
-                } else if (sort === 'time-desc') {
-                    filtered.sort((a, b) => {
-                        const timeA = parseInt(a.timeRemaining) || 0;
-                        const timeB = parseInt(b.timeRemaining) || 0;
-                        return timeB - timeA;
-                    });
-                } else if (sort === 'name-asc') {
+                if (sort === 'expires-asc') {
+                    filtered.sort((a, b) => a.expiresAt - b.expiresAt);
+                } else if (sort === 'expires-desc') {
+                    filtered.sort((a, b) => b.expiresAt - a.expiresAt);
+                } else if (sort === 'user-asc') {
                     filtered.sort((a, b) => a.user.localeCompare(b.user));
-                } else if (sort === 'name-desc') {
+                } else if (sort === 'user-desc') {
                     filtered.sort((a, b) => b.user.localeCompare(a.user));
                 }
             }
