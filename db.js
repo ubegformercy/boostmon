@@ -110,6 +110,22 @@ async function initDatabase() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS boost_queue (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        note TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        completed_by VARCHAR(255),
+        completed_at TIMESTAMP,
+        position_order INTEGER NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(guild_id, user_id)
+      );
+    `);
+
     // Add missing column if it doesn't exist (for existing databases)
     try {
       await client.query(`
@@ -161,6 +177,10 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_guild_members_cache_guild_id ON guild_members_cache(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_guild_members_cache_user_id ON guild_members_cache(guild_id, user_id)',
       'CREATE INDEX IF NOT EXISTS idx_guild_members_cache_username ON guild_members_cache(guild_id, username)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_queue_guild_id ON boost_queue(guild_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_queue_user_id ON boost_queue(guild_id, user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_queue_position ON boost_queue(guild_id, position_order)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_queue_status ON boost_queue(guild_id, status)',
     ];
 
       for (const indexQuery of indexes) {
@@ -845,6 +865,129 @@ async function isRestrictModeActive(guildId) {
   }
 }
 
+// ===== BOOST QUEUE OPERATIONS =====
+
+async function addToQueue(userId, guildId, note = null) {
+  try {
+    // Get the next position (max position + 1, or 1 if queue is empty)
+    const maxResult = await pool.query(
+      `SELECT MAX(position_order) as max_position FROM boost_queue WHERE guild_id = $1 AND status = 'pending'`,
+      [guildId]
+    );
+    const nextPosition = (maxResult.rows[0]?.max_position || 0) + 1;
+
+    const result = await pool.query(
+      `INSERT INTO boost_queue (guild_id, user_id, note, status, position_order)
+       VALUES ($1, $2, $3, 'pending', $4)
+       ON CONFLICT (guild_id, user_id) DO UPDATE SET
+         status = 'pending',
+         note = $3,
+         position_order = $4,
+         updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [guildId, userId, note, nextPosition]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("addToQueue error:", err);
+    return null;
+  }
+}
+
+async function removeFromQueue(userId, guildId) {
+  try {
+    const result = await pool.query(
+      `DELETE FROM boost_queue WHERE guild_id = $1 AND user_id = $2 RETURNING *`,
+      [guildId, userId]
+    );
+    
+    // Reorder remaining positions
+    if (result.rows.length > 0) {
+      await pool.query(
+        `UPDATE boost_queue 
+         SET position_order = ROW_NUMBER() OVER (ORDER BY position_order)
+         WHERE guild_id = $1 AND status = 'pending'`,
+        [guildId]
+      );
+    }
+    
+    return result.rows.length > 0;
+  } catch (err) {
+    console.error("removeFromQueue error:", err);
+    return false;
+  }
+}
+
+async function getQueue(guildId, limit = 50) {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM boost_queue 
+       WHERE guild_id = $1 AND status = 'pending'
+       ORDER BY position_order ASC
+       LIMIT $2`,
+      [guildId, limit]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getQueue error:", err);
+    return [];
+  }
+}
+
+async function getUserQueuePosition(userId, guildId) {
+  try {
+    const result = await pool.query(
+      `SELECT position_order FROM boost_queue 
+       WHERE guild_id = $1 AND user_id = $2 AND status = 'pending'`,
+      [guildId, userId]
+    );
+    return result.rows[0]?.position_order || null;
+  } catch (err) {
+    console.error("getUserQueuePosition error:", err);
+    return null;
+  }
+}
+
+async function completeQueue(userId, guildId, adminId = null) {
+  try {
+    const result = await pool.query(
+      `UPDATE boost_queue 
+       SET status = 'completed', completed_by = $3, completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE guild_id = $1 AND user_id = $2
+       RETURNING *`,
+      [guildId, userId, adminId]
+    );
+    
+    // Reorder remaining positions
+    if (result.rows.length > 0) {
+      await pool.query(
+        `UPDATE boost_queue 
+         SET position_order = ROW_NUMBER() OVER (ORDER BY position_order)
+         WHERE guild_id = $1 AND status = 'pending'`,
+        [guildId]
+      );
+    }
+    
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("completeQueue error:", err);
+    return null;
+  }
+}
+
+async function getQueueUser(userId, guildId) {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM boost_queue WHERE guild_id = $1 AND user_id = $2 AND status = 'pending'`,
+      [guildId, userId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getQueueUser error:", err);
+    return null;
+  }
+}
+
 async function closePool() {
   await pool.end();
   console.log("Database connection pool closed");
@@ -900,6 +1043,14 @@ module.exports = {
   setDashboardRestrictMode,
   removeDashboardRestrictMode,
   isRestrictModeActive,
+  
+  // Boost queue operations
+  addToQueue,
+  removeFromQueue,
+  getQueue,
+  getUserQueuePosition,
+  completeQueue,
+  getQueueUser,
   
   closePool,
 };
