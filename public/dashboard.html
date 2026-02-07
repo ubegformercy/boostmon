@@ -1166,6 +1166,24 @@
             </div>
         </header>
 
+        <!-- ERROR MESSAGE -->
+        <div id="guildIdError" style="display: none; background: #fee; border: 2px solid #f88; border-radius: 8px; padding: 20px; margin: 20px 0; color: #333;">
+            <h3 style="color: #f44; margin-top: 0;">⚠️ Guild ID Not Found</h3>
+            <p>The dashboard couldn't find a guild ID. This usually means:</p>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li>You accessed the dashboard directly without selecting a server first</li>
+                <li>Your session expired or was cleared</li>
+            </ul>
+            <p><strong>To fix this, do one of the following:</strong></p>
+            <ol style="margin: 10px 0; padding-left: 20px;">
+                <li><a href="/guild-select.html" style="color: #667eea; font-weight: bold;">Go to Server Selection</a> - Select your server from the list</li>
+                <li><strong>OR</strong> Add the guild ID to the URL manually:<br/>
+                    <code style="background: #f5f5f5; padding: 8px; border-radius: 4px; display: inline-block; margin: 10px 0;">http://localhost:3000/dashboard.html?guild=YOUR_GUILD_ID</code>
+                </li>
+            </ol>
+            <p style="font-size: 12px; color: #999; margin-bottom: 0;">Current URL: <code style="background: #f5f5f5; padding: 4px; border-radius: 2px;" id="currentUrlDisplay"></code></p>
+        </div>
+
         <!-- GRID VIEW -->
         <div class="grid-view">
         <div class="dashboard-grid" id="statsGrid">
@@ -1978,10 +1996,16 @@
                 console.log('[Dashboard] sessionStorage.guildId:', sessionStorage.getItem('guildId'));
                 
                 if (!guildId) {
-                    console.warn('[Dashboard] No guildId found, redirecting to guild-select.html');
-                    window.location.href = '/guild-select.html';
+                    console.warn('[Dashboard] No guildId found, showing error message');
+                    document.getElementById('guildIdError').style.display = 'block';
+                    document.getElementById('currentUrlDisplay').textContent = window.location.href;
+                    document.getElementById('statusBadge').textContent = 'NO GUILD';
+                    document.getElementById('statusBadge').classList.add('offline');
                     return;
                 }
+                
+                // Hide error if guild ID is present
+                document.getElementById('guildIdError').style.display = 'none';
                 
                 const url = `/api/dashboard?guildId=${guildId}`;
                 console.log('[Dashboard] Fetching:', url);
