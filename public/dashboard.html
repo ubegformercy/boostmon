@@ -1196,19 +1196,13 @@
         <div class="grid-view">
         <div class="dashboard-grid" id="statsGrid">
             <div class="card">
-                <h2>📊 Active Timers</h2>
-                <div class="card-content" id="activeTimers">0</div>
-                <div class="card-label">Timed roles currently active</div>
+                <h2>📊 Active Timers: <span id="activeTimers">0</span></h2>
             </div>
             <div class="card">
-                <h2>⏰ Scheduled Reports</h2>
-                <div class="card-content" id="scheduledReports">0</div>
-                <div class="card-label">Role status reports</div>
+                <h2>⏰ Scheduled Reports: <span id="scheduledReports">0</span></h2>
             </div>
             <div class="card">
-                <h2>🗑️ Auto-Purge Settings</h2>
-                <div class="card-content" id="autopurgeCount">0</div>
-                <div class="card-label">Configured channels</div>
+                <h2>🗑️ Auto-Purge Settings: <span id="autopurgeCount">0</span></h2>
             </div>
         </div>
 
@@ -1223,7 +1217,7 @@
                 </h3>
                 <div class="form-grid" style="display: none;">
                     <div class="form-group">
-                        <label for="newUserSearch">
+                        <label for="newUserSearch" title="Can't find the user? Paste their Discord ID (18-20 digit number) or enter their username, then press Enter to search Discord.">
                             Select User <span style="color: #999; font-size: 12px;">(or enter Discord ID)</span>
                             <span id="memberCountBadge" style="margin-left: 10px; padding: 2px 8px; background: #e8f4f8; border-radius: 12px; font-size: 11px; color: #0066cc; display: none;">
                                 📊 <span id="memberCount">0</span> members cached
@@ -1233,9 +1227,6 @@
                             <input type="text" id="newUserSearch" class="dropdown-search-input" placeholder="🔍 Search users or paste Discord ID..." autocomplete="off">
                             <div class="dropdown-list" id="newUserList"></div>
                             <input type="hidden" id="newUser" required>
-                        </div>
-                        <div class="form-note" style="margin-top: 8px; font-size: 12px;">
-                            💡 Can't find the user? Paste their Discord ID (18-20 digit number) or enter their username, then press <strong>Enter</strong> to search Discord.
                         </div>
                     </div>
                     <div class="form-group">
@@ -1658,13 +1649,13 @@
             const buttons = document.querySelectorAll('.view-btn');
             
             if (mode === 'grid') {
-                gridView.classList.remove('hidden');
-                tabbedView.classList.remove('active');
+                gridView.style.display = 'block';
+                tabbedView.style.display = 'none';
                 buttons[0].classList.add('active');
                 buttons[1].classList.remove('active');
             } else {
-                gridView.classList.add('hidden');
-                tabbedView.classList.add('active');
+                gridView.style.display = 'none';
+                tabbedView.style.display = 'block';
                 buttons[0].classList.remove('active');
                 buttons[1].classList.add('active');
             }
