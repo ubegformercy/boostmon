@@ -2495,7 +2495,8 @@
                 console.log('[Dashboard] Populating tabbed view...');
                 // Populate tabbed view as well
                 populateRoleFilterTab();
-                updateTimersTableTab(allTimers);
+                // Don't show timers until a role is selected in tabbed view
+                document.getElementById('timersListTab').innerHTML = '<tr><td colspan="6" class="placeholder-state">Select a role to view timers</td></tr>';
                 console.log('[Dashboard] Calling updateReportsTableTab with:', data.reports);
                 updateReportsTableTab(data.reports || []);
                 console.log('[Dashboard] Calling updateAutopurgeTableTab with:', data.autopurge);
@@ -2532,7 +2533,7 @@
                 
                 // Clear tabbed view
                 document.getElementById('addTimerSectionTab').style.display = 'none';
-                document.getElementById('timersTableTab').innerHTML = '';
+                document.getElementById('timersListTab').innerHTML = '<tr><td colspan="6" class="placeholder-state">Select a role to view timers</td></tr>';
                 return;
             }
             
@@ -3827,7 +3828,7 @@
 
         function filterAndSortTimersTab() {
             if (!selectedRoleId) {
-                document.getElementById('timersListTab').innerHTML = '';
+                document.getElementById('timersListTab').innerHTML = '<tr><td colspan="6" class="placeholder-state">Select a role to view timers</td></tr>';
                 return;
             }
             
