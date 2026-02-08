@@ -2110,6 +2110,133 @@
             }, 4000);
         }
 
+        // Show a confirmation dialog for delete operations
+        function showConfirmDialog(title, message, onConfirm, onCancel) {
+            // Create modal overlay
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+            `;
+
+            // Create modal dialog
+            const modal = document.createElement('div');
+            modal.className = 'modal-dialog';
+            modal.style.cssText = `
+                background: white;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 400px;
+                width: 90%;
+                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+                text-align: center;
+            `;
+
+            // Warning icon
+            const warning = document.createElement('div');
+            warning.style.cssText = `
+                font-size: 48px;
+                margin-bottom: 20px;
+            `;
+            warning.textContent = '⚠️';
+
+            // Title
+            const titleEl = document.createElement('h3');
+            titleEl.style.cssText = `
+                margin: 0 0 10px 0;
+                font-size: 20px;
+                color: #333;
+            `;
+            titleEl.textContent = title;
+
+            // Message
+            const messageEl = document.createElement('p');
+            messageEl.style.cssText = `
+                margin: 10px 0 25px 0;
+                font-size: 14px;
+                color: #666;
+                line-height: 1.5;
+            `;
+            messageEl.textContent = message;
+
+            // Button container
+            const buttonContainer = document.createElement('div');
+            buttonContainer.style.cssText = `
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+            `;
+
+            // Confirm button
+            const confirmBtn = document.createElement('button');
+            confirmBtn.textContent = 'Yes, Delete';
+            confirmBtn.style.cssText = `
+                background-color: #ef4444;
+                color: white;
+                border: none;
+                padding: 10px 30px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 14px;
+                transition: background-color 0.2s;
+            `;
+            confirmBtn.onmouseover = () => confirmBtn.style.backgroundColor = '#dc2626';
+            confirmBtn.onmouseout = () => confirmBtn.style.backgroundColor = '#ef4444';
+            confirmBtn.onclick = () => {
+                overlay.remove();
+                if (onConfirm) onConfirm();
+            };
+
+            // Cancel button
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.style.cssText = `
+                background-color: #9ca3af;
+                color: white;
+                border: none;
+                padding: 10px 30px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 14px;
+                transition: background-color 0.2s;
+            `;
+            cancelBtn.onmouseover = () => cancelBtn.style.backgroundColor = '#6b7280';
+            cancelBtn.onmouseout = () => cancelBtn.style.backgroundColor = '#9ca3af';
+            cancelBtn.onclick = () => {
+                overlay.remove();
+                if (onCancel) onCancel();
+            };
+
+            buttonContainer.appendChild(confirmBtn);
+            buttonContainer.appendChild(cancelBtn);
+
+            modal.appendChild(warning);
+            modal.appendChild(titleEl);
+            modal.appendChild(messageEl);
+            modal.appendChild(buttonContainer);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+
+            // Close when clicking outside modal
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
+                    overlay.remove();
+                    if (onCancel) onCancel();
+                }
+            });
+        }
+
         async function loadDashboard() {
             try {
                 guildId = getGuildId();
@@ -2169,6 +2296,73 @@
                 document.getElementById('statusBadge').classList.add('offline');
                 console.error('[Dashboard] ERROR badge set:', document.getElementById('statusBadge').textContent);
             }
+        }
+
+        // Delete a scheduled report
+        async function deleteReport(reportId) {
+            // Get report info for the confirmation message
+            const reportRow = document.querySelector(`button[onclick="deleteReport(${reportId})"]`)?.closest('tr');
+            const roleCell = reportRow?.cells[0]?.textContent || 'Unknown Role';
+            const channelCell = reportRow?.cells[1]?.textContent || 'Unknown Channel';
+
+            showConfirmDialog(
+                'Confirm Delete',
+                `Are you sure you want to delete the report for\n${roleCell} in ${channelCell}?`,
+                async () => {
+                    try {
+                        const response = await fetch(`/api/report/delete?guildId=${guildId}`, {
+                            method: 'DELETE',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ reportId })
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Failed to delete report');
+                        }
+
+                        showAlert('Report deleted successfully!', 'success');
+                        await loadDashboard();
+                    } catch (err) {
+                        console.error('Error deleting report:', err);
+                        showAlert(`Error: ${err.message}`, 'error');
+                    }
+                }
+            );
+        }
+
+        // Delete an autopurge setting
+        async function deleteAutopurgeSetting(channelId) {
+            // Get channel info for the confirmation message
+            const row = document.querySelector(`button[onclick="deleteAutopurgeSetting(${channelId})"]`)?.closest('tr');
+            const channelCell = row?.cells[0]?.textContent || 'Unknown Channel';
+
+            showConfirmDialog(
+                'Confirm Delete',
+                `Are you sure you want to delete the auto-purge setting for\n${channelCell}?`,
+                async () => {
+                    try {
+                        const response = await fetch(`/api/autopurge/delete?guildId=${guildId}`, {
+                            method: 'DELETE',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ channelId })
+                        });
+
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Failed to delete autopurge setting');
+                        }
+
+                        showAlert('Auto-purge setting deleted successfully!', 'success');
+                        await loadDashboard();
+                    } catch (err) {
+                        console.error('Error deleting autopurge setting:', err);
+                        showAlert(`Error: ${err.message}`, 'error');
+                    }
+                }
+            );
         }
 
         function updateDashboard(data) {
@@ -2992,31 +3186,37 @@
         }
 
         async function deleteReport(reportId) {
-            if (!confirm('Are you sure you want to delete this scheduled report?')) {
-                return;
-            }
+            // Get report info for the confirmation message
+            const reportRow = document.querySelector(`button[onclick="deleteReport(${reportId})"]`)?.closest('tr');
+            const roleCell = reportRow?.cells[0]?.textContent || 'Unknown Role';
+            const channelCell = reportRow?.cells[1]?.textContent || 'Unknown Channel';
 
-            try {
-                const response = await fetch(`/api/report/delete?guildId=${guildId}`, {
-                    method: 'DELETE',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ reportId })
-                });
+            showConfirmDialog(
+                'Confirm Delete',
+                `Are you sure you want to delete the report for\n${roleCell} in ${channelCell}?`,
+                async () => {
+                    try {
+                        const response = await fetch(`/api/report/delete?guildId=${guildId}`, {
+                            method: 'DELETE',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ reportId })
+                        });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to delete report');
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Failed to delete report');
+                        }
+
+                        showAlert('Report deleted successfully!', 'success');
+                        await loadDashboard();
+                    } catch (err) {
+                        console.error('Error deleting report:', err);
+                        showAlert(`Error: ${err.message}`, 'error');
+                    }
                 }
-
-                showAlert('Scheduled report deleted successfully!', 'success');
-                loadDashboard();
-            } catch (err) {
-                console.error('Error deleting report:', err);
-                showAlert(`Error: ${err.message}`, 'error');
-            }
+            );
         }
-
 
         // Grid View: Update Autopurge Table
         function updateAutopurgeTable(autopurge) {
@@ -3277,29 +3477,35 @@
         }
 
         async function deleteAutopurgeSetting(channelId) {
-            if (!confirm('Are you sure you want to delete this auto-purge setting?')) {
-                return;
-            }
+            // Get channel info for the confirmation message
+            const row = document.querySelector(`button[onclick="deleteAutopurgeSetting(${channelId})"]`)?.closest('tr');
+            const channelCell = row?.cells[0]?.textContent || 'Unknown Channel';
 
-            try {
-                const response = await fetch(`/api/autopurge/delete?guildId=${guildId}`, {
-                    method: 'DELETE',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ channelId })
-                });
+            showConfirmDialog(
+                'Confirm Delete',
+                `Are you sure you want to delete the auto-purge setting for\n${channelCell}?`,
+                async () => {
+                    try {
+                        const response = await fetch(`/api/autopurge/delete?guildId=${guildId}`, {
+                            method: 'DELETE',
+                            credentials: 'include',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ channelId })
+                        });
 
-                if (!response.ok) {
-                    const error = await response.json();
-                    throw new Error(error.error || 'Failed to delete autopurge setting');
+                        if (!response.ok) {
+                            const error = await response.json();
+                            throw new Error(error.error || 'Failed to delete autopurge setting');
+                        }
+
+                        showAlert('Auto-purge setting deleted successfully!', 'success');
+                        await loadDashboard();
+                    } catch (err) {
+                        console.error('Error deleting autopurge setting:', err);
+                        showAlert(`Error: ${err.message}`, 'error');
+                    }
                 }
-
-                showAlert('Auto-purge setting deleted successfully!', 'success');
-                loadDashboard();
-            } catch (err) {
-                console.error('Error deleting autopurge setting:', err);
-                showAlert(`Error: ${err.message}`, 'error');
-            }
+            );
         }
 
         /**
