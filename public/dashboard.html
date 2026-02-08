@@ -2122,6 +2122,8 @@
                 
                 const data = await response.json();
                 console.log('[Dashboard] Data loaded successfully, timers:', data.timers?.length || 0);
+                console.log('[Dashboard] Reports in response:', data.reports?.length || 0, 'reports:', data.reports);
+                console.log('[Dashboard] Autopurge in response:', data.autopurge?.length || 0, 'autopurge:', data.autopurge);
                 console.log('[Dashboard] ========== CALLING updateDashboard() ==========');
                 updateDashboard(data);
                 console.log('[Dashboard] ========== updateDashboard() COMPLETED SUCCESSFULLY ==========');
@@ -2225,15 +2227,19 @@
                 }
                 
                 console.log('[Dashboard] Updating reports table...');
+                console.log('[Dashboard] data.reports content:', data.reports);
                 updateReportsTable(data.reports || []);
                 console.log('[Dashboard] Updating autopurge table...');
+                console.log('[Dashboard] data.autopurge content:', data.autopurge);
                 updateAutopurgeTable(data.autopurge || []);
 
                 console.log('[Dashboard] Populating tabbed view...');
                 // Populate tabbed view as well
                 populateRoleFilterTab();
                 updateTimersTableTab(allTimers);
+                console.log('[Dashboard] Calling updateReportsTableTab with:', data.reports);
                 updateReportsTableTab(data.reports || []);
+                console.log('[Dashboard] Calling updateAutopurgeTableTab with:', data.autopurge);
                 updateAutopurgeTableTab(data.autopurge || []);
 
                 console.log('[Dashboard] Updating lastUpdate...');
@@ -3480,11 +3486,15 @@
 
         function updateReportsTableTab(reports) {
             const tbody = document.getElementById('reportsTableBodyTab');
+            console.log('[updateReportsTableTab] Called with:', reports, 'length:', reports?.length);
             
             if (!reports || reports.length === 0) {
+                console.log('[updateReportsTableTab] No reports, showing empty state');
                 tbody.innerHTML = '<tr><td colspan="5" class="placeholder-state">No scheduled reports yet</td></tr>';
                 return;
             }
+
+            console.log('[updateReportsTableTab] Rendering', reports.length, 'reports');
 
             tbody.innerHTML = reports.map(report => {
                 const lastReport = report.lastReport || 'Never';
@@ -3509,11 +3519,15 @@
 
         function updateAutopurgeTableTab(autopurge) {
             const tbody = document.getElementById('autopurgeTableBodyTab');
+            console.log('[updateAutopurgeTableTab] Called with:', autopurge, 'length:', autopurge?.length);
             
             if (!autopurge || autopurge.length === 0) {
+                console.log('[updateAutopurgeTableTab] No autopurge settings, showing empty state');
                 tbody.innerHTML = '<tr><td colspan="6" class="placeholder-state">No auto-purge settings yet</td></tr>';
                 return;
             }
+
+            console.log('[updateAutopurgeTableTab] Rendering', autopurge.length, 'autopurge settings');
 
             tbody.innerHTML = autopurge.map(setting => {
                 const lastPurge = setting.lastPurge || 'Never';
