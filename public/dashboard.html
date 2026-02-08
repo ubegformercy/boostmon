@@ -2545,6 +2545,13 @@
                 // Clear tabbed view
                 document.getElementById('addTimerSectionTab').style.display = 'none';
                 document.getElementById('timersListTab').innerHTML = '<tr><td colspan="6" class="placeholder-state">Select a role to view timers</td></tr>';
+                
+                // Reset activeTimers to show total count
+                const activeTimersEl = document.getElementById('activeTimers');
+                if (activeTimersEl) {
+                    activeTimersEl.textContent = allTimers.length;
+                    console.log('[onHeaderRoleSelected] No role selected, reset activeTimers to total:', allTimers.length);
+                }
                 return;
             }
             
@@ -2595,6 +2602,13 @@
             const infoEl = document.getElementById('roleInfo');
             if (infoEl) {
                 infoEl.textContent = `${timerCount} timer${timerCount !== 1 ? 's' : ''} active`;
+            }
+            
+            // Update the activeTimers count to show only filtered timers for selected role
+            const activeTimersEl = document.getElementById('activeTimers');
+            if (activeTimersEl) {
+                activeTimersEl.textContent = timerCount;
+                console.log('[updateRoleInfo] Updated activeTimers display to:', timerCount);
             }
         }
 
