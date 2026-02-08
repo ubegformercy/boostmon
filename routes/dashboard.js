@@ -323,6 +323,7 @@ router.get('/api/dashboard', requireAuth, requireGuildAccess, requireDashboardAc
       const channelName = getChannelName(setting.channel_id);
 
       return {
+        id: setting.id,
         channel: channelName,
         channelId: setting.channel_id,
         type: setting.type,

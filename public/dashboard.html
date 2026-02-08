@@ -3488,17 +3488,15 @@
 
             tbody.innerHTML = reports.map(report => {
                 const lastReport = report.lastReport || 'Never';
-                const nextReport = report.nextReport || 'Pending';
                 
                 return `
                     <tr>
                         <td>${report.role}</td>
                         <td>${report.channel}</td>
-                        <td class="editable-cell" onclick="editReportInterval(${report.id}, ${report.interval})">
+                        <td class="editable-cell" onclick="editReportInterval(${report.id}, ${report.interval})" title="Click to edit">
                             ${report.interval} min
                         </td>
                         <td>${lastReport}</td>
-                        <td>${nextReport}</td>
                         <td class="action-column">
                             <div class="action-buttons">
                                 <button class="delete-btn" onclick="deleteReport(${report.id})" title="Delete Report">🗑️</button>
@@ -3524,12 +3522,12 @@
                     <tr>
                         <td>${setting.channel}</td>
                         <td>${setting.type}</td>
-                        <td>${setting.messages}</td>
+                        <td>${setting.lines}</td>
                         <td>${setting.interval} min</td>
                         <td>${lastPurge}</td>
                         <td class="action-column">
                             <div class="action-buttons">
-                                <button class="delete-btn" onclick="deleteAutopurge(${setting.id})" title="Delete Setting">🗑️</button>
+                                <button class="delete-btn" onclick="deleteAutopurgeSetting(${setting.channelId})" title="Delete Setting">🗑️</button>
                             </div>
                         </td>
                     </tr>
