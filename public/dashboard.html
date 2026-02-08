@@ -2470,6 +2470,7 @@
                 // Restore previous selection if still available
                 if (roleSelect && currentValue && allRoles.find(r => r.id === currentValue)) {
                     roleSelect.value = currentValue;
+                    selectedRoleId = currentValue; // Ensure selectedRoleId is set before filtering
                     // Don't trigger change, just update display
                     updateRoleInfo();
                     filterAndSortTimers();
@@ -2495,8 +2496,18 @@
                 console.log('[Dashboard] Populating tabbed view...');
                 // Populate tabbed view as well
                 populateRoleFilterTab();
-                // Don't show timers until a role is selected in tabbed view
-                document.getElementById('timersListTab').innerHTML = '<tr><td colspan="6" class="placeholder-state">Select a role to view timers</td></tr>';
+                
+                // Preserve selectedRoleId across refreshes (for both grid and tabbed views)
+                if (selectedRoleId) {
+                    console.log('[Dashboard] Preserving selectedRoleId:', selectedRoleId, 'across refresh');
+                    // Re-apply the filter after reload
+                    filterAndSortTimersTab();
+                } else {
+                    // Don't show timers until a role is selected in tabbed view
+                    console.log('[Dashboard] No selectedRoleId set, clearing tabbed timers table');
+                    document.getElementById('timersListTab').innerHTML = '<tr><td colspan="6" class="placeholder-state">Select a role to view timers</td></tr>';
+                }
+                
                 console.log('[Dashboard] Calling updateReportsTableTab with:', data.reports);
                 updateReportsTableTab(data.reports || []);
                 console.log('[Dashboard] Calling updateAutopurgeTableTab with:', data.autopurge);
