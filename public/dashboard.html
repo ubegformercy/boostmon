@@ -1277,33 +1277,36 @@
             </div>
         </div>
 
+        <!-- SCHEDULED REPORTS SECTION -->
         <div class="section" id="reportsSection">
             <h2>📋 Scheduled Reports</h2>
             
             <!-- Add Report Form -->
-            <div class="add-report-form" id="addReportForm" style="margin-bottom: 30px;">
+            <div class="form-section" style="margin-bottom: 30px;">
                 <h3 style="color: #667eea; margin-bottom: 16px; font-size: 16px;">➕ Add New Scheduled Report</h3>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="reportRole">Select Role</label>
-                        <select id="reportRole" required>
-                            <option value="">-- Select a Role --</option>
-                        </select>
+                <form id="addReportForm" onsubmit="return handleAddReport(event)">
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 16px; align-items: flex-end;">
+                        <div class="form-group">
+                            <label for="reportRole">Role to Monitor *</label>
+                            <select id="reportRole" required>
+                                <option value="">Select a role...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="reportChannel">Post to Channel *</label>
+                            <select id="reportChannel" required>
+                                <option value="">Select a channel...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="reportInterval">Interval (minutes) *</label>
+                            <input type="number" id="reportInterval" placeholder="60" min="1" required>
+                        </div>
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary">➕ Add Report</button>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label for="reportChannel">Select Channel</label>
-                        <select id="reportChannel" required>
-                            <option value="">-- Select a Channel --</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="reportInterval">Interval (minutes)</label>
-                        <input type="number" id="reportInterval" placeholder="60" min="1" required>
-                    </div>
-                    <div class="form-group">
-                        <button class="btn btn-primary" onclick="addNewReport()" style="margin-top: 24px;">➕ Add Report</button>
-                    </div>
-                </div>
+                </form>
             </div>
 
             <!-- Reports Table -->
@@ -1315,13 +1318,12 @@
                             <th>Channel</th>
                             <th>Interval</th>
                             <th>Last Report</th>
-                            <th>Next Report</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="reportsTableBody">
                         <tr>
-                            <td colspan="6" style="text-align: center; padding: 40px; color: #999;">
+                            <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
                                 <div class="empty-state-icon">📋</div>
                                 <p>No scheduled reports yet</p>
                             </td>
@@ -1331,28 +1333,49 @@
             </div>
         </div>
 
+        <!-- AUTO-PURGE SETTINGS SECTION -->
         <div class="section" id="autopurgeSection">
             <h2>🗑️ Auto-Purge Settings</h2>
-            <div class="add-autopurge-form">
-                <h3>Add New Auto-Purge Setting</h3>
-                <div class="form-row">
-                    <select id="autopurgeChannel" required>
-                        <option value="">-- Select Channel --</option>
-                    </select>
-                    <select id="autopurgeType" required>
-                        <option value="">-- Select Type --</option>
-                        <option value="all">All Messages</option>
-                        <option value="bots">Bot Messages Only</option>
-                        <option value="embeds">Embeds Only</option>
-                    </select>
-                </div>
-                <div class="form-row">
-                    <input id="autopurgeLines" type="number" min="1" placeholder="Messages to Purge" required>
-                    <input id="autopurgeInterval" type="number" min="1" placeholder="Interval (minutes)" required>
-                    <button onclick="addNewAutopurgeSetting()">Add Setting</button>
-                </div>
+            
+            <!-- Add Autopurge Form -->
+            <div class="form-section" style="margin-bottom: 30px;">
+                <h3 style="color: #667eea; margin-bottom: 16px; font-size: 16px;">➕ Add New Auto-Purge Setting</h3>
+                <form id="addAutopurgeForm" onsubmit="return handleAddAutopurge(event)">
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div class="form-group">
+                            <label for="autopurgeChannel">Channel to Purge *</label>
+                            <select id="autopurgeChannel" required>
+                                <option value="">Select a channel...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="autopurgeType">Message Type *</label>
+                            <select id="autopurgeType" required>
+                                <option value="">Select message type...</option>
+                                <option value="all">All Messages</option>
+                                <option value="bots">Bot Messages Only</option>
+                                <option value="embeds">Embeds Only</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 16px; align-items: flex-end;">
+                        <div class="form-group">
+                            <label for="autopurgeLines">Messages to Purge *</label>
+                            <input id="autopurgeLines" type="number" min="1" placeholder="10" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="autopurgeInterval">Interval (minutes) *</label>
+                            <input id="autopurgeInterval" type="number" min="1" placeholder="30" required>
+                        </div>
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary">➕ Add Setting</button>
+                        </div>
+                    </div>
+                </form>
             </div>
-            <div class="autopurge-table-container">
+
+            <!-- Autopurge Table -->
+            <div class="table-wrapper">
                 <table id="autopurgeTable">
                     <thead>
                         <tr>
@@ -1365,6 +1388,12 @@
                         </tr>
                     </thead>
                     <tbody id="autopurgeTableBody">
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 40px; color: #999;">
+                                <div class="empty-state-icon">🗑️</div>
+                                <p>No auto-purge settings configured</p>
+                            </td>
+                        </tr>
                     </tbody>
                 </table>
             </div>
@@ -2692,15 +2721,16 @@
             }
         }
 
+        // Grid View: Update Reports Table
         function updateReportsTable(reports) {
             const tbody = document.getElementById('reportsTableBody');
-            console.log('[updateReportsTable] Called with:', reports, 'length:', reports?.length);
+            console.log('[updateReportsTable] Called with:', reports?.length || 0, 'items');
             
             if (!reports || reports.length === 0) {
                 console.log('[updateReportsTable] No reports, showing empty state');
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="6" style="text-align: center; padding: 40px; color: #999;">
+                        <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
                             <div class="empty-state-icon">📋</div>
                             <p>No scheduled reports yet</p>
                         </td>
@@ -2708,21 +2738,58 @@
                 `;
                 return;
             }
-            console.log('[updateReportsTable] Rendering', reports.length, 'reports');
 
-            tbody.innerHTML = reports.map(report => {
-                const lastReport = report.lastReport || 'Never';
-                const nextReport = report.nextReport || 'Pending';
+            console.log('[updateReportsTable] Rendering', reports.length, 'reports');
+            tbody.innerHTML = reports.map((report, idx) => {
+                console.log(`  [Report ${idx}]:`, report);
+                const lastReport = report.lastReport ? new Date(report.lastReport).toLocaleString() : 'Never';
+                const roleDisplay = report.role || report.roleName || 'Unknown';
+                const channelDisplay = report.channel || report.channelName || 'Unknown';
                 
                 return `
                     <tr>
-                        <td>${report.role}</td>
-                        <td>${report.channel}</td>
-                        <td class="editable-cell" onclick="editReportInterval(${report.id}, ${report.interval})">
+                        <td>${roleDisplay}</td>
+                        <td>${channelDisplay}</td>
+                        <td class="editable-cell" onclick="editReportInterval(${report.id}, ${report.interval})" title="Click to edit">
                             ${report.interval} min
                         </td>
                         <td>${lastReport}</td>
-                        <td>${nextReport}</td>
+                        <td class="action-column">
+                            <div class="action-buttons">
+                                <button class="delete-btn" onclick="deleteReport(${report.id})" title="Delete Report">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Tabbed View: Update Reports Table
+        function updateReportsTableTab(reports) {
+            const tbody = document.getElementById('reportsTableBodyTab');
+            console.log('[updateReportsTableTab] Called with:', reports?.length || 0, 'items');
+            
+            if (!reports || reports.length === 0) {
+                console.log('[updateReportsTableTab] No reports, showing empty state');
+                tbody.innerHTML = '<tr><td colspan="5" class="placeholder-state">No scheduled reports yet</td></tr>';
+                return;
+            }
+
+            console.log('[updateReportsTableTab] Rendering', reports.length, 'reports');
+            tbody.innerHTML = reports.map((report, idx) => {
+                console.log(`  [Report ${idx}]:`, report);
+                const lastReport = report.lastReport ? new Date(report.lastReport).toLocaleString() : 'Never';
+                const roleDisplay = report.role || report.roleName || 'Unknown';
+                const channelDisplay = report.channel || report.channelName || 'Unknown';
+                
+                return `
+                    <tr>
+                        <td>${roleDisplay}</td>
+                        <td>${channelDisplay}</td>
+                        <td class="editable-cell" onclick="editReportInterval(${report.id}, ${report.interval})" title="Click to edit">
+                            ${report.interval} min
+                        </td>
+                        <td>${lastReport}</td>
                         <td class="action-column">
                             <div class="action-buttons">
                                 <button class="delete-btn" onclick="deleteReport(${report.id})" title="Delete Report">🗑️</button>
@@ -2788,19 +2855,21 @@
             }
         }
 
-        async function addNewReport() {
+        // Grid View: Handle Add Report Form Submission
+        async function handleAddReport(event) {
+            event.preventDefault();
             const roleId = document.getElementById('reportRole').value.trim();
             const channelId = document.getElementById('reportChannel').value.trim();
             const intervalMinutes = parseInt(document.getElementById('reportInterval').value);
 
             if (!roleId || !channelId || !intervalMinutes) {
                 showAlert('Please fill in all required fields', 'error');
-                return;
+                return false;
             }
 
             if (intervalMinutes <= 0) {
                 showAlert('Interval must be greater than 0', 'error');
-                return;
+                return false;
             }
 
             try {
@@ -2817,14 +2886,53 @@
                 }
 
                 showAlert('Scheduled report added successfully!', 'success');
-                document.getElementById('reportRole').value = '';
-                document.getElementById('reportChannel').value = '';
-                document.getElementById('reportInterval').value = '';
+                document.getElementById('addReportForm').reset();
                 loadDashboard();
             } catch (err) {
                 console.error('Error adding report:', err);
                 showAlert(`Error: ${err.message}`, 'error');
             }
+            return false;
+        }
+
+        // Tabbed View: Handle Add Report Form Submission
+        async function handleAddReportTab(event) {
+            event.preventDefault();
+            const roleId = document.getElementById('reportRoleTab').value.trim();
+            const channelId = document.getElementById('reportChannelTab').value.trim();
+            const intervalMinutes = parseInt(document.getElementById('reportIntervalTab').value);
+
+            if (!roleId || !channelId || !intervalMinutes) {
+                showAlert('Please fill in all required fields', 'error');
+                return false;
+            }
+
+            if (intervalMinutes <= 0) {
+                showAlert('Interval must be greater than 0', 'error');
+                return false;
+            }
+
+            try {
+                const response = await fetch(`/api/report/add?guildId=${guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ roleId, channelId, intervalMinutes })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add report');
+                }
+
+                showAlert('Scheduled report added successfully!', 'success');
+                document.getElementById('addReportFormTab').reset();
+                loadDashboard();
+            } catch (err) {
+                console.error('Error adding report:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            }
+            return false;
         }
 
         function editReportInterval(reportId, currentInterval) {
@@ -2890,11 +2998,12 @@
         }
 
 
+        // Grid View: Update Autopurge Table
         function updateAutopurgeTable(autopurge) {
             const tbody = document.getElementById('autopurgeTableBody');
-            console.log('[updateAutopurgeTable] Called with:', autopurge, 'length:', autopurge?.length);
+            console.log('[updateAutopurgeTable] Called with:', autopurge?.length || 0, 'items');
             
-            if (autopurge.length === 0) {
+            if (!autopurge || autopurge.length === 0) {
                 console.log('[updateAutopurgeTable] No autopurge settings, showing empty state');
                 tbody.innerHTML = `
                     <tr>
@@ -2908,15 +3017,20 @@
             }
             console.log('[updateAutopurgeTable] Rendering', autopurge.length, 'autopurge settings');
 
-            tbody.innerHTML = autopurge.map(setting => {
-                const typeDisplay = setting.type === 'all' ? 'All Messages' : 
-                                  setting.type === 'bots' ? 'Bot Messages' : 
-                                  'Embeds';
-                const lastPurge = setting.lastPurge || 'Never';
+            tbody.innerHTML = autopurge.map((setting, idx) => {
+                console.log(`  [Autopurge ${idx}]:`, setting);
+                const typeMap = {
+                    'all': 'All Messages',
+                    'bots': 'Bot Messages',
+                    'embeds': 'Embeds Only'
+                };
+                const typeDisplay = typeMap[setting.type] || setting.type;
+                const lastPurge = setting.lastPurge ? new Date(setting.lastPurge).toLocaleString() : 'Never';
+                const channelDisplay = setting.channel || setting.channelName || 'Unknown';
                 
                 return `
                     <tr>
-                        <td>${setting.channel}</td>
+                        <td>${channelDisplay}</td>
                         <td>${typeDisplay}</td>
                         <td class="editable-cell" onclick="editAutopurgeSetting(${setting.channelId}, 'lines', ${setting.lines})">
                             ${setting.lines}
@@ -2924,6 +3038,47 @@
                         <td class="editable-cell" onclick="editAutopurgeSetting(${setting.channelId}, 'interval', ${setting.interval})">
                             ${setting.interval} min
                         </td>
+                        <td>${lastPurge}</td>
+                        <td class="action-column">
+                            <div class="action-buttons">
+                                <button class="delete-btn" onclick="deleteAutopurgeSetting(${setting.channelId})" title="Delete Setting">🗑️</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Tabbed View: Update Autopurge Table
+        function updateAutopurgeTableTab(autopurge) {
+            const tbody = document.getElementById('autopurgeTableBodyTab');
+            console.log('[updateAutopurgeTableTab] Called with:', autopurge?.length || 0, 'items');
+            
+            if (!autopurge || autopurge.length === 0) {
+                console.log('[updateAutopurgeTableTab] No autopurge settings, showing empty state');
+                tbody.innerHTML = '<tr><td colspan="6" class="placeholder-state">No auto-purge settings yet</td></tr>';
+                return;
+            }
+
+            console.log('[updateAutopurgeTableTab] Rendering', autopurge.length, 'autopurge settings');
+
+            tbody.innerHTML = autopurge.map((setting, idx) => {
+                console.log(`  [Autopurge ${idx}]:`, setting);
+                const typeMap = {
+                    'all': 'All Messages',
+                    'bots': 'Bot Messages',
+                    'embeds': 'Embeds Only'
+                };
+                const typeDisplay = typeMap[setting.type] || setting.type;
+                const lastPurge = setting.lastPurge ? new Date(setting.lastPurge).toLocaleString() : 'Never';
+                const channelDisplay = setting.channel || setting.channelName || 'Unknown';
+                
+                return `
+                    <tr>
+                        <td>${channelDisplay}</td>
+                        <td>${typeDisplay}</td>
+                        <td>${setting.lines}</td>
+                        <td>${setting.interval} min</td>
                         <td>${lastPurge}</td>
                         <td class="action-column">
                             <div class="action-buttons">
@@ -2953,20 +3108,22 @@
             }
         }
 
-        async function addNewAutopurgeSetting() {
-            const channelId = document.getElementById('autopurgeChannel').value;
-            const type = document.getElementById('autopurgeType').value;
+        // Grid View: Handle Add Autopurge Form Submission
+        async function handleAddAutopurge(event) {
+            event.preventDefault();
+            const channelId = document.getElementById('autopurgeChannel').value.trim();
+            const type = document.getElementById('autopurgeType').value.trim();
             const lines = parseInt(document.getElementById('autopurgeLines').value);
             const intervalMinutes = parseInt(document.getElementById('autopurgeInterval').value);
 
             if (!channelId || !type || !lines || !intervalMinutes) {
-                showAlert('Please fill in all fields', 'error');
-                return;
+                showAlert('Please fill in all required fields', 'error');
+                return false;
             }
 
             if (lines <= 0 || intervalMinutes <= 0) {
                 showAlert('Lines and interval must be positive numbers', 'error');
-                return;
+                return false;
             }
 
             try {
@@ -2988,18 +3145,59 @@
                 }
 
                 showAlert('Auto-purge setting added successfully!', 'success');
-                
-                // Clear form
-                document.getElementById('autopurgeChannel').value = '';
-                document.getElementById('autopurgeType').value = '';
-                document.getElementById('autopurgeLines').value = '';
-                document.getElementById('autopurgeInterval').value = '';
-                
+                document.getElementById('addAutopurgeForm').reset();
                 loadDashboard();
             } catch (err) {
                 console.error('Error adding autopurge setting:', err);
                 showAlert(`Error: ${err.message}`, 'error');
             }
+            return false;
+        }
+
+        // Tabbed View: Handle Add Autopurge Form Submission
+        async function handleAddAutopurgeTab(event) {
+            event.preventDefault();
+            const channelId = document.getElementById('autopurgeChannelTab').value.trim();
+            const type = document.getElementById('autopurgeTypeTab').value.trim();
+            const lines = parseInt(document.getElementById('autopurgeLinesTab').value);
+            const intervalMinutes = parseInt(document.getElementById('autopurgeIntervalTab').value);
+
+            if (!channelId || !type || !lines || !intervalMinutes) {
+                showAlert('Please fill in all required fields', 'error');
+                return false;
+            }
+
+            if (lines <= 0 || intervalMinutes <= 0) {
+                showAlert('Lines and interval must be positive numbers', 'error');
+                return false;
+            }
+
+            try {
+                const response = await fetch(`/api/autopurge/add?guildId=${guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        channelId,
+                        type,
+                        lines,
+                        intervalMinutes
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add autopurge setting');
+                }
+
+                showAlert('Auto-purge setting added successfully!', 'success');
+                document.getElementById('autopurgeFormTab').reset();
+                loadDashboard();
+            } catch (err) {
+                console.error('Error adding autopurge setting:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            }
+            return false;
         }
 
         function editAutopurgeSetting(channelId, field, currentValue) {
@@ -3561,13 +3759,21 @@
         }
 
         function handleAddReportTab(event) {
-            event.preventDefault();
-            return handleAddReport(event);
+            // This is a stub - the actual implementation is defined earlier
+            // It ensures form submission events are properly handled
+            if (event) {
+                event.preventDefault();
+            }
+            return false;
         }
 
         function handleAddAutopurgeTab(event) {
-            event.preventDefault();
-            return handleAddAutopurge(event);
+            // This is a stub - the actual implementation is defined earlier
+            // It ensures form submission events are properly handled
+            if (event) {
+                event.preventDefault();
+            }
+            return false;
         }
 
         // Fetch and display version dynamically
