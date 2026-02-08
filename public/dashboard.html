@@ -2229,8 +2229,10 @@
                 console.log('[Dashboard] Populating role selector...');
                 // Populate role selector (use headerRoleFilter for grid view)
                 const roleSelect = document.getElementById('headerRoleFilter');
+                let currentValue = null;  // Declare outside the if block
+                
                 if (roleSelect) {
-                    const currentValue = roleSelect.value;
+                    currentValue = roleSelect.value;  // Assign the value
                     roleSelect.innerHTML = '<option value="">-- Select a Role --</option>';
                     
                     allRoles.forEach(role => {
@@ -2248,7 +2250,7 @@
                 console.log('[Dashboard] Role selector populated');
                 
                 // Restore previous selection if still available
-                if (currentValue && allRoles.find(r => r.id === currentValue)) {
+                if (roleSelect && currentValue && allRoles.find(r => r.id === currentValue)) {
                     roleSelect.value = currentValue;
                     // Don't trigger change, just update display
                     updateRoleInfo();
