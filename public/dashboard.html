@@ -1192,8 +1192,7 @@
             <p style="font-size: 12px; color: #999; margin-bottom: 0;">Current URL: <code style="background: #f5f5f5; padding: 4px; border-radius: 2px;" id="currentUrlDisplay"></code></p>
         </div>
 
-        <!-- GRID VIEW -->
-        <div class="grid-view">
+        <!-- STATS GRID (Always visible) -->
         <div class="dashboard-grid" id="statsGrid">
             <div class="card">
                 <h2>📊 Active Timers: <span id="activeTimers">0</span></h2>
@@ -1205,6 +1204,9 @@
                 <h2>🗑️ Auto-Purge Settings: <span id="autopurgeCount">0</span></h2>
             </div>
         </div>
+
+        <!-- GRID VIEW -->
+        <div class="grid-view">
 
         <div class="section" id="timersSection">
             <h2>⏱️ Active Timers</h2>
@@ -1654,7 +1656,7 @@
                 buttons[0].classList.add('active');
                 buttons[1].classList.remove('active');
             } else {
-                gridView.style.display = 'grid';
+                gridView.style.display = 'none';
                 tabbedView.style.display = 'block';
                 buttons[0].classList.remove('active');
                 buttons[1].classList.add('active');
