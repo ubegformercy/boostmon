@@ -2633,6 +2633,7 @@
             const container = document.getElementById('timersList');
             
             if (timers.length === 0) {
+                container.classList.add('placeholder-state');
                 container.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">⏰</div>
@@ -2641,6 +2642,9 @@
                 `;
                 return;
             }
+            
+            // Remove placeholder styling when displaying table
+            container.classList.remove('placeholder-state');
 
             let html = `
                 <div class="table-wrapper">
