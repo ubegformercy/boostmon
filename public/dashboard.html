@@ -2246,15 +2246,22 @@
                 
                 if (!guildId) {
                     console.warn('[Dashboard] No guildId found, showing error message');
-                    document.getElementById('guildIdError').style.display = 'block';
-                    document.getElementById('currentUrlDisplay').textContent = window.location.href;
-                    document.getElementById('statusBadge').textContent = 'NO GUILD';
-                    document.getElementById('statusBadge').classList.add('offline');
+                    const guildIdErrorEl = document.getElementById('guildIdError');
+                    const currentUrlDisplayEl = document.getElementById('currentUrlDisplay');
+                    const statusBadgeEl = document.getElementById('statusBadge');
+                    
+                    if (guildIdErrorEl) guildIdErrorEl.style.display = 'block';
+                    if (currentUrlDisplayEl) currentUrlDisplayEl.textContent = window.location.href;
+                    if (statusBadgeEl) {
+                        statusBadgeEl.textContent = 'NO GUILD';
+                        statusBadgeEl.classList.add('offline');
+                    }
                     return;
                 }
                 
                 // Hide error if guild ID is present
-                document.getElementById('guildIdError').style.display = 'none';
+                const guildIdErrorEl2 = document.getElementById('guildIdError');
+                if (guildIdErrorEl2) guildIdErrorEl2.style.display = 'none';
                 
                 const url = `/api/dashboard?guildId=${guildId}`;
                 console.log('[Dashboard] Fetching:', url);
@@ -2292,9 +2299,12 @@
                     url: `/api/dashboard?guildId=${guildId}`
                 });
                 console.error('[Dashboard] Setting ERROR badge');
-                document.getElementById('statusBadge').textContent = 'ERROR';
-                document.getElementById('statusBadge').classList.add('offline');
-                console.error('[Dashboard] ERROR badge set:', document.getElementById('statusBadge').textContent);
+                const statusBadgeErrEl = document.getElementById('statusBadge');
+                if (statusBadgeErrEl) {
+                    statusBadgeErrEl.textContent = 'ERROR';
+                    statusBadgeErrEl.classList.add('offline');
+                    console.error('[Dashboard] ERROR badge set:', statusBadgeErrEl.textContent);
+                }
             }
         }
 
@@ -2401,9 +2411,13 @@
                 console.log('[Dashboard] statusBadge text AFTER status update:', statusBadge.textContent);
                 
                 console.log('[Dashboard] Updating stats...');
-                document.getElementById('activeTimers').textContent = data.stats.activeTimers || 0;
-                document.getElementById('scheduledReports').textContent = data.stats.scheduledReports || 0;
-                document.getElementById('autopurgeCount').textContent = data.stats.autopurgeSettings || 0;
+                const activeTimersEl = document.getElementById('activeTimers');
+                const scheduledReportsEl = document.getElementById('scheduledReports');
+                const autopurgeCountEl = document.getElementById('autopurgeCount');
+                
+                if (activeTimersEl) activeTimersEl.textContent = data.stats.activeTimers || 0;
+                if (scheduledReportsEl) scheduledReportsEl.textContent = data.stats.scheduledReports || 0;
+                if (autopurgeCountEl) autopurgeCountEl.textContent = data.stats.autopurgeSettings || 0;
                 console.log('[Dashboard] Stats updated');
 
                 console.log('[Dashboard] Setting allTimers array...');
@@ -2455,9 +2469,13 @@
                 } else {
                     // Clear selection and hide form/table
                     selectedRoleId = null;
-                    document.getElementById('addEntryForm').style.display = 'none';
-                    document.getElementById('tableControls').style.display = 'none';
-                    document.getElementById('roleInfo').textContent = '';
+                    const addEntryFormEl = document.getElementById('addEntryForm');
+                    const tableControlsEl = document.getElementById('tableControls');
+                    const roleInfoEl = document.getElementById('roleInfo');
+                    
+                    if (addEntryFormEl) addEntryFormEl.style.display = 'none';
+                    if (tableControlsEl) tableControlsEl.style.display = 'none';
+                    if (roleInfoEl) roleInfoEl.textContent = '';
                 }
                 
                 console.log('[Dashboard] Updating reports table...');
@@ -2477,7 +2495,8 @@
                 updateAutopurgeTableTab(data.autopurge || []);
 
                 console.log('[Dashboard] Updating lastUpdate...');
-                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                const lastUpdateEl = document.getElementById('lastUpdate');
+                if (lastUpdateEl) lastUpdateEl.textContent = new Date().toLocaleTimeString();
                 console.log('[Dashboard] ========== updateDashboard() COMPLETED SUCCESSFULLY ==========');
                 
             } catch (err) {
@@ -2797,7 +2816,8 @@
             const confirmMsg = `Are you sure you want to delete the timer for ${userName} with role ${roleName}?`;
             addDebugLog(`Setting modal message: ${confirmMsg}`, 'info');
             
-            document.getElementById('confirmMessage').textContent = confirmMsg;
+            const confirmMsgEl = document.getElementById('confirmMessage');
+            if (confirmMsgEl) confirmMsgEl.textContent = confirmMsg;
             const modal = document.getElementById('confirmModal');
             addDebugLog(`Modal element found: ${modal ? 'yes' : 'no'}`, 'info');
             
@@ -2916,9 +2936,13 @@
                 }
 
                 showAlert('Timer added successfully!', 'success');
-                document.getElementById('newUser').value = '';
-                document.getElementById('newMinutes').value = '';
-                document.getElementById('newChannel').value = '';
+                const newUserEl = document.getElementById('newUser');
+                const newMinutesEl = document.getElementById('newMinutes');
+                const newChannelEl = document.getElementById('newChannel');
+                
+                if (newUserEl) newUserEl.value = '';
+                if (newMinutesEl) newMinutesEl.value = '';
+                if (newChannelEl) newChannelEl.value = '';
                 loadDashboard();
             } catch (err) {
                 console.error('Error adding timer:', err);
@@ -3958,7 +3982,8 @@
                 const response = await fetch('/api/version');
                 if (response.ok) {
                     const versionData = await response.json();
-                    document.getElementById('versionDisplay').textContent = versionData.version;
+                    const versionDisplayEl = document.getElementById('versionDisplay');
+                    if (versionDisplayEl) versionDisplayEl.textContent = versionData.version;
                     const tabVersion = document.getElementById('versionDisplayTab');
                     if (tabVersion) {
                         tabVersion.textContent = versionData.version;
