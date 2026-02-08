@@ -3222,16 +3222,16 @@
                     <tr>
                         <td>${channelDisplay}</td>
                         <td>${typeDisplay}</td>
-                        <td class="editable-cell" onclick="editAutopurgeSetting(${setting.channelId}, 'lines', ${setting.lines})">
+                        <td class="editable-cell" onclick="editAutopurgeSetting('${setting.channelId}', 'lines', ${setting.lines})">
                             ${setting.lines}
                         </td>
-                        <td class="editable-cell" onclick="editAutopurgeSetting(${setting.channelId}, 'interval', ${setting.interval})">
+                        <td class="editable-cell" onclick="editAutopurgeSetting('${setting.channelId}', 'interval', ${setting.interval})">
                             ${setting.interval} min
                         </td>
                         <td>${lastPurge}</td>
                         <td class="action-column">
                             <div class="action-buttons">
-                                <button class="delete-btn" onclick="deleteAutopurgeSetting(${setting.channelId})" title="Delete Setting">🗑️</button>
+                                <button class="delete-btn" onclick="deleteAutopurgeSetting('${setting.channelId}')" title="Delete Setting">🗑️</button>
                             </div>
                         </td>
                     </tr>
@@ -3272,7 +3272,7 @@
                         <td>${lastPurge}</td>
                         <td class="action-column">
                             <div class="action-buttons">
-                                <button class="delete-btn" onclick="deleteAutopurgeSetting(${setting.channelId})" title="Delete Setting">🗑️</button>
+                                <button class="delete-btn" onclick="deleteAutopurgeSetting('${setting.channelId}')" title="Delete Setting">🗑️</button>
                             </div>
                         </td>
                     </tr>
@@ -3921,7 +3921,7 @@
                         <td>${lastPurge}</td>
                         <td class="action-column">
                             <div class="action-buttons">
-                                <button class="delete-btn" onclick="deleteAutopurgeSetting(${setting.channelId})" title="Delete Setting">🗑️</button>
+                                <button class="delete-btn" onclick="deleteAutopurgeSetting('${setting.channelId}')" title="Delete Setting">🗑️</button>
                             </div>
                         </td>
                     </tr>
