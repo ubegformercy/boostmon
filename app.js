@@ -1663,8 +1663,8 @@ if (interaction.commandName === "removetime") {
         // Create description field with all members (with separator lines between entries)
         const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
         const description = membersList.length > 0 
-          ? membersList.join(`\n${separator}\n`)
-          : "No members have timers for this role";
+          ? '\n' + membersList.join(`\n${separator}\n`)
+          : "\nNo members have timers for this role";
 
         const embed = new EmbedBuilder()
           .setColor(0x2ECC71) // green
@@ -1675,7 +1675,7 @@ if (interaction.commandName === "removetime") {
           .addFields(
             { 
               name: "Summary", 
-              value: `\`\`\`Total Members     Active ⏱️     Expires Soon 🟡     Paused ⏸️\n${String(totalMembers).padEnd(13)}${String(activeMembers).padEnd(13)}${String(expiringMembers).padEnd(19)}${pausedMembers}\`\`\``,
+              value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(6)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
               inline: false 
             }
           )
