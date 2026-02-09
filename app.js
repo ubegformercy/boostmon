@@ -1632,8 +1632,10 @@ if (interaction.commandName === "removetime") {
           
           // Limit to 20 members per embed (leave room for summary field)
           if (fields.length < 20) {
+            // Use Discord nickname/display name instead of Roblox username
+            const displayName = member.nickname || member.user.globalName || member.user.username;
             fields.push({
-              name: `${member.user.username}`,
+              name: `${displayName}`,
               value: `${status} • ${timeText}`,
               inline: false
             });
