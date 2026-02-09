@@ -1660,9 +1660,9 @@ if (interaction.commandName === "removetime") {
           if (membersList.length >= 30) break;
         }
 
-        // Create description field with all members
+        // Create description field with all members (with line breaks between entries)
         const description = membersList.length > 0 
-          ? membersList.join('\n')
+          ? membersList.join('\n\n')
           : "No members have timers for this role";
 
         const embed = new EmbedBuilder()
