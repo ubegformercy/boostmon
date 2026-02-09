@@ -662,6 +662,18 @@ async function updateRolestatusLastMessageId(guildId, roleId, channelId, message
   }
 }
 
+async function getAllGuildIdsWithSchedules() {
+  try {
+    const result = await pool.query(
+      "SELECT DISTINCT guild_id FROM rolestatus_schedules WHERE enabled = true"
+    );
+    return result.rows.map(row => row.guild_id);
+  } catch (err) {
+    console.error("getAllGuildIdsWithSchedules error:", err);
+    return [];
+  }
+}
+
 // ===== GUILD MEMBERS CACHE OPERATIONS =====
 
 async function upsertGuildMember(guildId, userId, username, displayName, isBot, avatarUrl) {
@@ -1155,6 +1167,7 @@ module.exports = {
   disableRolestatusSchedule,
   updateRolestatusLastReport,
   updateRolestatusLastMessageId,
+  getAllGuildIdsWithSchedules,
   // Guild members cache
   upsertGuildMember,
   batchUpsertGuildMembers,

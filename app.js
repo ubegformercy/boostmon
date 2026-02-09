@@ -2993,6 +2993,14 @@ async function cleanupAndWarn() {
       timersByGuild[gId].push(timer);
     }
 
+    // Also get all guilds with active scheduled reports
+    const guildIdsWithSchedules = await db.getAllGuildIdsWithSchedules().catch(() => []);
+    for (const guildId of guildIdsWithSchedules) {
+      if (!timersByGuild[guildId]) {
+        timersByGuild[guildId] = [];
+      }
+    }
+
     // Process each guild's timers
     for (const guildId in timersByGuild) {
       const guild = await client.guilds.fetch(guildId).catch(() => null);
