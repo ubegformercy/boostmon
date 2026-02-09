@@ -1150,16 +1150,22 @@
             display: none; /* Hidden by default - Tabbed View is default */
         }
 
-        .grid-view.hidden {
+        /* HIDE ROLE COLUMNS IN TABLES - Keep data for functionality but hide from view */
+        /* Timers Table: Hide Role column (2nd column) */
+        #timersTableTab thead tr th:nth-child(2),
+        #timersTableTab tbody tr td:nth-child(2) {
             display: none;
         }
 
-        /* Tabbed View Container - shown by default */
-        .tabs-container {
-            display: block;
+        /* Reports Table (Tabbed): Hide Role column (1st column) */
+        #reportsTableTab thead tr th:nth-child(1),
+        #reportsTableTab tbody tr td:nth-child(1) {
+            display: none;
         }
 
-        .tabs-container.hidden {
+        /* Reports Table (Grid): Hide Role column (1st column) */
+        #reportsTable thead tr th:nth-child(1),
+        #reportsTable tbody tr td:nth-child(1) {
             display: none;
         }
     </style>
