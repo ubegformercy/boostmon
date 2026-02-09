@@ -2611,6 +2611,7 @@ async function executeScheduledRolestatus(guild, now) {
     const schedules = await db.getAllRolestatusSchedules(guild.id).catch(() => []);
 
     for (const schedule of schedules) {
+      console.log(`[SCHEDULED-REPORT] Processing schedule: role=${schedule.role_id}, channel=${schedule.channel_id}, interval=${schedule.interval_minutes}m, purge_lines=${schedule.purge_lines}`);
       const channel = guild.channels.cache.get(schedule.channel_id);
       if (!channel) {
         console.warn(`[SCHEDULED-REPORT] Channel ${schedule.channel_id} not found in guild ${guild.id}`);
@@ -2788,13 +2789,18 @@ async function executeScheduledRolestatus(guild, now) {
         // Purge lines if configured
         if (schedule.purge_lines && schedule.purge_lines > 0) {
           try {
+            console.log(`[SCHEDULED-REPORT] Attempting to purge ${schedule.purge_lines} message(s) from ${channel.name}...`);
             const messages = await channel.messages.fetch({ limit: schedule.purge_lines });
+            console.log(`[SCHEDULED-REPORT] Fetched ${messages.size} message(s) to purge`);
             if (messages && messages.size > 0) {
               await channel.bulkDelete(messages, true);
-              console.log(`[SCHEDULED-REPORT] Purged ${messages.size} message(s) from ${channel.name} before posting new report`);
+              console.log(`[SCHEDULED-REPORT] ✓ Successfully purged ${messages.size} message(s) from ${channel.name} before posting new report`);
+            } else {
+              console.log(`[SCHEDULED-REPORT] No messages found to purge in ${channel.name}`);
             }
           } catch (err) {
-            console.warn(`[SCHEDULED-REPORT] Could not purge messages from ${channel.name}: ${err.message}`);
+            console.error(`[SCHEDULED-REPORT] ✗ Could not purge messages from ${channel.name}: ${err.message}`);
+            console.error(`[SCHEDULED-REPORT] Error code: ${err.code}`);
           }
         }
 
