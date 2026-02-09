@@ -380,6 +380,14 @@ client.once("ready", async () => {
                   .setMinValue(15)
                   .setMaxValue(1440)
               )
+              .addIntegerOption((o) =>
+                o
+                  .setName("purge")
+                  .setDescription("Lines to purge before posting (0-100, optional)")
+                  .setRequired(false)
+                  .setMinValue(0)
+                  .setMaxValue(100)
+              )
           )
           .addSubcommand((s) =>
             s
@@ -1699,6 +1707,7 @@ if (interaction.commandName === "removetime") {
           const role = interaction.options.getRole("role", true);
           const channel = interaction.options.getChannel("channel", true);
           const interval = interaction.options.getInteger("interval", true);
+          const purgeLines = interaction.options.getInteger("purge") || 0;
 
           // Validate channel is text-based
           if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
@@ -1717,8 +1726,14 @@ if (interaction.commandName === "removetime") {
             });
           }
 
+          if (purgeLines > 0 && !perms?.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.editReply({
+              content: `I don't have permission to manage messages in ${channel}. Purge feature requires this permission.`,
+            });
+          }
+
           // Create schedule in database
-          const schedule = await db.createRolestatusSchedule(guild.id, role.id, channel.id, interval);
+          const schedule = await db.createRolestatusSchedule(guild.id, role.id, channel.id, interval, purgeLines);
           
           if (!schedule) {
             return interaction.editReply({
@@ -1735,6 +1750,7 @@ if (interaction.commandName === "removetime") {
               { name: "Role", value: `${role.name}`, inline: true },
               { name: "Channel", value: `${channel.name}`, inline: true },
               { name: "Interval", value: `Every ${interval} minutes`, inline: true },
+              { name: "Purge Lines", value: `${purgeLines === 0 ? "Disabled" : `${purgeLines} line(s)`}`, inline: true },
               { name: "Status", value: "🟢 Active - Reports will begin shortly", inline: false }
             )
             .setFooter({ text: "BoostMon • Scheduled Report Started" });
@@ -2763,6 +2779,19 @@ async function executeScheduledRolestatus(guild, now) {
             }
           } catch (err) {
             console.warn(`[SCHEDULED-REPORT] Could not delete old message: ${err.message}`);
+          }
+        }
+
+        // Purge lines if configured
+        if (schedule.purge_lines && schedule.purge_lines > 0) {
+          try {
+            const messages = await channel.messages.fetch({ limit: schedule.purge_lines }).catch(() => []);
+            if (messages.size > 0) {
+              await channel.bulkDelete(messages, true).catch(() => null);
+              console.log(`[SCHEDULED-REPORT] Purged ${messages.size} message(s) from ${channel.name} before posting new report`);
+            }
+          } catch (err) {
+            console.warn(`[SCHEDULED-REPORT] Could not purge messages from ${channel.name}: ${err.message}`);
           }
         }
 

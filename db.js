@@ -74,6 +74,7 @@ async function initDatabase() {
         role_id VARCHAR(255) NOT NULL,
         channel_id VARCHAR(255) NOT NULL,
         interval_minutes INTEGER NOT NULL,
+        purge_lines INTEGER DEFAULT 0,
         enabled BOOLEAN DEFAULT true,
         last_report_at TIMESTAMP,
         last_message_id VARCHAR(255),
@@ -146,6 +147,18 @@ async function initDatabase() {
       await client.query(`
         ALTER TABLE rolestatus_schedules 
         ADD COLUMN IF NOT EXISTS last_message_id VARCHAR(255);
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration info:", err.message);
+      }
+    }
+
+    // Add purge_lines to rolestatus_schedules
+    try {
+      await client.query(`
+        ALTER TABLE rolestatus_schedules 
+        ADD COLUMN IF NOT EXISTS purge_lines INTEGER DEFAULT 0;
       `);
     } catch (err) {
       if (!err.message.includes("already exists")) {
@@ -564,17 +577,18 @@ async function updateAutopurgeLastPurge(guildId, channelId) {
 
 // ===== ROLESTATUS SCHEDULE OPERATIONS =====
 
-async function createRolestatusSchedule(guildId, roleId, channelId, intervalMinutes) {
+async function createRolestatusSchedule(guildId, roleId, channelId, intervalMinutes, purgeLines = 0) {
   try {
     const result = await pool.query(
-      `INSERT INTO rolestatus_schedules (guild_id, role_id, channel_id, interval_minutes, enabled, last_report_at)
-       VALUES ($1, $2, $3, $4, true, NULL)
+      `INSERT INTO rolestatus_schedules (guild_id, role_id, channel_id, interval_minutes, purge_lines, enabled, last_report_at)
+       VALUES ($1, $2, $3, $4, $5, true, NULL)
        ON CONFLICT (guild_id, role_id, channel_id) DO UPDATE SET
          interval_minutes = $4,
+         purge_lines = $5,
          enabled = true,
          updated_at = CURRENT_TIMESTAMP
        RETURNING *`,
-      [guildId, roleId, channelId, intervalMinutes]
+      [guildId, roleId, channelId, intervalMinutes, purgeLines]
     );
     return result.rows[0] || null;
   } catch (err) {
