@@ -1675,7 +1675,7 @@ if (interaction.commandName === "removetime") {
           .addFields(
             { 
               name: "Summary", 
-              value: `**Total Members**\n${totalMembers}\n\n**Active ⏱️**\n${activeMembers}\n\n**Expires Soon 🟡**\n${expiringMembers}\n\n**Paused ⏸️**\n${pausedMembers}`,
+              value: `\`\`\`Total Members     Active ⏱️     Expires Soon 🟡     Paused ⏸️\n${String(totalMembers).padEnd(13)}${String(activeMembers).padEnd(13)}${String(expiringMembers).padEnd(19)}${pausedMembers}\`\`\``,
               inline: false 
             }
           )
