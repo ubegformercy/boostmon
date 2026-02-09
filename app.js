@@ -375,10 +375,9 @@ client.once("ready", async () => {
               .addIntegerOption((o) =>
                 o
                   .setName("interval")
-                  .setDescription("Minutes between reports (15-1440)")
+                  .setDescription("Minutes between reports")
                   .setRequired(true)
-                  .setMinValue(15)
-                  .setMaxValue(1440)
+                  .setMinValue(1)
               )
               .addIntegerOption((o) =>
                 o
