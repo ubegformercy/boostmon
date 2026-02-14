@@ -197,11 +197,12 @@ async function initDatabase() {
         ADD COLUMN IF NOT EXISTS report_sort_order VARCHAR(50) DEFAULT 'descending';
       `);
       
-      // Ensure all existing records have descending as default (fix any old ascending values)
+      // Reset ALL records to descending as default (fix any old ascending values from previous versions)
+      // This migration runs on every startup to ensure consistency
       await client.query(`
         UPDATE rolestatus_schedules 
         SET report_sort_order = 'descending' 
-        WHERE report_sort_order IS NULL OR report_sort_order NOT IN ('ascending', 'descending');
+        WHERE report_sort_order IS NULL OR report_sort_order != 'descending';
       `);
     } catch (err) {
       if (!err.message.includes("already exists")) {
