@@ -479,6 +479,21 @@ client.once("ready", async () => {
         s
           .setName("unrestrict")
           .setDescription("Disable restrict mode and revert to normal access")
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("reports")
+          .setDescription("Configure leaderboard report settings for this server")
+          .addStringOption((o) =>
+            o
+              .setName("filter")
+              .setDescription("Sort order for leaderboard reports")
+              .setRequired(true)
+              .addChoices(
+                { name: "🔼 Ascending (expires soonest first)", value: "ascending" },
+                { name: "🔽 Descending (expires latest first)", value: "descending" }
+              )
+          )
       ),
 
     new SlashCommandBuilder()
@@ -2150,6 +2165,38 @@ if (interaction.commandName === "removetime") {
 
         return interaction.editReply({ embeds: [embed] });
       }
+
+      if (subcommand === "reports") {
+        const sortOrder = interaction.options.getString("filter", true);
+
+        // Update the report sort order for all schedules in this guild
+        const result = await db.setReportSortOrder(guild.id, sortOrder);
+
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ No scheduled reports found for this server, or failed to update sorting.`
+          });
+        }
+
+        const sortEmoji = sortOrder === 'ascending' ? '🔼' : '🔽';
+        const sortDescription = sortOrder === 'ascending' 
+          ? 'Expiring soonest appears first' 
+          : 'Expiring latest appears first';
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(`${sortEmoji} Leaderboard Sort Order Updated`)
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Sort Order", value: `**${sortOrder.charAt(0).toUpperCase() + sortOrder.slice(1)}**`, inline: true },
+            { name: "Display", value: sortDescription, inline: true },
+            { name: "Effect", value: "All leaderboard reports will now display members in this order", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
     }
 
     // ---------- /boostqueue ----------
@@ -2714,7 +2761,7 @@ async function executeScheduledRolestatus(guild, now) {
           continue;
         }
 
-        // Sort by time remaining (expires soonest first)
+        // Sort by time remaining (ascending - expires soonest first by default)
         timersList.sort((a, b) => {
           let aMs = Number(a.timer.expires_at) - now;
           let bMs = Number(b.timer.expires_at) - now;
@@ -2728,6 +2775,14 @@ async function executeScheduledRolestatus(guild, now) {
           
           return aMs - bMs;
         });
+
+        // Get the sort order from database
+        const sortOrder = await db.getReportSortOrder(guild.id).catch(() => 'ascending');
+        
+        // Apply sort order (reverse if descending)
+        if (sortOrder === 'descending') {
+          timersList.reverse();
+        }
 
         // Build compact list of members (matching /rolestatus view format)
         let membersList = [];
@@ -2770,8 +2825,11 @@ async function executeScheduledRolestatus(guild, now) {
           const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
           const inGameUsername = registration?.in_game_username || member.user.username;
           
-          // Format: 🟢 ACTIVE • 3h 58m 10s • Haozinho - (tauan123456789090)
-          const line = `${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
+          // Add rank medal for top 3 boosters (position in sorted list)
+          const rankMedal = membersList.length === 0 ? '🥇' : membersList.length === 1 ? '🥈' : membersList.length === 2 ? '🥉' : '  ';
+          
+          // Format: 🥇 🟢 ACTIVE • 3h 58m 10s • Haozinho - (tauan123456789090)
+          const line = `${rankMedal} ${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
           membersList.push(line);
 
           // Limit to 30 members per embed (matches view command)
@@ -2784,20 +2842,24 @@ async function executeScheduledRolestatus(guild, now) {
           ? '\n' + membersList.join(`\n${separator}\n`)
           : "\nNo members have timers for this role";
 
+        // Create epic leaderboard title
+        const roleName = (await guild.roles.fetch(schedule.role_id).catch(() => null))?.name || "Role Status";
+        const leaderboardTitle = `【⭐】${roleName} Leaderboard【⭐】`;
+
         const embed = new EmbedBuilder()
           .setColor(0x2ECC71)
           .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-          .setTitle(`${(await guild.roles.fetch(schedule.role_id).catch(() => null))?.name || "Role Status"} - Automated Report`)
+          .setTitle(leaderboardTitle)
           .setDescription(description)
           .setTimestamp(new Date())
           .addFields(
             { 
-              name: "Summary", 
+              name: "📊 Summary", 
               value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
               inline: false 
             }
           )
-          .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)}/${totalMembers} members` });
+          .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)}/${totalMembers} members | Sort: ${sortOrder}` });
 
         // Delete old message if it exists
         if (schedule.last_message_id) {

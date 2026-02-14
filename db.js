@@ -190,6 +190,18 @@ async function initDatabase() {
       }
     }
 
+    // Add report_sort_order for leaderboard sorting
+    try {
+      await client.query(`
+        ALTER TABLE rolestatus_schedules 
+        ADD COLUMN IF NOT EXISTS report_sort_order VARCHAR(50) DEFAULT 'ascending';
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration info:", err.message);
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -671,6 +683,38 @@ async function getAllGuildIdsWithSchedules() {
   } catch (err) {
     console.error("getAllGuildIdsWithSchedules error:", err);
     return [];
+  }
+}
+
+async function setReportSortOrder(guildId, sortOrder = 'ascending') {
+  try {
+    // Validate sort order
+    if (!['ascending', 'descending'].includes(sortOrder)) {
+      throw new Error('Invalid sort order. Must be "ascending" or "descending".');
+    }
+    
+    // Update all schedules for this guild
+    const result = await pool.query(
+      "UPDATE rolestatus_schedules SET report_sort_order = $1, updated_at = CURRENT_TIMESTAMP WHERE guild_id = $2 RETURNING *",
+      [sortOrder, guildId]
+    );
+    return result.rows.length > 0;
+  } catch (err) {
+    console.error("setReportSortOrder error:", err);
+    return false;
+  }
+}
+
+async function getReportSortOrder(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT report_sort_order FROM rolestatus_schedules WHERE guild_id = $1 AND enabled = true LIMIT 1",
+      [guildId]
+    );
+    return result.rows[0]?.report_sort_order || 'ascending';
+  } catch (err) {
+    console.error("getReportSortOrder error:", err);
+    return 'ascending';
   }
 }
 
@@ -1168,6 +1212,8 @@ module.exports = {
   updateRolestatusLastReport,
   updateRolestatusLastMessageId,
   getAllGuildIdsWithSchedules,
+  setReportSortOrder,
+  getReportSortOrder,
   // Guild members cache
   upsertGuildMember,
   batchUpsertGuildMembers,
