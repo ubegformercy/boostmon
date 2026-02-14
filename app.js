@@ -2729,49 +2729,75 @@ async function executeScheduledRolestatus(guild, now) {
           return aMs - bMs;
         });
 
-        // Build field list
-        const fields = [];
+        // Build compact list of members (matching /rolestatus view format)
+        let membersList = [];
         let totalMembers = 0;
         let activeMembers = 0;
         let pausedMembers = 0;
+        let expiringMembers = 0;
 
         for (const { member, timer } of timersList) {
           totalMembers++;
+          
+          let remainingMs = Number(timer.expires_at) - now;
+          if (timer.paused && timer.paused_remaining_ms) {
+            remainingMs = Number(timer.paused_remaining_ms);
+          }
+
           const isPaused = timer.paused;
           if (isPaused) pausedMembers++;
           else activeMembers++;
 
-          let remainingMs = Number(timer.expires_at) - now;
-          if (isPaused && timer.paused_remaining_ms) {
-            remainingMs = Number(timer.paused_remaining_ms);
+          // Determine status and check for expiring soon (< 60 minutes)
+          let status;
+          if (isPaused) {
+            status = "⏸️ PAUSED";
+          } else if (remainingMs <= 0) {
+            status = "🔴 EXPIRED";
+          } else if (remainingMs < 60 * 60 * 1000) {
+            status = "🟡 EXPIRES SOON";
+            expiringMembers++;
+          } else {
+            status = "🟢 ACTIVE";
           }
 
-          const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
           const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
           
-          // Limit to 20 members per embed
-          if (fields.length < 20) {
-            fields.push({
-              name: `${member.user.username}`,
-              value: `${status} • ${timeText}`,
-              inline: false
-            });
-          }
+          // Get Discord display name
+          const displayName = member.nickname || member.user.globalName || member.user.username;
+          
+          // Try to fetch registration for in-game username, or use Discord username as fallback
+          const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
+          const inGameUsername = registration?.in_game_username || member.user.username;
+          
+          // Format: 🟢 ACTIVE • 3h 58m 10s • Haozinho - (tauan123456789090)
+          const line = `${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
+          membersList.push(line);
+
+          // Limit to 30 members per embed (matches view command)
+          if (membersList.length >= 30) break;
         }
+
+        // Create description field with all members (with separator lines between entries)
+        const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+        const description = membersList.length > 0 
+          ? '\n' + membersList.join(`\n${separator}\n`)
+          : "\nNo members have timers for this role";
 
         const embed = new EmbedBuilder()
           .setColor(0x2ECC71)
           .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-          .setTitle("📋 Role Status Report")
+          .setTitle(`${(await guild.roles.fetch(schedule.role_id).catch(() => null))?.name || "Role Status"} - Automated Report`)
+          .setDescription(description)
           .setTimestamp(new Date())
-          .addFields(...fields)
           .addFields(
-            { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
-            { name: "Total Members", value: `${totalMembers}`, inline: true },
-            { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
-            { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
+            { 
+              name: "Summary", 
+              value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
+              inline: false 
+            }
           )
-          .setFooter({ text: `BoostMon • Automated Report (showing ${Math.min(timersList.length, 20)}/${totalMembers})` });
+          .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)}/${totalMembers} members` });
 
         // Delete old message if it exists
         if (schedule.last_message_id) {
