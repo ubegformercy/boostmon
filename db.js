@@ -194,7 +194,7 @@ async function initDatabase() {
     try {
       await client.query(`
         ALTER TABLE rolestatus_schedules 
-        ADD COLUMN IF NOT EXISTS report_sort_order VARCHAR(50) DEFAULT 'ascending';
+        ADD COLUMN IF NOT EXISTS report_sort_order VARCHAR(50) DEFAULT 'descending';
       `);
     } catch (err) {
       if (!err.message.includes("already exists")) {
@@ -711,10 +711,10 @@ async function getReportSortOrder(guildId) {
       "SELECT report_sort_order FROM rolestatus_schedules WHERE guild_id = $1 AND enabled = true LIMIT 1",
       [guildId]
     );
-    return result.rows[0]?.report_sort_order || 'ascending';
+    return result.rows[0]?.report_sort_order || 'descending';
   } catch (err) {
     console.error("getReportSortOrder error:", err);
-    return 'ascending';
+    return 'descending';
   }
 }
 

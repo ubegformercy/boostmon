@@ -2790,6 +2790,7 @@ async function executeScheduledRolestatus(guild, now) {
         let activeMembers = 0;
         let pausedMembers = 0;
         let expiringMembers = 0;
+        let memberCount = 0; // Track position for medal awards
 
         for (const { member, timer } of timersList) {
           totalMembers++;
@@ -2825,12 +2826,14 @@ async function executeScheduledRolestatus(guild, now) {
           const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
           const inGameUsername = registration?.in_game_username || member.user.username;
           
-          // Add rank medal for top 3 boosters (position in sorted list)
-          const rankMedal = membersList.length === 0 ? '🥇' : membersList.length === 1 ? '🥈' : membersList.length === 2 ? '🥉' : '  ';
+          // Award rank medals to top 3 boosters (based on sorted position - longest remaining time)
+          // Descending sort = longest time first = top boosters, so position 0,1,2 get medals
+          const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
           
           // Format: 🥇 🟢 ACTIVE • 3h 58m 10s • Haozinho - (tauan123456789090)
           const line = `${rankMedal} ${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
           membersList.push(line);
+          memberCount++;
 
           // Limit to 30 members per embed (matches view command)
           if (membersList.length >= 30) break;
