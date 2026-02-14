@@ -199,14 +199,15 @@ async function initDatabase() {
       
       // Reset ALL records to descending as default (fix any old ascending values from previous versions)
       // This migration runs on every startup to ensure consistency
-      await client.query(`
+      const result = await client.query(`
         UPDATE rolestatus_schedules 
         SET report_sort_order = 'descending' 
         WHERE report_sort_order IS NULL OR report_sort_order != 'descending';
       `);
+      console.log(`✓ Leaderboard sort order migration: Updated ${result.rowCount} schedule records to 'descending'`);
     } catch (err) {
       if (!err.message.includes("already exists")) {
-        console.warn("Migration info:", err.message);
+        console.warn("Migration warning for report_sort_order:", err.message);
       }
     }
 
@@ -720,6 +721,17 @@ async function getReportSortOrder(guildId) {
       [guildId]
     );
     const order = result.rows[0]?.report_sort_order;
+    
+    // If we find 'ascending', actively fix it in the background (non-blocking)
+    if (order === 'ascending') {
+      console.warn(`[getReportSortOrder] Guild ${guildId} has 'ascending' set - fixing to 'descending' in background`);
+      // Fire and forget - don't await this
+      pool.query(
+        "UPDATE rolestatus_schedules SET report_sort_order = 'descending' WHERE guild_id = $1 AND report_sort_order = 'ascending'",
+        [guildId]
+      ).catch(err => console.error(`Failed to auto-fix sort order for guild ${guildId}:`, err));
+    }
+    
     // Default to 'descending' for null, undefined, or any unexpected values
     // Explicitly accept only 'ascending' or 'descending'
     return order === 'ascending' ? 'ascending' : 'descending';
