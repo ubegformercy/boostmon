@@ -1346,7 +1346,7 @@ if (interaction.commandName === "removetime") {
       { name: "Remaining", value: `**${formatMs(leftMs)}**`, inline: true },
       {
         name: "Expires",
-        value: `<t:${Math.floor(result / 1000)}:F>\n(<t:${Math.floor(result / 1000)}:R>)`,
+        value: `<t:${Math.floor(result / 1000)}:F>\n(<t:${Math.floor(result / 0)}:R>)`,
         inline: false,
       }
     )
@@ -2764,8 +2764,9 @@ if (interaction.commandName === "removetime") {
       }
     }
 
-    // ---------- /streak ----------
+// ---------- /streak ----------
     if (interaction.commandName === "streak") {
+      const guild = interaction.guild;
       const subcommand = interaction.options.getSubcommand();
       const group = interaction.options.getSubcommandGroup(false);
 
