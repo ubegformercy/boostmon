@@ -10,7 +10,7 @@ module.exports = async function handleShowtime(interaction) {
   const userOption = interaction.options.getUser("user"); // nullable
   const roleOption = interaction.options.getRole("role"); // nullable
 
-  // If only role is provided (no user), show all users with that role (like /rolestatus view)
+  // If only role is provided (no user), show all users with that role (same format as /rolestatus view)
   if (roleOption && !userOption) {
     if (!interaction.guild) {
       return interaction.editReply({ content: "This command can only be used in a server." });
@@ -21,7 +21,7 @@ module.exports = async function handleShowtime(interaction) {
 
     if (timersFromDb.length === 0) {
       const embed = new EmbedBuilder()
-        .setColor(0x95A5A6) // grey
+        .setColor(0x95A5A6)
         .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
         .setTitle("Role Status")
         .setTimestamp(new Date())
@@ -34,23 +34,22 @@ module.exports = async function handleShowtime(interaction) {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    // Fetch only the members that have timers for this role
     const timersList = [];
     for (const timer of timersFromDb) {
       try {
         const member = await guild.members.fetch(timer.user_id).catch(() => null);
         if (member) {
-          timersList.push({ member, timer });
+          const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
+          timersList.push({ member, timer, registration });
         }
       } catch (err) {
         console.error(`Failed to fetch member ${timer.user_id}:`, err);
       }
     }
 
-    // If no members found, they may have left the server
     if (timersList.length === 0) {
       const embed = new EmbedBuilder()
-        .setColor(0x95A5A6) // grey
+        .setColor(0x95A5A6)
         .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
         .setTitle("Role Status")
         .setTimestamp(new Date())
@@ -63,7 +62,8 @@ module.exports = async function handleShowtime(interaction) {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    // Sort by time remaining (ascending - expires soonest first)
+    const sortOrder = await db.getReportSortOrder(guild.id).catch(() => 'descending');
+
     timersList.sort((a, b) => {
       let aMs = Number(a.timer.expires_at) - Date.now();
       let bMs = Number(b.timer.expires_at) - Date.now();
@@ -75,52 +75,76 @@ module.exports = async function handleShowtime(interaction) {
         bMs = Number(b.timer.paused_remaining_ms);
       }
 
-      return aMs - bMs;
+      if (sortOrder === 'ascending') {
+        return aMs - bMs;
+      } else {
+        return bMs - aMs;
+      }
     });
 
-    // Build field list
-    const fields = [];
+    let membersList = [];
     let totalMembers = 0;
     let activeMembers = 0;
     let pausedMembers = 0;
+    let expiringMembers = 0;
+    let memberCount = 0;
 
-    for (const { member, timer } of timersList) {
+    for (const { member, timer, registration } of timersList) {
       totalMembers++;
+
+      let remainingMs = Number(timer.expires_at) - Date.now();
+      if (timer.paused && timer.paused_remaining_ms) {
+        remainingMs = Number(timer.paused_remaining_ms);
+      }
+
       const isPaused = timer.paused;
       if (isPaused) pausedMembers++;
       else activeMembers++;
 
-      let remainingMs = Number(timer.expires_at) - Date.now();
-      if (isPaused && timer.paused_remaining_ms) {
-        remainingMs = Number(timer.paused_remaining_ms);
+      let status;
+      if (isPaused) {
+        status = "⏸️ PAUSED";
+      } else if (remainingMs <= 0) {
+        status = "🔴 EXPIRED";
+      } else if (remainingMs < 60 * 60 * 1000) {
+        status = "🟡 EXPIRES SOON";
+        expiringMembers++;
+      } else {
+        status = "🟢 ACTIVE";
       }
 
-      const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
       const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+      const displayName = member.nickname || member.user.globalName || member.user.username;
+      const inGameUsername = registration?.in_game_username || member.user.username;
+      const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
+      const line = `${rankMedal} ${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
+      membersList.push(line);
+      memberCount++;
 
-      // Limit to 20 members per embed (leave room for summary field)
-      if (fields.length < 20) {
-        fields.push({
-          name: `${member.user.username}`,
-          value: `${status} • ${timeText}`,
-          inline: false
-        });
-      }
+      if (membersList.length >= 30) break;
     }
 
+    const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+    const description = membersList.length > 0
+      ? '\n' + membersList.join(`\n${separator}\n`)
+      : "\nNo members have timers for this role";
+
+    const leaderboardTitle = `【⭐】${roleOption.name} Leaderboard【⭐】`;
+
     const embed = new EmbedBuilder()
-      .setColor(0x2ECC71) // green
+      .setColor(0x2ECC71)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`${roleOption.name} - Status Report`)
+      .setTitle(leaderboardTitle)
+      .setDescription(description)
       .setTimestamp(new Date())
-      .addFields(...fields)
       .addFields(
-        { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
-        { name: "Total Members", value: `${totalMembers}`, inline: true },
-        { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
-        { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
+        {
+          name: "📊 Summary",
+          value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
+          inline: false
+        }
       )
-      .setFooter({ text: `BoostMon • Showing ${Math.min(timersList.length, 20)} members` });
+      .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)} members | Sort: ${sortOrder}` });
 
     return interaction.editReply({ embeds: [embed] });
   }
