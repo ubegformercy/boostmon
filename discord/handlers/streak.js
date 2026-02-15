@@ -89,13 +89,13 @@ module.exports = async function handleStreak(interaction) {
 
   if (subcommand === "leaderboard") {
     await interaction.deferReply().catch(() => null);
-    const leaderboard = await db.getStreakLeaderboard(guild.id, 10);
+    const leaderboard = await db.getStreakLeaderboard(guild.id, 50);
 
     if (leaderboard.length === 0) {
       return interaction.editReply({ content: "No active boost streaks found in this server." });
     }
 
-    const fields = [];
+    const lines = [];
     for (let index = 0; index < leaderboard.length; index++) {
       const entry = leaderboard[index];
       const days = Math.floor((Date.now() - new Date(entry.streak_start_at)) / (24 * 60 * 60 * 1000));
@@ -117,21 +117,23 @@ module.exports = async function handleStreak(interaction) {
         ? `${displayName} - (${inGameUsername})`
         : displayName;
 
-      fields.push({
-        name: `${medal} #${index + 1} - ${nameText}`,
-        value: `**${days} Days** • ${entry.save_tokens} Saves`,
-        inline: false
-      });
+      lines.push(`${medal} **#${index + 1}** • **${days} Days** • ${entry.save_tokens} Saves • ${nameText}`);
     }
+
+    const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+    const description = lines.join(`\n${separator}\n`);
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
       .setTitle("🏆 Streak Leaderboard")
-      .setDescription("The longest uninterrupted boost streaks in the server!")
-      .addFields(...fields)
+      .addFields({
+        name: `The longest uninterrupted boost streaks in the server!`,
+        value: description,
+        inline: false
+      })
       .setTimestamp(new Date())
-      .setFooter({ text: "BoostMon • Longest Streaks" });
+      .setFooter({ text: `BoostMon • Showing ${leaderboard.length} members` });
 
     return interaction.editReply({ embeds: [embed] });
   }
