@@ -142,6 +142,35 @@ async function initDatabase() {
       );
     `);
 
+    // New Streak Role mapping table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS streak_roles (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        day_threshold INTEGER NOT NULL,
+        role_id VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(guild_id, day_threshold)
+      );
+    `);
+
+    // New User Streak tracking table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_streaks (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        user_id VARCHAR(255) NOT NULL,
+        streak_start_at TIMESTAMP,
+        save_tokens INTEGER DEFAULT 0,
+        last_save_earned_at TIMESTAMP,
+        grace_period_until TIMESTAMP,
+        degradation_started_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(guild_id, user_id)
+      );
+    `);
+
     // Add missing column if it doesn't exist (for existing databases)
     try {
       await client.query(`
@@ -232,6 +261,8 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_boost_queue_status ON boost_queue(guild_id, status)',
       'CREATE INDEX IF NOT EXISTS idx_user_registrations_guild_id ON user_registrations(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_user_registrations_discord_id ON user_registrations(guild_id, discord_id)',
+      'CREATE INDEX IF NOT EXISTS idx_streak_roles_guild ON streak_roles(guild_id)',
+      'CREATE INDEX IF NOT EXISTS idx_user_streaks_guild_user ON user_streaks(guild_id, user_id)',
     ];
 
       for (const indexQuery of indexes) {
@@ -695,7 +726,7 @@ async function getAllGuildIdsWithSchedules() {
   }
 }
 
-async function setReportSortOrder(guildId, sortOrder = 'ascending') {
+async function setReportSortOrder(guildId, sortOrder = 'descending') {
   try {
     // Validate sort order
     if (!['ascending', 'descending'].includes(sortOrder)) {
@@ -1195,6 +1226,129 @@ async function getUserRegistration(guildId, discordId) {
   }
 }
 
+// ===== STREAK SYSTEM OPERATIONS =====
+
+async function setStreakRole(guildId, dayThreshold, roleId) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO streak_roles (guild_id, day_threshold, role_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (guild_id, day_threshold) DO UPDATE SET
+         role_id = $3
+       RETURNING *`,
+      [guildId, dayThreshold, roleId]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error("setStreakRole error:", err);
+    return null;
+  }
+}
+
+async function getStreakRoles(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM streak_roles WHERE guild_id = $1 ORDER BY day_threshold ASC",
+      [guildId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getStreakRoles error:", err);
+    return [];
+  }
+}
+
+async function removeStreakRole(guildId, dayThreshold) {
+  try {
+    const result = await pool.query(
+      "DELETE FROM streak_roles WHERE guild_id = $1 AND day_threshold = $2 RETURNING *",
+      [guildId, dayThreshold]
+    );
+    return result.rows.length > 0;
+  } catch (err) {
+    console.error("removeStreakRole error:", err);
+    return false;
+  }
+}
+
+async function getUserStreak(guildId, userId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM user_streaks WHERE guild_id = $1 AND user_id = $2",
+      [guildId, userId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getUserStreak error:", err);
+    return null;
+  }
+}
+
+async function upsertUserStreak(guildId, userId, data) {
+  try {
+    const keys = Object.keys(data);
+    if (keys.length === 0) return null;
+
+    const fields = ['guild_id', 'user_id', ...keys];
+    const values = [guildId, userId, ...Object.values(data)];
+    
+    let updateStrArr = [];
+    keys.forEach((key, idx) => {
+      updateStrArr.push(`${key} = $${idx + 3}`);
+    });
+
+    const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
+    const query = `
+      INSERT INTO user_streaks (${fields.join(', ')})
+      VALUES (${placeholders})
+      ON CONFLICT (guild_id, user_id) DO UPDATE SET
+        updated_at = CURRENT_TIMESTAMP,
+        ${updateStrArr.join(', ')}
+      RETURNING *
+    `;
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (err) {
+    console.error("upsertUserStreak error:", err);
+    return null;
+  }
+}
+
+async function getStreakLeaderboard(guildId, limit = 10) {
+  try {
+    const result = await pool.query(
+      `SELECT us.*, gmc.username, gmc.display_name 
+       FROM user_streaks us
+       LEFT JOIN guild_members_cache gmc ON us.guild_id = gmc.guild_id AND us.user_id = gmc.user_id
+       WHERE us.guild_id = $1 AND us.streak_start_at IS NOT NULL
+       ORDER BY (EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - us.streak_start_at)) / 86400) DESC
+       LIMIT $2`,
+      [guildId, limit]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getStreakLeaderboard error:", err);
+    return [];
+  }
+}
+
+async function updateUserStreakSaves(guildId, userId, amount) {
+  try {
+    const result = await pool.query(
+      `UPDATE user_streaks 
+       SET save_tokens = GREATEST(0, save_tokens + $3), updated_at = CURRENT_TIMESTAMP
+       WHERE guild_id = $1 AND user_id = $2
+       RETURNING *`,
+      [guildId, userId, amount]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error("updateUserStreakSaves error:", err);
+    return null;
+  }
+}
+
 async function closePool() {
   await pool.end();
   console.log("Database connection pool closed");
@@ -1266,6 +1420,15 @@ module.exports = {
   // User registration
   registerUser,
   getUserRegistration,
+
+  // Streak System
+  setStreakRole,
+  getStreakRoles,
+  removeStreakRole,
+  getUserStreak,
+  upsertUserStreak,
+  getStreakLeaderboard,
+  updateUserStreakSaves,
   
   closePool,
 };

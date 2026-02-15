@@ -145,14 +145,18 @@ async function getFirstTimedRoleId(userId) {
 //----------------------------------------
 
 // Add minutes to a specific role timer (user+role)
-function addMinutesForRole(userId, roleId, minutes, guildId = null) {
-  return db.addMinutesForRole(userId, roleId, minutes, guildId);
+async function addMinutesForRole(userId, roleId, minutes, guildId = null) {
+  const expiresAt = await db.addMinutesForRole(userId, roleId, minutes, guildId);
+  if (guildId) await updateStreakProgress(guildId, userId);
+  return expiresAt;
 }
 
 // Set minutes exactly for a role timer (user+role) to now+minutes.
 // Also sets warnChannelId (nullable) and resets warningsSent.
-function setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull, guildId = null) {
-  return db.setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull ?? null, guildId);
+async function setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull, guildId = null) {
+  const expiresAt = await db.setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull ?? null, guildId);
+  if (guildId) await updateStreakProgress(guildId, userId);
+  return expiresAt;
 }
 
 // Remove minutes from a role timer (user+role)
@@ -246,13 +250,14 @@ client.once("ready", async () => {
   }
 
   // ===== START TIMER EXPIRATION CHECKER =====
-  // Check every 30 seconds for expired timers and remove roles
+  // Check every 30 seconds for expired timers and handle streaks/expiration
   setInterval(async () => {
     try {
+      const now = Date.now();
       const expiredTimers = await db.pool.query(
-        `SELECT id, user_id, role_id, guild_id FROM role_timers 
-         WHERE expires_at > 0 AND expires_at <= $1 AND guild_id IS NOT NULL`,
-        [Date.now()]
+        `SELECT * FROM role_timers 
+         WHERE expires_at > 0 AND expires_at <= $1 AND guild_id IS NOT NULL AND paused = false`,
+        [now]
       );
 
       if (expiredTimers.rows.length === 0) return;
@@ -265,14 +270,85 @@ client.once("ready", async () => {
           const member = await guild.members.fetch(timer.user_id).catch(() => null);
           const role = guild.roles.cache.get(timer.role_id);
 
-          // Remove the role from the member
+          // STREAK LOGIC: Check for saves or degradation
+          const streak = await db.getUserStreak(timer.guild_id, timer.user_id);
+          
+          if (streak && streak.streak_start_at) {
+            if (streak.save_tokens > 0) {
+              // Use a save token
+              const gracePeriodUntil = new Date(now + 24 * 60 * 60 * 1000); // 24h grace
+              await db.upsertUserStreak(timer.guild_id, timer.user_id, {
+                save_tokens: streak.save_tokens - 1,
+                grace_period_until: gracePeriodUntil
+              });
+              
+              // Extend timer by 24h to keep roles
+              const newExpiresAt = now + 24 * 60 * 60 * 1000;
+              await db.pool.query(
+                "UPDATE role_timers SET expires_at = $1 WHERE id = $2",
+                [newExpiresAt, timer.id]
+              );
+              
+              console.log(`[Streak] Save used for ${timer.user_id}. 24h grace period granted.`);
+              continue; // Skip removal
+            } else {
+              // No saves - START DEGRADATION or continue it
+              const streakDays = Math.floor((now - new Date(streak.streak_start_at).getTime()) / (24 * 60 * 60 * 1000));
+              const streakRoles = await db.getStreakRoles(timer.guild_id);
+              
+              // Find current tier
+              let currentTierDays = 0;
+              for (const sr of streakRoles) {
+                if (streakDays >= sr.day_threshold && sr.day_threshold > currentTierDays) {
+                  currentTierDays = sr.day_threshold;
+                }
+              }
+
+              // Find next tier down
+              let nextTierDown = 0;
+              for (const sr of streakRoles) {
+                if (sr.day_threshold < currentTierDays && sr.day_threshold > nextTierDown) {
+                  nextTierDown = sr.day_threshold;
+                }
+              }
+
+              if (currentTierDays > 0) {
+                // Degrade one tier
+                const newStreakStart = new Date(now - nextTierDown * 24 * 60 * 60 * 1000);
+                await db.upsertUserStreak(timer.guild_id, timer.user_id, {
+                  streak_start_at: newStreakStart,
+                  degradation_started_at: new Date(now)
+                });
+
+                // Update roles based on new tier
+                await syncStreakRoles(member, nextTierDown, streakRoles);
+
+                // Give another 24h before next degradation
+                const newExpiresAt = now + 24 * 60 * 60 * 1000;
+                await db.pool.query(
+                  "UPDATE role_timers SET expires_at = $1 WHERE id = $2",
+                  [newExpiresAt, timer.id]
+                );
+                
+                console.log(`[Streak] Degraded ${timer.user_id} to ${nextTierDown} day tier.`);
+                continue;
+              } else {
+                // No more tiers, reset streak
+                await db.upsertUserStreak(timer.guild_id, timer.user_id, {
+                  streak_start_at: null,
+                  degradation_started_at: null
+                });
+              }
+            }
+          }
+
+          // Standard removal if no streak protection or fully degraded
           if (member && role && member.roles.cache.has(timer.role_id)) {
             await member.roles.remove(timer.role_id).catch(err => {
               console.warn(`Failed to remove role ${timer.role_id} from ${timer.user_id}:`, err.message);
             });
           }
 
-          // Mark timer as cleared in database
           await db.pool.query(
             `DELETE FROM role_timers WHERE id = $1`,
             [timer.id]
@@ -493,6 +569,60 @@ client.once("ready", async () => {
                 { name: "🔼 Ascending (expires soonest first)", value: "ascending" },
                 { name: "🔽 Descending (expires latest first)", value: "descending" }
               )
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("streak-roles")
+          .setDescription("Configure roles for streak thresholds")
+          .addIntegerOption((o) =>
+            o.setName("days")
+              .setDescription("Day threshold for the role (e.g., 3, 7, 14, 30, 60, 90)")
+              .setRequired(true)
+              .setMinValue(1)
+          )
+          .addRoleOption((o) =>
+            o.setName("role")
+              .setDescription("Role to assign at this threshold")
+              .setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("action")
+              .setDescription("Add or remove this threshold")
+              .setRequired(false)
+              .addChoices(
+                { name: "Add/Update", value: "add" },
+                { name: "Remove", value: "remove" }
+              )
+          )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("streak")
+      .setDescription("View or manage boost streaks")
+      .addSubcommand((s) =>
+        s.setName("status")
+          .setDescription("View your current streak status or another user's")
+          .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
+      )
+      .addSubcommand((s) =>
+        s.setName("leaderboard")
+          .setDescription("View the longest boost streaks in the server")
+      )
+      .addSubcommandGroup((g) =>
+        g.setName("admin")
+          .setDescription("Admin streak management")
+          .addSubcommand((s) =>
+            s.setName("grant-save")
+              .setDescription("Grant a streak save token to a user")
+              .addUserOption((o) => o.setName("user").setDescription("User to grant save to").setRequired(true))
+              .addIntegerOption((o) => o.setName("amount").setDescription("Number of saves (default: 1)").setRequired(false).setMinValue(1))
+          )
+          .addSubcommand((s) =>
+            s.setName("remove-save")
+              .setDescription("Remove a streak save token from a user")
+              .addUserOption((o) => o.setName("user").setDescription("User to remove save from").setRequired(true))
+              .addIntegerOption((o) => o.setName("amount").setDescription("Number of saves (default: 1)").setRequired(false).setMinValue(1))
           )
       ),
 
@@ -904,6 +1034,13 @@ return interaction.editReply({ embeds: [embed] });
 
       const expiresAt = await setMinutesForRole(targetUser.id, role.id, minutes, warnChannelId, guild.id);
       await member.roles.add(role.id);
+
+      // Reset streak and start new one on settime
+      await db.upsertUserStreak(guild.id, targetUser.id, {
+        streak_start_at: new Date(),
+        degradation_started_at: null,
+        grace_period_until: null
+      });
 
       // Remove from boost queue if they were in it
       const wasInQueue = await db.getQueueUser(targetUser.id, guild.id);
@@ -2215,6 +2352,25 @@ if (interaction.commandName === "removetime") {
 
         return interaction.editReply({ embeds: [embed] });
       }
+
+      if (subcommand === "streak-roles") {
+        await interaction.deferReply().catch(() => null);
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return interaction.editReply({ content: "⛔ Only administrators can use this command.", ephemeral: true });
+        }
+
+        const days = interaction.options.getInteger("days", true);
+        const role = interaction.options.getRole("role", true);
+        const action = interaction.options.getString("action") || "add";
+
+        if (action === "remove") {
+          const removed = await db.removeStreakRole(guild.id, days);
+          return interaction.editReply({ content: removed ? `✅ Removed streak role for ${days} days.` : `❌ No streak role found for ${days} days.` });
+        } else {
+          await db.setStreakRole(guild.id, days, role.id);
+          return interaction.editReply({ content: `✅ Set streak role for ${days} days to ${role}.` });
+        }
+      }
     }
 
     // ---------- /boostqueue ----------
@@ -2605,6 +2761,92 @@ if (interaction.commandName === "removetime") {
             ephemeral: true 
           });
         }
+      }
+    }
+
+    // ---------- /streak ----------
+    if (interaction.commandName === "streak") {
+      const subcommand = interaction.options.getSubcommand();
+      const group = interaction.options.getSubcommandGroup(false);
+
+      if (group === "admin") {
+        await interaction.deferReply().catch(() => null);
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return interaction.editReply({ content: "⛔ Only administrators can use this command.", ephemeral: true });
+        }
+
+        const targetUser = interaction.options.getUser("user", true);
+        const amount = interaction.options.getInteger("amount") || 1;
+
+        if (subcommand === "grant-save") {
+          await db.updateUserStreakSaves(guild.id, targetUser.id, amount);
+          return interaction.editReply({ content: `✅ Granted ${amount} save token(s) to ${targetUser}.` });
+        } else if (subcommand === "remove-save") {
+          await db.updateUserStreakSaves(guild.id, targetUser.id, -amount);
+          return interaction.editReply({ content: `✅ Removed ${amount} save token(s) from ${targetUser}.` });
+        }
+      }
+
+      if (subcommand === "status") {
+        await interaction.deferReply().catch(() => null);
+        const targetUser = interaction.options.getUser("user") || interaction.user;
+        const streak = await db.getUserStreak(guild.id, targetUser.id);
+        
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(`🔥 Streak Status: ${targetUser.username}`)
+          .setTimestamp(new Date());
+
+        if (!streak || !streak.streak_start_at) {
+          embed.setDescription(`${targetUser} does not have an active boost streak.`);
+        } else {
+          const days = Math.floor((Date.now() - new Date(streak.streak_start_at)) / (24 * 60 * 60 * 1000));
+          const saves = streak.save_tokens || 0;
+          
+          embed.addFields(
+            { name: "Current Streak", value: `**${days} days**`, inline: true },
+            { name: "Streak Saves", value: `**${saves}**`, inline: true },
+            { name: "Started On", value: `<t:${Math.floor(new Date(streak.streak_start_at).getTime() / 1000)}:D>`, inline: true }
+          );
+
+          if (streak.grace_period_until && new Date(streak.grace_period_until) > new Date()) {
+            embed.addFields({ name: "🛡️ Grace Period", value: `Ends <t:${Math.floor(new Date(streak.grace_period_until).getTime() / 1000)}:R>`, inline: false });
+          }
+        }
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "leaderboard") {
+        await interaction.deferReply().catch(() => null);
+        const leaderboard = await db.getStreakLeaderboard(guild.id, 10);
+        
+        if (leaderboard.length === 0) {
+          return interaction.editReply({ content: "No active boost streaks found in this server." });
+        }
+
+        const fields = leaderboard.map((entry, index) => {
+          const days = Math.floor((Date.now() - new Date(entry.streak_start_at)) / (24 * 60 * 60 * 1000));
+          const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "🔹";
+          const displayName = entry.display_name || entry.username || `<@${entry.user_id}>`;
+          return {
+            name: `${medal} #${index + 1} - ${displayName}`,
+            value: `**${days} Days** • ${entry.save_tokens} Saves`,
+            inline: false
+          };
+        });
+
+        const embed = new EmbedBuilder()
+          .setColor(0xF1C40F)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("🏆 Streak Leaderboard")
+          .setDescription("The longest uninterrupted boost streaks in the server!")
+          .addFields(...fields)
+          .setTimestamp(new Date())
+          .setFooter({ text: "BoostMon • Longest Streaks" });
+
+        return interaction.editReply({ embeds: [embed] });
       }
     }
 
@@ -3147,14 +3389,66 @@ async function cleanupAndWarn() {
 
         const leftMs = expiresAt - now;
 
-        // Expired -> remove role + record
+        // Expired -> Streak Protection or Remove
         if (leftMs <= 0) {
-          if (canManage) {
-            const member = await guild.members.fetch(userId).catch(() => null);
-            const roleObj = guild.roles.cache.get(roleId);
-            if (member && roleObj && me.roles.highest.position > roleObj.position) {
-              await member.roles.remove(roleId).catch(() => null);
+          // STREAK LOGIC: Check for saves or degradation
+          const streak = await db.getUserStreak(guild.id, userId);
+          const member = await guild.members.fetch(userId).catch(() => null);
+          const roleObj = guild.roles.cache.get(roleId);
+
+          if (streak && streak.streak_start_at) {
+            if (streak.save_tokens > 0) {
+              // Use a save token
+              const gracePeriodUntil = new Date(now + 24 * 60 * 60 * 1000); // 24h grace
+              await db.upsertUserStreak(guild.id, userId, {
+                save_tokens: streak.save_tokens - 1,
+                grace_period_until: gracePeriodUntil
+              });
+              
+              const newExpiresAt = now + 24 * 60 * 60 * 1000;
+              await db.pool.query("UPDATE role_timers SET expires_at = $1 WHERE id = $2", [newExpiresAt, entry.id]);
+              console.log(`[Streak] Save used for ${userId} in ${guild.id}. 24h grace period granted.`);
+              continue; 
+            } else {
+              // Degradation logic
+              const streakDays = Math.floor((now - new Date(streak.streak_start_at).getTime()) / (24 * 60 * 60 * 1000));
+              const streakRoles = await db.getStreakRoles(guild.id);
+              
+              let currentTierDays = 0;
+              for (const sr of streakRoles) {
+                if (streakDays >= sr.day_threshold && sr.day_threshold > currentTierDays) {
+                  currentTierDays = sr.day_threshold;
+                }
+              }
+
+              let nextTierDown = 0;
+              for (const sr of streakRoles) {
+                if (sr.day_threshold < currentTierDays && sr.day_threshold > nextTierDown) {
+                  nextTierDown = sr.day_threshold;
+                }
+              }
+
+              if (currentTierDays > 0) {
+                const newStreakStart = new Date(now - nextTierDown * 24 * 60 * 60 * 1000);
+                await db.upsertUserStreak(guild.id, userId, {
+                  streak_start_at: newStreakStart,
+                  degradation_started_at: new Date(now)
+                });
+
+                if (member) await syncStreakRoles(member, nextTierDown, streakRoles);
+
+                const newExpiresAt = now + 24 * 60 * 60 * 1000;
+                await db.pool.query("UPDATE role_timers SET expires_at = $1 WHERE id = $2", [newExpiresAt, entry.id]);
+                console.log(`[Streak] Degraded ${userId} to ${nextTierDown} day tier.`);
+                continue;
+              } else {
+                await db.upsertUserStreak(guild.id, userId, { streak_start_at: null, degradation_started_at: null });
+              }
             }
+          }
+
+          if (canManage && member && roleObj && me.roles.highest.position > roleObj.position) {
+            await member.roles.remove(roleId).catch(() => null);
           }
 
           await sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId).catch(() => null);
@@ -3220,6 +3514,71 @@ if (!TOKEN) {
   }).catch((err) => {
     console.error("Discord login failed:", err);
   });
+}
+
+// Helper functions for Streak System
+async function syncStreakRoles(member, currentDays, streakRoles) {
+  if (!member || !streakRoles.length) return;
+
+  const rolesToAdd = [];
+  const rolesToRemove = [];
+
+  for (const sr of streakRoles) {
+    if (currentDays >= sr.day_threshold) {
+      if (!member.roles.cache.has(sr.role_id)) {
+        rolesToAdd.push(sr.role_id);
+      }
+    } else {
+      if (member.roles.cache.has(sr.role_id)) {
+        rolesToRemove.push(sr.role_id);
+      }
+    }
+  }
+
+  if (rolesToAdd.length > 0) await member.roles.add(rolesToAdd).catch(() => null);
+  if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove).catch(() => null);
+}
+
+async function updateStreakProgress(guildId, userId) {
+  const now = new Date();
+  let streak = await db.getUserStreak(guildId, userId);
+  
+  if (!streak) {
+    streak = await db.upsertUserStreak(guildId, userId, {
+      streak_start_at: now,
+      save_tokens: 0,
+      last_save_earned_at: now
+    });
+  } else if (!streak.streak_start_at) {
+    await db.upsertUserStreak(guildId, userId, {
+      streak_start_at: now,
+      updated_at: now
+    });
+    streak.streak_start_at = now;
+  }
+
+  // Handle save token earning (1 every 30 days)
+  const lastEarnedAt = streak.last_save_earned_at ? new Date(streak.last_save_earned_at) : new Date(streak.created_at);
+  const daysSinceLastSave = Math.floor((now - lastEarnedAt) / (24 * 60 * 60 * 1000));
+  
+  if (daysSinceLastSave >= 30) {
+    const newSaves = Math.floor(daysSinceLastSave / 30);
+    await db.updateUserStreakSaves(guildId, userId, newSaves);
+    await db.upsertUserStreak(guildId, userId, {
+      last_save_earned_at: new Date(lastEarnedAt.getTime() + newSaves * 30 * 24 * 60 * 60 * 1000)
+    });
+  }
+
+  // Check and apply streak roles
+  const streakDays = Math.floor((now - new Date(streak.streak_start_at)) / (24 * 60 * 60 * 1000));
+  const streakRoles = await db.getStreakRoles(guildId);
+  const guild = client.guilds.cache.get(guildId);
+  if (guild) {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member) {
+      await syncStreakRoles(member, streakDays, streakRoles);
+    }
+  }
 }
 
 
