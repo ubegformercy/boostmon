@@ -120,21 +120,38 @@ module.exports = async function handleStreak(interaction) {
       lines.push(`${medal} **#${index + 1}** • **${days} Days** • ${entry.save_tokens} Saves • ${nameText}`);
     }
 
-    const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-    const description = lines.join(`\n${separator}\n`);
+    // Split into chunks that fit Discord's 4096-char description limit
+    const chunks = [];
+    let current = [];
+    let currentLen = 0;
+    for (const line of lines) {
+      const lineLen = line.length + 1; // +1 for the newline
+      if (currentLen + lineLen > 3900 && current.length > 0) {
+        chunks.push(current);
+        current = [];
+        currentLen = 0;
+      }
+      current.push(line);
+      currentLen += lineLen;
+    }
+    if (current.length > 0) chunks.push(current);
 
-    const embed = new EmbedBuilder()
-      .setColor(0xF1C40F)
-      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle("🏆 Streak Leaderboard")
-      .addFields({
-        name: `The longest uninterrupted boost streaks in the server!`,
-        value: description,
-        inline: false
-      })
-      .setTimestamp(new Date())
-      .setFooter({ text: `BoostMon • Showing ${leaderboard.length} members` });
+    const embeds = chunks.map((chunk, i) => {
+      const embed = new EmbedBuilder()
+        .setColor(0xF1C40F)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setDescription(chunk.join("\n"))
+        .setTimestamp(new Date());
 
-    return interaction.editReply({ embeds: [embed] });
+      if (i === 0) {
+        embed.setTitle("🏆 Streak Leaderboard");
+      }
+      if (i === chunks.length - 1) {
+        embed.setFooter({ text: `BoostMon • Showing ${leaderboard.length} members` });
+      }
+      return embed;
+    });
+
+    return interaction.editReply({ embeds });
   }
 };
