@@ -262,6 +262,11 @@ function getCommands() {
               .addUserOption((o) => o.setName("user").setDescription("User to set streak for").setRequired(true))
               .addIntegerOption((o) => o.setName("days").setDescription("Number of streak days to set").setRequired(true).setMinValue(0))
           )
+          .addSubcommand((s) =>
+            s.setName("list-size")
+              .setDescription("Set how many members to show on the streak leaderboard")
+              .addIntegerOption((o) => o.setName("size").setDescription("Number of members to display (1-50)").setRequired(true).setMinValue(1).setMaxValue(50))
+          )
       ),
 
     new SlashCommandBuilder()

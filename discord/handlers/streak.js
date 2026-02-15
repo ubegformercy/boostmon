@@ -18,6 +18,12 @@ module.exports = async function handleStreak(interaction) {
       return interaction.editReply({ content: "⛔ Only administrators can use this command.", ephemeral: true });
     }
 
+    if (subcommand === "list-size") {
+      const size = interaction.options.getInteger("size", true);
+      await db.setStreakLeaderboardSize(guild.id, size);
+      return interaction.editReply({ content: `✅ Streak leaderboard will now show **${size}** members.` });
+    }
+
     const targetUser = interaction.options.getUser("user", true);
     const amount = interaction.options.getInteger("amount") || 1;
 
@@ -89,7 +95,8 @@ module.exports = async function handleStreak(interaction) {
 
   if (subcommand === "leaderboard") {
     await interaction.deferReply().catch(() => null);
-    const leaderboard = await db.getStreakLeaderboard(guild.id, 50);
+    const listSize = await db.getStreakLeaderboardSize(guild.id);
+    const leaderboard = await db.getStreakLeaderboard(guild.id, listSize);
 
     if (leaderboard.length === 0) {
       return interaction.editReply({ content: "No active boost streaks found in this server." });

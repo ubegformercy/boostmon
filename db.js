@@ -171,6 +171,15 @@ async function initDatabase() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS guild_settings (
+        guild_id VARCHAR(255) PRIMARY KEY,
+        streak_leaderboard_size INTEGER DEFAULT 50,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Add missing column if it doesn't exist (for existing databases)
     try {
       await client.query(`
@@ -1354,6 +1363,37 @@ async function closePool() {
   console.log("Database connection pool closed");
 }
 
+// ===== GUILD SETTINGS =====
+
+async function getStreakLeaderboardSize(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT streak_leaderboard_size FROM guild_settings WHERE guild_id = $1",
+      [guildId]
+    );
+    return result.rows[0]?.streak_leaderboard_size || 50;
+  } catch (err) {
+    console.error("getStreakLeaderboardSize error:", err);
+    return 50;
+  }
+}
+
+async function setStreakLeaderboardSize(guildId, size) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO guild_settings (guild_id, streak_leaderboard_size, updated_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (guild_id) DO UPDATE SET streak_leaderboard_size = $2, updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [guildId, size]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error("setStreakLeaderboardSize error:", err);
+    return null;
+  }
+}
+
 // Generic query function for direct database access
 async function query(text, params) {
   return pool.query(text, params);
@@ -1429,6 +1469,10 @@ module.exports = {
   upsertUserStreak,
   getStreakLeaderboard,
   updateUserStreakSaves,
+
+  // Guild Settings
+  getStreakLeaderboardSize,
+  setStreakLeaderboardSize,
   
   closePool,
 };
