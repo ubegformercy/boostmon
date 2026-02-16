@@ -4,10 +4,8 @@ const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
 module.exports = async function handleQueue(interaction, { client }) {
-  await interaction.deferReply().catch(() => null);
-
   if (!interaction.guild) {
-    return interaction.editReply({ content: "This command can only be used in a server." });
+    return interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
   }
 
   const subcommand = interaction.options.getSubcommand();
@@ -24,12 +22,14 @@ module.exports = async function handleQueue(interaction, { client }) {
     // Only allow adding others if user is admin
     if (userOption && userOption.id !== interaction.user.id) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-        return interaction.editReply({
+        return interaction.reply({
           content: "⛔ Only **Server Owner** or users with **Administrator** permission can add others to the queue.",
           ephemeral: true
         });
       }
     }
+
+    await interaction.deferReply().catch(() => null);
 
     // Check if user is already in queue
     const existingInQueue = await db.getQueueUser(targetId, guild.id);
@@ -108,12 +108,14 @@ module.exports = async function handleQueue(interaction, { client }) {
     // Only allow removing others if user is admin
     if (userOption && userOption.id !== interaction.user.id) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-        return interaction.editReply({
+        return interaction.reply({
           content: "⛔ Only **Server Owner** or users with **Administrator** permission can remove others from the queue.",
           ephemeral: true
         });
       }
     }
+
+    await interaction.deferReply().catch(() => null);
 
     const queueEntry = await db.getQueueUser(targetId, guild.id);
     if (!queueEntry) {
@@ -156,12 +158,14 @@ module.exports = async function handleQueue(interaction, { client }) {
     // Only allow checking others if user is admin
     if (userOption && userOption.id !== interaction.user.id) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-        return interaction.editReply({
+        return interaction.reply({
           content: "⛔ Only **Server Owner** or users with **Administrator** permission can check other users' queue status.",
           ephemeral: true
         });
       }
     }
+
+    await interaction.deferReply().catch(() => null);
 
     const position = await db.getUserQueuePosition(targetUser.id, guild.id);
 
@@ -207,6 +211,8 @@ module.exports = async function handleQueue(interaction, { client }) {
 
   // ---------- /queue list ----------
   if (subcommand === "list") {
+    await interaction.deferReply().catch(() => null);
+
     const queue = await db.getQueue(guild.id, 50);
 
     if (queue.length === 0) {
