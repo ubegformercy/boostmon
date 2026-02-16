@@ -263,46 +263,41 @@ function getCommands() {
           )
       ),
 
-    // ── /boostqueue (unchanged) ──
+    // ── /queue (renamed from /boostqueue, complete removed) ──
     new SlashCommandBuilder()
-      .setName("boostqueue")
+      .setName("queue")
       .setDescription("Manage the boost queue for users waiting for boosts.")
       .addSubcommand((s) =>
         s
           .setName("add")
-          .setDescription("Add a user to the boost queue (admin can add others)")
+          .setDescription("Add yourself (or another user) to the boost queue")
+          .addUserOption((o) =>
+            o.setName("user").setDescription("User to add (admin only, defaults to you)").setRequired(false)
+          )
           .addStringOption((o) =>
             o.setName("note").setDescription("Optional note or reason (max 255 chars)").setRequired(false)
-          )
-          .addUserOption((o) =>
-            o.setName("user").setDescription("User to add (optional, defaults to you)").setRequired(false)
           )
       )
       .addSubcommand((s) =>
         s
           .setName("remove")
-          .setDescription("Remove yourself or someone else from the queue (admin only for others)")
+          .setDescription("Remove yourself (or another user) from the queue")
           .addUserOption((o) =>
-            o.setName("user").setDescription("User to remove (optional, defaults to you)").setRequired(false)
+            o.setName("user").setDescription("User to remove (admin only, defaults to you)").setRequired(false)
           )
-      )
-      .addSubcommand((s) =>
-        s
-          .setName("view")
-          .setDescription("View the entire boost queue")
       )
       .addSubcommand((s) =>
         s
           .setName("status")
-          .setDescription("Check your position in the boost queue")
+          .setDescription("Check your (or another user's) position in the boost queue")
+          .addUserOption((o) =>
+            o.setName("user").setDescription("User to check (default: you)").setRequired(false)
+          )
       )
       .addSubcommand((s) =>
         s
-          .setName("complete")
-          .setDescription("Mark a user as completed (admin only)")
-          .addUserOption((o) =>
-            o.setName("user").setDescription("User who received their boost").setRequired(true)
-          )
+          .setName("list")
+          .setDescription("View the entire boost queue (auto-removes members who left the server)")
       ),
 
     // ── /register (merged: flat command with optional user param) ──

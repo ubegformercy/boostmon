@@ -1,9 +1,9 @@
-// discord/handlers/boostqueue.js — /boostqueue command handler
+// discord/handlers/queue.js — /queue command handler
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
-module.exports = async function handleBoostqueue(interaction, { client }) {
+module.exports = async function handleQueue(interaction, { client }) {
   await interaction.deferReply().catch(() => null);
 
   if (!interaction.guild) {
@@ -13,7 +13,7 @@ module.exports = async function handleBoostqueue(interaction, { client }) {
   const subcommand = interaction.options.getSubcommand();
   const guild = interaction.guild;
 
-  // ---------- /boostqueue add ----------
+  // ---------- /queue add ----------
   if (subcommand === "add") {
     const userOption = interaction.options.getUser("user");
     const note = interaction.options.getString("note");
@@ -80,7 +80,7 @@ module.exports = async function handleBoostqueue(interaction, { client }) {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  // ---------- /boostqueue remove ----------
+  // ---------- /queue remove ----------
   if (subcommand === "remove") {
     const userOption = interaction.options.getUser("user");
     let targetId = userOption?.id || interaction.user.id;
@@ -128,8 +128,65 @@ module.exports = async function handleBoostqueue(interaction, { client }) {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  // ---------- /boostqueue view ----------
-  if (subcommand === "view") {
+  // ---------- /queue status ----------
+  if (subcommand === "status") {
+    const userOption = interaction.options.getUser("user");
+    const targetUser = userOption || interaction.user;
+
+    // Only allow checking others if user is admin
+    if (userOption && userOption.id !== interaction.user.id) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.editReply({
+          content: "⛔ Only **Server Owner** or users with **Administrator** permission can check other users' queue status.",
+          ephemeral: true
+        });
+      }
+    }
+
+    const position = await db.getUserQueuePosition(targetUser.id, guild.id);
+
+    if (position === null) {
+      const isSelf = targetUser.id === interaction.user.id;
+      const embed = new EmbedBuilder()
+        .setColor(0x95A5A6)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle(isSelf ? "Your Queue Status" : `Queue Status: ${targetUser.username}`)
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Status", value: isSelf ? "You are **not** in the boost queue." : `${targetUser} is **not** in the boost queue.`, inline: false }
+        )
+        .setFooter({ text: "BoostMon • Boost Queue" });
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    const queueEntry = await db.getQueueUser(targetUser.id, guild.id);
+    const totalInQueue = (await db.getQueue(guild.id)).length;
+    const isSelf = targetUser.id === interaction.user.id;
+
+    const embed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(isSelf ? "🎯 Your Queue Status" : `🎯 Queue Status: ${targetUser.username}`)
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Position", value: `#${position} of ${totalInQueue}`, inline: true },
+        { name: "People Ahead", value: `${position - 1}`, inline: true }
+      );
+
+    if (queueEntry.note) {
+      embed.addFields({ name: "Note", value: queueEntry.note, inline: false });
+    }
+
+    embed.addFields(
+      { name: "Added At", value: `<t:${Math.floor(new Date(queueEntry.added_at).getTime() / 1000)}:R>`, inline: true }
+    );
+
+    embed.setFooter({ text: "BoostMon • Boost Queue" });
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // ---------- /queue list ----------
+  if (subcommand === "list") {
     const queue = await db.getQueue(guild.id, 50);
 
     if (queue.length === 0) {
@@ -145,142 +202,58 @@ module.exports = async function handleBoostqueue(interaction, { client }) {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    const fields = [];
+    // Auto-prune: verify each user is still in the server, remove those who left
+    let pruned = 0;
     for (const entry of queue) {
-      const user = await client.users.fetch(entry.user_id).catch(() => null);
-      const userName = user ? user.username : `<@${entry.user_id}>`;
-      const noteText = entry.note ? ` • ${entry.note}` : "";
-      const addedAt = new Date(entry.added_at).toLocaleString();
-
-      fields.push({
-        name: `#${entry.position_order} - ${userName}`,
-        value: `Added: ${addedAt}${noteText}`,
-        inline: false
-      });
+      const member = await guild.members.fetch(entry.user_id).catch(() => null);
+      if (!member) {
+        await db.removeFromQueue(entry.user_id, guild.id);
+        pruned++;
+      }
     }
 
-    const embed = new EmbedBuilder()
-      .setColor(0x3498DB)
-      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle("🎯 Boost Queue")
-      .setTimestamp(new Date())
-      .addFields(...fields)
-      .addFields(
-        { name: "Total in Queue", value: `${queue.length}`, inline: true }
-      )
-      .setFooter({ text: "BoostMon • Boost Queue" });
+    // Re-fetch the queue after pruning (positions were reordered by removeFromQueue)
+    const cleanQueue = pruned > 0 ? await db.getQueue(guild.id, 50) : queue;
 
-    return interaction.editReply({ embeds: [embed] });
-  }
-
-  // ---------- /boostqueue status ----------
-  if (subcommand === "status") {
-    const position = await db.getUserQueuePosition(interaction.user.id, guild.id);
-
-    if (position === null) {
+    if (cleanQueue.length === 0) {
       const embed = new EmbedBuilder()
         .setColor(0x95A5A6)
         .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle("Your Queue Status")
+        .setTitle("Boost Queue")
         .setTimestamp(new Date())
         .addFields(
-          { name: "Status", value: "You are **not** in the boost queue.", inline: false }
+          { name: "Status", value: `The boost queue is empty.${pruned > 0 ? ` (${pruned} member(s) who left the server were removed)` : ""}`, inline: false }
         )
         .setFooter({ text: "BoostMon • Boost Queue" });
       return interaction.editReply({ embeds: [embed] });
     }
 
-    const queueEntry = await db.getQueueUser(interaction.user.id, guild.id);
-    const totalInQueue = (await db.getQueue(guild.id)).length;
+    const lines = [];
+    for (const entry of cleanQueue) {
+      const member = await guild.members.fetch(entry.user_id).catch(() => null);
+      const displayName = member
+        ? (member.nickname || member.user.globalName || member.user.username)
+        : `<@${entry.user_id}>`;
+      const noteText = entry.note ? ` • ${entry.note}` : "";
+      const addedAt = `<t:${Math.floor(new Date(entry.added_at).getTime() / 1000)}:R>`;
+      const medal = entry.position_order === 1 ? "🥇" : entry.position_order === 2 ? "🥈" : entry.position_order === 3 ? "🥉" : "🔹";
 
-    const embed = new EmbedBuilder()
-      .setColor(0x2ECC71)
-      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle("🎯 Your Queue Status")
-      .setTimestamp(new Date())
-      .addFields(
-        { name: "Your Position", value: `#${position} of ${totalInQueue}`, inline: true },
-        { name: "People Ahead", value: `${position - 1}`, inline: true }
-      );
-
-    if (queueEntry.note) {
-      embed.addFields({ name: "Your Note", value: queueEntry.note, inline: false });
+      lines.push(`${medal} **#${entry.position_order}** • ${displayName} • Added ${addedAt}${noteText}`);
     }
 
-    embed.addFields(
-      { name: "Added At", value: `<t:${Math.floor(new Date(queueEntry.added_at).getTime() / 1000)}:R>`, inline: true }
-    );
+    const description = lines.join("\n");
 
-    embed.setFooter({ text: "BoostMon • Boost Queue" });
+    const embed = new EmbedBuilder()
+      .setColor(0x3498DB)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("🎯 Boost Queue")
+      .setDescription(description)
+      .setTimestamp(new Date());
+
+    const footerParts = [`${cleanQueue.length} in queue`];
+    if (pruned > 0) footerParts.push(`${pruned} removed (left server)`);
+    embed.setFooter({ text: `BoostMon • ${footerParts.join(" • ")}` });
+
     return interaction.editReply({ embeds: [embed] });
-  }
-
-  // ---------- /boostqueue complete ----------
-  if (subcommand === "complete") {
-    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-      return interaction.editReply({
-        content: "⛔ Only **Server Owner** or users with **Administrator** permission can mark users as completed.",
-        ephemeral: true
-      });
-    }
-
-    const targetUser = interaction.options.getUser("user", true);
-    const queueEntry = await db.getQueueUser(targetUser.id, guild.id);
-
-    if (!queueEntry) {
-      return interaction.editReply({
-        content: `<@${targetUser.id}> is not in the queue.`
-      });
-    }
-
-    const completed = await db.completeQueue(targetUser.id, guild.id, interaction.user.id);
-    if (!completed) {
-      return interaction.editReply({ content: "❌ Failed to mark as completed. Please try again." });
-    }
-
-    // Get the next person in queue
-    const nextInQueue = (await db.getQueue(guild.id, 1))[0];
-
-    const embed = new EmbedBuilder()
-      .setColor(0x27AE60)
-      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle("✅ Boost Completed")
-      .setTimestamp(new Date())
-      .addFields(
-        { name: "User", value: `<@${targetUser.id}>`, inline: true },
-        { name: "Completed By", value: `${interaction.user}`, inline: true }
-      );
-
-    if (nextInQueue) {
-      embed.addFields(
-        { name: "Next in Queue", value: `<@${nextInQueue.user_id}> (Position #1)`, inline: false }
-      );
-    } else {
-      embed.addFields(
-        { name: "Next in Queue", value: "Queue is now empty! 🎉", inline: false }
-      );
-    }
-
-    const reply = await interaction.editReply({ embeds: [embed] });
-
-    // Try to DM the next person
-    if (nextInQueue) {
-      try {
-        const nextUser = await client.users.fetch(nextInQueue.user_id);
-        const dmEmbed = new EmbedBuilder()
-          .setColor(0x2ECC71)
-          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-          .setTitle("🎉 You're Next!")
-          .setDescription(`You've been promoted to **#1** in the boost queue for **${guild.name}**!`)
-          .setTimestamp(new Date())
-          .setFooter({ text: "BoostMon • Boost Queue" });
-
-        await nextUser.send({ embeds: [dmEmbed] }).catch(() => null);
-      } catch (err) {
-        console.warn(`Failed to DM user ${nextInQueue.user_id}:`, err.message);
-      }
-    }
-
-    return reply;
   }
 };
