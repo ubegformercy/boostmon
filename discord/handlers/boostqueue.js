@@ -1,5 +1,5 @@
 // discord/handlers/queue.js — /queue command handler
-const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
+const { EmbedBuilder, PermissionFlagsBits, ChannelType } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
@@ -29,7 +29,7 @@ module.exports = async function handleQueue(interaction, { client }) {
       }
     }
 
-    await interaction.deferReply().catch(() => null);
+    await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
     // Check if user is already in queue
     const existingInQueue = await db.getQueueUser(targetId, guild.id);
@@ -130,7 +130,7 @@ module.exports = async function handleQueue(interaction, { client }) {
       }
     }
 
-    await interaction.deferReply().catch(() => null);
+    await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
     const queueEntry = await db.getQueueUser(targetId, guild.id);
     if (!queueEntry) {
@@ -191,7 +191,7 @@ module.exports = async function handleQueue(interaction, { client }) {
       }
     }
 
-    await interaction.deferReply().catch(() => null);
+    await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
     const position = await db.getUserQueuePosition(targetUser.id, guild.id);
 
@@ -237,7 +237,38 @@ module.exports = async function handleQueue(interaction, { client }) {
 
   // ---------- /queue list ----------
   if (subcommand === "list") {
-    await interaction.deferReply().catch(() => null);
+    const channelOption = interaction.options.getChannel("channel");
+
+    // If channel option is used, require admin
+    if (channelOption) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({
+          content: "⛔ Only **Server Owner** or users with **Administrator** permission can post the queue to a channel.",
+          ephemeral: true
+        });
+      }
+
+      // Validate it's a text channel
+      const channel = await guild.channels.fetch(channelOption.id).catch(() => null);
+      if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement)) {
+        return interaction.reply({
+          content: "⛔ Please select a text or announcement channel.",
+          ephemeral: true
+        });
+      }
+
+      // Check bot can send to that channel
+      const me = await guild.members.fetchMe();
+      const perms = channel.permissionsFor(me);
+      if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) {
+        return interaction.reply({
+          content: `⛔ I don't have permission to send messages in ${channel}.`,
+          ephemeral: true
+        });
+      }
+    }
+
+    await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
     const queue = await db.getQueue(guild.id, 50);
 
@@ -305,6 +336,15 @@ module.exports = async function handleQueue(interaction, { client }) {
     const footerParts = [`${cleanQueue.length} in queue`];
     if (pruned > 0) footerParts.push(`${pruned} removed (left server)`);
     embed.setFooter({ text: `BoostMon • ${footerParts.join(" • ")}` });
+
+    // If admin specified a channel, post publicly there
+    if (channelOption) {
+      const channel = await guild.channels.fetch(channelOption.id).catch(() => null);
+      if (channel) {
+        await channel.send({ embeds: [embed] });
+        return interaction.editReply({ content: `✅ Boost queue posted to ${channel}.` });
+      }
+    }
 
     return interaction.editReply({ embeds: [embed] });
   }

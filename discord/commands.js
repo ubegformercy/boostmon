@@ -308,6 +308,11 @@ function getCommands() {
         s
           .setName("list")
           .setDescription("View the entire boost queue (auto-removes members who left the server)")
+          .addChannelOption((o) =>
+            o.setName("channel")
+              .setDescription("Post the queue publicly in this channel (admin only)")
+              .setRequired(false)
+          )
       ),
 
     // ── /register (merged: flat command with optional user param) ──
