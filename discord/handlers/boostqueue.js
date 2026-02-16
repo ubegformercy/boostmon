@@ -77,6 +77,17 @@ module.exports = async function handleQueue(interaction, { client }) {
       return interaction.editReply({ content: "❌ Failed to add to the queue. Please try again." });
     }
 
+    // Assign the configured queue role (if set)
+    const queueRoleId = await db.getQueueRole(guild.id);
+    if (queueRoleId) {
+      const member = await guild.members.fetch(targetId).catch(() => null);
+      if (member) {
+        await member.roles.add(queueRoleId).catch(err =>
+          console.warn(`Failed to assign queue role ${queueRoleId} to ${targetId}:`, err.message)
+        );
+      }
+    }
+
     const embed = new EmbedBuilder()
       .setColor(0x2ECC71)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
@@ -94,6 +105,10 @@ module.exports = async function handleQueue(interaction, { client }) {
 
     if (userOption && userOption.id !== interaction.user.id) {
       embed.addFields({ name: "Added By", value: `${interaction.user}`, inline: true });
+    }
+
+    if (queueRoleId) {
+      embed.addFields({ name: "Role Assigned", value: `<@&${queueRoleId}>`, inline: true });
     }
 
     embed.setFooter({ text: "BoostMon • Boost Queue" });
@@ -128,6 +143,17 @@ module.exports = async function handleQueue(interaction, { client }) {
     const removed = await db.removeFromQueue(targetId, guild.id);
     if (!removed) {
       return interaction.editReply({ content: "❌ Failed to remove from queue. Please try again." });
+    }
+
+    // Remove the configured queue role (if set)
+    const queueRoleId = await db.getQueueRole(guild.id);
+    if (queueRoleId) {
+      const member = await guild.members.fetch(targetId).catch(() => null);
+      if (member) {
+        await member.roles.remove(queueRoleId).catch(err =>
+          console.warn(`Failed to remove queue role ${queueRoleId} from ${targetId}:`, err.message)
+        );
+      }
     }
 
     const userMention = userOption ? `<@${userOption.id}>` : "You have been";

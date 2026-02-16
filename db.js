@@ -249,6 +249,18 @@ async function initDatabase() {
       }
     }
 
+    // Add queue_role_id to guild_settings for /queue role assignment
+    try {
+      await client.query(`
+        ALTER TABLE guild_settings
+        ADD COLUMN IF NOT EXISTS queue_role_id VARCHAR(255);
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration warning for queue_role_id:", err.message);
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -1394,6 +1406,35 @@ async function setStreakLeaderboardSize(guildId, size) {
   }
 }
 
+async function getQueueRole(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT queue_role_id FROM guild_settings WHERE guild_id = $1",
+      [guildId]
+    );
+    return result.rows[0]?.queue_role_id || null;
+  } catch (err) {
+    console.error("getQueueRole error:", err);
+    return null;
+  }
+}
+
+async function setQueueRole(guildId, roleId) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO guild_settings (guild_id, queue_role_id, updated_at)
+       VALUES ($1, $2, CURRENT_TIMESTAMP)
+       ON CONFLICT (guild_id) DO UPDATE SET queue_role_id = $2, updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [guildId, roleId]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error("setQueueRole error:", err);
+    return null;
+  }
+}
+
 // Generic query function for direct database access
 async function query(text, params) {
   return pool.query(text, params);
@@ -1473,6 +1514,8 @@ module.exports = {
   // Guild Settings
   getStreakLeaderboardSize,
   setStreakLeaderboardSize,
+  getQueueRole,
+  setQueueRole,
   
   closePool,
 };

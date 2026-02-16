@@ -71,4 +71,37 @@ module.exports = async function handleSetup(interaction) {
     await db.setStreakLeaderboardSize(guild.id, size);
     return interaction.editReply({ content: `✅ Streak leaderboard will now show **${size}** members.` });
   }
+
+  if (subcommand === "queue-role") {
+    const role = interaction.options.getRole("role");
+
+    if (!role) {
+      // Clear the queue role
+      await db.setQueueRole(guild.id, null);
+      return interaction.editReply({ content: "✅ Queue role has been **cleared**. Users will no longer receive a role when added to the queue." });
+    }
+
+    // Check if the bot can manage this role
+    const botMember = await guild.members.fetch(interaction.client.user.id).catch(() => null);
+    if (botMember && botMember.roles.highest.position <= role.position) {
+      return interaction.editReply({
+        content: `⛔ I cannot assign the role ${role} because it is higher than or equal to my highest role. Please move my role above it in Server Settings → Roles.`
+      });
+    }
+
+    await db.setQueueRole(guild.id, role.id);
+
+    const embed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("✅ Queue Role Configured")
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Role", value: `${role}`, inline: true },
+        { name: "Effect", value: "Users will be assigned this role when added to the boost queue, and it will be removed when they leave.", inline: false }
+      )
+      .setFooter({ text: "BoostMon • Setup" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
 };

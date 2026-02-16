@@ -225,6 +225,16 @@ function getCommands() {
               .setMinValue(1)
               .setMaxValue(50)
           )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("queue-role")
+          .setDescription("Set the role to assign to users when they are added to the boost queue")
+          .addRoleOption((o) =>
+            o.setName("role")
+              .setDescription("Role to assign to queued users (leave empty to clear)")
+              .setRequired(false)
+          )
       ),
 
     // ── /streak (status, leaderboard, admin grant-save/remove-save/set — list-size moved to /setup) ──

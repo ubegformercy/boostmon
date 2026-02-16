@@ -75,6 +75,13 @@ module.exports = async function handleSettime(interaction) {
   const wasInQueue = await db.getQueueUser(targetUser.id, guild.id);
   if (wasInQueue) {
     await db.removeFromQueue(targetUser.id, guild.id);
+    // Remove queue role if configured
+    const queueRoleId = await db.getQueueRole(guild.id);
+    if (queueRoleId) {
+      await member.roles.remove(queueRoleId).catch(err =>
+        console.warn(`Failed to remove queue role ${queueRoleId} from ${targetUser.id}:`, err.message)
+      );
+    }
   }
 
   const embed = new EmbedBuilder()
