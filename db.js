@@ -261,6 +261,20 @@ async function initDatabase() {
       }
     }
 
+    // Add queue notification columns to guild_settings
+    try {
+      await client.query(`
+        ALTER TABLE guild_settings
+        ADD COLUMN IF NOT EXISTS queue_notify_channel_id VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS queue_notify_interval_minutes INTEGER DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS queue_notify_last_at TIMESTAMP;
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration warning for queue_notify columns:", err.message);
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -1435,6 +1449,58 @@ async function setQueueRole(guildId, roleId) {
   }
 }
 
+async function getQueueNotifySettings(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT queue_notify_channel_id, queue_notify_interval_minutes, queue_notify_last_at FROM guild_settings WHERE guild_id = $1",
+      [guildId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getQueueNotifySettings error:", err);
+    return null;
+  }
+}
+
+async function setQueueNotifySettings(guildId, channelId, intervalMinutes) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO guild_settings (guild_id, queue_notify_channel_id, queue_notify_interval_minutes, updated_at)
+       VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+       ON CONFLICT (guild_id) DO UPDATE SET queue_notify_channel_id = $2, queue_notify_interval_minutes = $3, updated_at = CURRENT_TIMESTAMP
+       RETURNING *`,
+      [guildId, channelId, intervalMinutes]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error("setQueueNotifySettings error:", err);
+    return null;
+  }
+}
+
+async function updateQueueNotifyLastAt(guildId) {
+  try {
+    await pool.query(
+      "UPDATE guild_settings SET queue_notify_last_at = CURRENT_TIMESTAMP WHERE guild_id = $1",
+      [guildId]
+    );
+  } catch (err) {
+    console.error("updateQueueNotifyLastAt error:", err);
+  }
+}
+
+async function getAllQueueNotifyGuilds() {
+  try {
+    const result = await pool.query(
+      "SELECT guild_id, queue_notify_channel_id, queue_notify_interval_minutes, queue_notify_last_at FROM guild_settings WHERE queue_notify_channel_id IS NOT NULL AND queue_notify_interval_minutes > 0"
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getAllQueueNotifyGuilds error:", err);
+    return [];
+  }
+}
+
 // Generic query function for direct database access
 async function query(text, params) {
   return pool.query(text, params);
@@ -1516,6 +1582,10 @@ module.exports = {
   setStreakLeaderboardSize,
   getQueueRole,
   setQueueRole,
+  getQueueNotifySettings,
+  setQueueNotifySettings,
+  updateQueueNotifyLastAt,
+  getAllQueueNotifyGuilds,
   
   closePool,
 };

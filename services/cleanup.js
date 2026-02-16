@@ -3,7 +3,7 @@ const { PermissionFlagsBits } = require("discord.js");
 const db = require("../db");
 const { syncStreakRoles } = require("./streak");
 const { sendWarningOrDm, sendExpiredNoticeOrDm } = require("./notifications");
-const { executeScheduledRolestatus, executeAutopurges } = require("./scheduled-reports");
+const { executeScheduledRolestatus, executeAutopurges, executeQueueNotifications } = require("./scheduled-reports");
 
 const WARNING_THRESHOLDS_MIN = [60, 10, 1];
 const CHECK_INTERVAL_MS = 30_000;
@@ -40,6 +40,13 @@ async function cleanupAndWarn() {
     for (const guildId of guildIdsWithSchedules) {
       if (!timersByGuild[guildId]) {
         timersByGuild[guildId] = [];
+      }
+    }
+
+    const queueNotifyGuilds = await db.getAllQueueNotifyGuilds().catch(() => []);
+    for (const row of queueNotifyGuilds) {
+      if (!timersByGuild[row.guild_id]) {
+        timersByGuild[row.guild_id] = [];
       }
     }
 
@@ -139,6 +146,7 @@ async function cleanupAndWarn() {
 
       await executeAutopurges(guild, now);
       await executeScheduledRolestatus(guild, now);
+      await executeQueueNotifications(guild, now);
     }
   } catch (e) {
     console.error("cleanupAndWarn error:", e);

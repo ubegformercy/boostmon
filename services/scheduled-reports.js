@@ -324,4 +324,68 @@ async function executeAutopurges(guild, now) {
   }
 }
 
-module.exports = { executeScheduledRolestatus, executeAutopurges };
+async function executeQueueNotifications(guild, now) {
+  try {
+    const settings = await db.getQueueNotifySettings(guild.id);
+    if (!settings || !settings.queue_notify_channel_id || !settings.queue_notify_interval_minutes || settings.queue_notify_interval_minutes <= 0) {
+      return;
+    }
+
+    const lastNotifyTime = settings.queue_notify_last_at ? new Date(settings.queue_notify_last_at).getTime() : 0;
+    const intervalMs = settings.queue_notify_interval_minutes * 60 * 1000;
+
+    if (now - lastNotifyTime < intervalMs) {
+      return;
+    }
+
+    // Check if there are users in the queue
+    const queue = await db.getQueue(guild.id, 50);
+    if (queue.length === 0) {
+      return; // No notification if queue is empty
+    }
+
+    const channel = guild.channels.cache.get(settings.queue_notify_channel_id);
+    if (!channel || !channel.isTextBased()) {
+      return;
+    }
+
+    const me = await guild.members.fetchMe().catch(() => null);
+    if (!me) return;
+    const perms = channel.permissionsFor(me);
+    if (!perms?.has(PermissionFlagsBits.SendMessages) || !perms?.has(PermissionFlagsBits.EmbedLinks)) {
+      return;
+    }
+
+    // Build the queue list
+    const lines = [];
+    for (const entry of queue) {
+      const member = await guild.members.fetch(entry.user_id).catch(() => null);
+      const displayName = member
+        ? (member.nickname || member.user.globalName || member.user.username)
+        : `<@${entry.user_id}>`;
+      const noteText = entry.note ? ` • ${entry.note}` : "";
+      const addedAt = `<t:${Math.floor(new Date(entry.added_at).getTime() / 1000)}:R>`;
+      const medal = entry.position_order === 1 ? "🥇" : entry.position_order === 2 ? "🥈" : entry.position_order === 3 ? "🥉" : "🔹";
+      lines.push(`${medal} **#${entry.position_order}** • ${displayName} • Added ${addedAt}${noteText}`);
+    }
+
+    const urgencyEmoji = queue.length >= 5 ? "🔴" : queue.length >= 3 ? "🟠" : "🟡";
+
+    const embed = new EmbedBuilder()
+      .setColor(queue.length >= 5 ? 0xE74C3C : queue.length >= 3 ? 0xF39C12 : 0xF1C40F)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`${urgencyEmoji} ${queue.length} User${queue.length === 1 ? "" : "s"} Waiting in Queue`)
+      .setDescription(lines.join("\n"))
+      .setTimestamp(new Date())
+      .setFooter({ text: `BoostMon • Boost Queue • Next update in ${settings.queue_notify_interval_minutes}m` });
+
+    await channel.send({ embeds: [embed] });
+    await db.updateQueueNotifyLastAt(guild.id);
+
+    console.log(`[QUEUE-NOTIFY] Posted queue notification for guild ${guild.id}: ${queue.length} user(s) waiting`);
+  } catch (err) {
+    console.error(`[QUEUE-NOTIFY] Error for guild ${guild.id}:`, err.message);
+  }
+}
+
+module.exports = { executeScheduledRolestatus, executeAutopurges, executeQueueNotifications };

@@ -235,6 +235,18 @@ function getCommands() {
               .setDescription("Role to assign to queued users (leave empty to clear)")
               .setRequired(false)
           )
+          .addChannelOption((o) =>
+            o.setName("channel")
+              .setDescription("Channel to post queue notifications when users are waiting")
+              .setRequired(false)
+          )
+          .addIntegerOption((o) =>
+            o.setName("interval")
+              .setDescription("How often (in minutes) to post queue notifications (0 to disable)")
+              .setRequired(false)
+              .setMinValue(0)
+              .setMaxValue(1440)
+          )
       ),
 
     // ── /streak (status, leaderboard, admin grant-save/remove-save/set — list-size moved to /setup) ──

@@ -74,31 +74,84 @@ module.exports = async function handleSetup(interaction) {
 
   if (subcommand === "queue-role") {
     const role = interaction.options.getRole("role");
+    const channelOption = interaction.options.getChannel("channel");
+    const intervalOption = interaction.options.getInteger("interval");
 
-    if (!role) {
-      // Clear the queue role
-      await db.setQueueRole(guild.id, null);
-      return interaction.editReply({ content: "✅ Queue role has been **cleared**. Users will no longer receive a role when added to the queue." });
+    if (!role && !channelOption && intervalOption === null) {
+      // No options provided — show current settings
+      const currentRole = await db.getQueueRole(guild.id);
+      const notifySettings = await db.getQueueNotifySettings(guild.id);
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle("📋 Queue Settings")
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Queue Role", value: currentRole ? `<@&${currentRole}>` : "Not set", inline: true },
+          { name: "Notification Channel", value: notifySettings?.queue_notify_channel_id ? `<#${notifySettings.queue_notify_channel_id}>` : "Not set", inline: true },
+          { name: "Notification Interval", value: notifySettings?.queue_notify_interval_minutes > 0 ? `Every ${notifySettings.queue_notify_interval_minutes} minute(s)` : "Disabled", inline: true }
+        )
+        .setDescription("Use `/setup queue-role` with options to configure.\nPass `role` without a value to clear the queue role.\nSet `interval` to `0` to disable notifications.")
+        .setFooter({ text: "BoostMon • Setup" });
+
+      return interaction.editReply({ embeds: [embed] });
     }
 
-    // Check if the bot can manage this role
-    const botMember = await guild.members.fetch(interaction.client.user.id).catch(() => null);
-    if (botMember && botMember.roles.highest.position <= role.position) {
-      return interaction.editReply({
-        content: `⛔ I cannot assign the role ${role} because it is higher than or equal to my highest role. Please move my role above it in Server Settings → Roles.`
-      });
+    // Handle role setting/clearing
+    if (role) {
+      const botMember = await guild.members.fetch(interaction.client.user.id).catch(() => null);
+      if (botMember && botMember.roles.highest.position <= role.position) {
+        return interaction.editReply({
+          content: `⛔ I cannot assign the role ${role} because it is higher than or equal to my highest role. Please move my role above it in Server Settings → Roles.`
+        });
+      }
+      await db.setQueueRole(guild.id, role.id);
     }
 
-    await db.setQueueRole(guild.id, role.id);
+    // Handle notification channel + interval
+    if (channelOption || intervalOption !== null) {
+      const notifyChannelId = channelOption?.id || null;
+      const notifyInterval = intervalOption ?? 0;
+
+      // If interval is 0, disable notifications
+      if (notifyInterval === 0) {
+        await db.setQueueNotifySettings(guild.id, null, 0);
+      } else if (notifyChannelId) {
+        // Validate bot can send to the channel
+        const channel = await guild.channels.fetch(notifyChannelId).catch(() => null);
+        if (!channel || (channel.type !== 0 && channel.type !== 5)) { // GuildText = 0, GuildAnnouncement = 5
+          return interaction.editReply({ content: "⛔ Please select a text or announcement channel." });
+        }
+        const me = await guild.members.fetchMe();
+        const perms = channel.permissionsFor(me);
+        if (!perms?.has(PermissionFlagsBits.ViewChannel) || !perms?.has(PermissionFlagsBits.SendMessages)) {
+          return interaction.editReply({ content: `⛔ I don't have permission to send messages in ${channel}.` });
+        }
+        await db.setQueueNotifySettings(guild.id, notifyChannelId, notifyInterval);
+      } else {
+        // Interval provided but no channel — keep existing channel
+        const existing = await db.getQueueNotifySettings(guild.id);
+        if (!existing?.queue_notify_channel_id) {
+          return interaction.editReply({ content: "⛔ You must specify a `channel` when enabling notifications for the first time." });
+        }
+        await db.setQueueNotifySettings(guild.id, existing.queue_notify_channel_id, notifyInterval);
+      }
+    }
+
+    // Build confirmation embed
+    const currentRole = await db.getQueueRole(guild.id);
+    const notifySettings = await db.getQueueNotifySettings(guild.id);
 
     const embed = new EmbedBuilder()
       .setColor(0x2ECC71)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle("✅ Queue Role Configured")
+      .setTitle("✅ Queue Settings Updated")
       .setTimestamp(new Date())
       .addFields(
-        { name: "Role", value: `${role}`, inline: true },
-        { name: "Effect", value: "Users will be assigned this role when added to the boost queue, and it will be removed when they leave.", inline: false }
+        { name: "Queue Role", value: currentRole ? `<@&${currentRole}>` : "Not set", inline: true },
+        { name: "Notification Channel", value: notifySettings?.queue_notify_channel_id ? `<#${notifySettings.queue_notify_channel_id}>` : "Not set", inline: true },
+        { name: "Notification Interval", value: notifySettings?.queue_notify_interval_minutes > 0 ? `Every ${notifySettings.queue_notify_interval_minutes} minute(s)` : "Disabled", inline: true }
       )
       .setFooter({ text: "BoostMon • Setup" });
 
