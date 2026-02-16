@@ -1,0 +1,3585 @@
+//----------------------------------------
+// SECTION 0 — Imports & Boot Logging
+//----------------------------------------
+
+// Load environment variables from .env file
+require('dotenv').config();
+
+// Load version info
+let VERSION = { version: '2.0.0', major: 2, minor: 0, patch: 0 };
+try {
+  VERSION = require('./version.json');
+} catch (err) {
+  console.warn('Warning: Could not load version.json, using default');
+}
+
+const express = require("express");
+const path = require("path");
+const cookieParser = require("cookie-parser");
+const {
+  Client,
+  GatewayIntentBits,
+  REST,
+  Routes,
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ChannelType,
+  EmbedBuilder,  
+} = require("discord.js");
+const indexRouter = require("./routes/index");
+const authRouter = require("./routes/auth");
+const dashboardRouter = require("./routes/dashboard");
+const db = require("./db");
+const guildMemberSync = require("./guild-member-sync");
+const BOOSTMON_ICON_URL = "https://raw.githubusercontent.com/ubegformercy/nodejs/main/public/images/boostmon.png";
+console.log("=== BoostMon app.js booted ===");
+console.log("DISCORD_TOKEN present:", Boolean(process.env.DISCORD_TOKEN));
+console.log("DISCORD_CLIENT_ID present:", Boolean(process.env.DISCORD_CLIENT_ID));
+console.log("DISCORD_GUILD_ID present:", Boolean(process.env.DISCORD_GUILD_ID));
+console.log("DATABASE_URL present:", Boolean(process.env.DATABASE_URL));
+
+const TOKEN = process.env.DISCORD_TOKEN;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const GUILD_ID = process.env.DISCORD_GUILD_ID;
+
+// Multi-server support
+if (GUILD_ID) {
+  console.log(`[MULTI-SERVER] Using GUILD_ID mode: bot restricted to server ${GUILD_ID}`);
+} else {
+  console.log("[MULTI-SERVER] GUILD_ID not set: bot will work on ALL servers (global commands)");
+}
+
+// Initialize in-memory member cache for fast dashboard lookups
+// Structure: { guildId: { userId: { displayName, presence, username, avatar_url } } }
+global.memberCache = {};
+console.log("[Member Cache] Initialized for fast dashboard performance");
+
+
+
+//----------------------------------------
+// SECTION 1 — Warning/Timer Configuration
+//----------------------------------------
+
+// Warning thresholds (minutes remaining)
+const WARNING_THRESHOLDS_MIN = [60, 10, 1]; // customize as you like
+const CHECK_INTERVAL_MS = 30_000;
+
+
+
+//----------------------------------------
+// SECTION 2 — Database (PostgreSQL)
+//----------------------------------------
+
+// Database is initialized on startup (see SECTION 5)
+
+
+
+
+//----------------------------------------
+// SECTION 3 — Utility Helpers
+//----------------------------------------
+const ACTIVE_GREEN = 0x2ECC71;
+
+function buildActiveTimerEmbed({
+  actor,
+  targetUser,
+  role,
+  minutes,
+  expiresAt,
+  warnChannel,
+}) {
+  return new EmbedBuilder()
+    .setColor(ACTIVE_GREEN)
+    .setTitle("🟢 Timed Role Activated")
+    .setTimestamp(new Date())
+    .addFields(
+      { name: "Command Run By", value: `${actor}`, inline: true },
+      { name: "Target User", value: `${targetUser}`, inline: true },
+      { name: "Role Assigned", value: `${role.name}`, inline: true },
+      { name: "Duration", value: `${minutes} minute(s)`, inline: true },
+      {
+        name: "Expires",
+        value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,
+        inline: true,
+      },
+      {
+        name: "Warning Channel",
+        value: warnChannel ? `${warnChannel}` : "DMs",
+        inline: true,
+      }
+    )
+    .setFooter({ text: "BoostMon • Active Timer" });
+}
+
+
+function formatMs(ms) {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${h}h ${m}m ${s}s`;
+}
+
+function friendlyDiscordError(err) {
+  const rawMsg = err?.rawError?.message || err?.message || "Unknown error";
+  const code = err?.code ? ` (code ${err.code})` : "";
+  const status = err?.status ? ` (HTTP ${err.status})` : "";
+  return `${rawMsg}${code}${status}`;
+}
+
+function getTimeLeftMsForRole(userId, roleId) {
+  // This will be handled by cleanupAndWarn which queries the DB
+  // For immediate queries, use db.getTimerForRole() instead
+  return 0;
+}
+
+// Helper: when role not specified, choose a role timer deterministically (first key)
+async function getFirstTimedRoleId(userId) {
+  return await db.getFirstTimedRoleForUser(userId);
+}
+
+
+
+//----------------------------------------
+// SECTION 4 — Timer Math (set/add/remove)
+//----------------------------------------
+
+// Add minutes to a specific role timer (user+role)
+async function addMinutesForRole(userId, roleId, minutes, guildId = null) {
+  const expiresAt = await db.addMinutesForRole(userId, roleId, minutes, guildId);
+  if (guildId) await updateStreakProgress(guildId, userId);
+  return expiresAt;
+}
+
+// Set minutes exactly for a role timer (user+role) to now+minutes.
+// Also sets warnChannelId (nullable) and resets warningsSent.
+async function setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull, guildId = null) {
+  const expiresAt = await db.setMinutesForRole(userId, roleId, minutes, warnChannelIdOrNull ?? null, guildId);
+  if (guildId) await updateStreakProgress(guildId, userId);
+  return expiresAt;
+}
+
+// Remove minutes from a role timer (user+role)
+// Returns:
+// - 0 if expired/removed
+// - new expiresAt timestamp if still active
+// - null if no timer existed
+function removeMinutesForRole(userId, roleId, minutes) {
+  return db.removeMinutesForRole(userId, roleId, minutes);
+}
+
+function clearRoleTimer(userId, roleId) {
+  return db.clearRoleTimer(userId, roleId);
+}
+
+
+
+//----------------------------------------
+// SECTION 5 — Discord Client + Slash Command Registration
+//----------------------------------------
+
+// NOTE: GUILD_MEMBERS intent is required for the dashboard user dropdown to work.
+// This intent MUST be enabled in the Discord Developer Portal:
+// 1. Go to: https://discord.com/developers/applications/{CLIENT_ID}/bot
+// 2. Enable "Server Members Intent" under PRIVILEGED GATEWAY INTENTS
+// Without this intent, guild members won't be cached and the dropdown will show no users.
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+});
+
+// Expose client globally for dashboard API
+global.botClient = client;
+
+client.once("ready", async () => {
+  console.log(`BoostMon logged in as ${client.user.tag}`);
+
+  // Initialize database
+  await db.initDatabase();
+
+  // Start guild member sync service
+  guildMemberSync.startBackgroundSync(client);
+
+  // Backfill guild_id for timers that don't have it yet
+  try {
+    let totalUpdated = 0;
+    let batchNum = 0;
+    
+    while (true) {
+      const result = await db.pool.query(
+        `SELECT id, user_id, role_id FROM role_timers WHERE guild_id IS NULL LIMIT 100`
+      );
+      const nullGuildTimers = result.rows;
+      
+      if (nullGuildTimers.length === 0) {
+        console.log(`[Backfill] Complete! Updated ${totalUpdated} timers total with guild_id`);
+        break;
+      }
+      
+      batchNum++;
+      console.log(`[Backfill] Batch ${batchNum}: Found ${nullGuildTimers.length} timers without guild_id, searching...`);
+      let batchUpdated = 0;
+      
+      for (const timer of nullGuildTimers) {
+        // Check all guilds the bot is in
+        for (const guild of client.guilds.cache.values()) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            
+            if (member && member.roles.cache.has(timer.role_id)) {
+              await db.pool.query(
+                `UPDATE role_timers SET guild_id = $1 WHERE id = $2`,
+                [guild.id, timer.id]
+              );
+              batchUpdated++;
+              totalUpdated++;
+              break;
+            }
+          } catch (e) {
+            // Continue to next guild
+          }
+        }
+      }
+      
+      console.log(`[Backfill] Batch ${batchNum}: Updated ${batchUpdated}/${nullGuildTimers.length} timers`);
+      
+      // Small delay between batches to avoid overwhelming the bot
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  } catch (err) {
+    console.error('[Backfill] Error:', err.message);
+  }
+
+  // ===== START TIMER EXPIRATION CHECKER =====
+  // Check every 30 seconds for expired timers and handle streaks/expiration
+  setInterval(async () => {
+    try {
+      const now = Date.now();
+      const expiredTimers = await db.pool.query(
+        `SELECT * FROM role_timers 
+         WHERE expires_at > 0 AND expires_at <= $1 AND guild_id IS NOT NULL AND paused = false`,
+        [now]
+      );
+
+      if (expiredTimers.rows.length === 0) return;
+
+      for (const timer of expiredTimers.rows) {
+        try {
+          const guild = client.guilds.cache.get(timer.guild_id);
+          if (!guild) continue;
+
+          const member = await guild.members.fetch(timer.user_id).catch(() => null);
+          const role = guild.roles.cache.get(timer.role_id);
+
+          // STREAK LOGIC: Check for saves or degradation
+          const streak = await db.getUserStreak(timer.guild_id, timer.user_id);
+          
+          if (streak && streak.streak_start_at) {
+            if (streak.save_tokens > 0) {
+              // Use a save token
+              const gracePeriodUntil = new Date(now + 24 * 60 * 60 * 1000); // 24h grace
+              await db.upsertUserStreak(timer.guild_id, timer.user_id, {
+                save_tokens: streak.save_tokens - 1,
+                grace_period_until: gracePeriodUntil
+              });
+              
+              // Extend timer by 24h to keep roles
+              const newExpiresAt = now + 24 * 60 * 60 * 1000;
+              await db.pool.query(
+                "UPDATE role_timers SET expires_at = $1 WHERE id = $2",
+                [newExpiresAt, timer.id]
+              );
+              
+              console.log(`[Streak] Save used for ${timer.user_id}. 24h grace period granted.`);
+              continue; // Skip removal
+            } else {
+              // No saves - START DEGRADATION or continue it
+              const streakDays = Math.floor((now - new Date(streak.streak_start_at).getTime()) / (24 * 60 * 60 * 1000));
+              const streakRoles = await db.getStreakRoles(timer.guild_id);
+              
+              // Find current tier
+              let currentTierDays = 0;
+              for (const sr of streakRoles) {
+                if (streakDays >= sr.day_threshold && sr.day_threshold > currentTierDays) {
+                  currentTierDays = sr.day_threshold;
+                }
+              }
+
+              // Find next tier down
+              let nextTierDown = 0;
+              for (const sr of streakRoles) {
+                if (sr.day_threshold < currentTierDays && sr.day_threshold > nextTierDown) {
+                  nextTierDown = sr.day_threshold;
+                }
+              }
+
+              if (currentTierDays > 0) {
+                // Degrade one tier
+                const newStreakStart = new Date(now - nextTierDown * 24 * 60 * 60 * 1000);
+                await db.upsertUserStreak(timer.guild_id, timer.user_id, {
+                  streak_start_at: newStreakStart,
+                  degradation_started_at: new Date(now)
+                });
+
+                // Update roles based on new tier
+                await syncStreakRoles(member, nextTierDown, streakRoles);
+
+                // Give another 24h before next degradation
+                const newExpiresAt = now + 24 * 60 * 60 * 1000;
+                await db.pool.query(
+                  "UPDATE role_timers SET expires_at = $1 WHERE id = $2",
+                  [newExpiresAt, timer.id]
+                );
+                
+                console.log(`[Streak] Degraded ${timer.user_id} to ${nextTierDown} day tier.`);
+                continue;
+              } else {
+                // No more tiers, reset streak
+                await db.upsertUserStreak(timer.guild_id, timer.user_id, {
+                  streak_start_at: null,
+                  degradation_started_at: null
+                });
+              }
+            }
+          }
+
+          // Standard removal if no streak protection or fully degraded
+          if (member && role && member.roles.cache.has(timer.role_id)) {
+            await member.roles.remove(timer.role_id).catch(err => {
+              console.warn(`Failed to remove role ${timer.role_id} from ${timer.user_id}:`, err.message);
+            });
+          }
+
+          await db.pool.query(
+            `DELETE FROM role_timers WHERE id = $1`,
+            [timer.id]
+          );
+
+          console.log(`[Timer Expired] Removed ${role?.name || 'unknown role'} from ${member?.user?.username || timer.user_id}`);
+        } catch (err) {
+          console.error(`[Timer Expiration] Error processing timer ${timer.id}:`, err.message);
+        }
+      }
+    } catch (err) {
+      console.error('[Timer Expiration Checker] Error:', err.message);
+    }
+  }, 30000); // Check every 30 seconds
+  // ===== END TIMER EXPIRATION CHECKER =====
+
+  if (!CLIENT_ID) {
+    console.log("Missing DISCORD_CLIENT_ID; skipping command registration.");
+    return;
+  }
+
+  const commands = [
+    new SlashCommandBuilder()
+      .setName("settime")
+      .setDescription("Set a user's timed role time to exactly N minutes from now and assign the role.")
+      .addUserOption((o) => o.setName("user").setDescription("User to set time for").setRequired(true))
+      .addIntegerOption((o) =>
+        o.setName("minutes").setDescription("Minutes to set").setRequired(true).setMinValue(1)
+      )
+      .addRoleOption((o) => o.setName("role").setDescription("Role to grant").setRequired(true))
+      .addChannelOption((o) =>
+        o
+          .setName("channel")
+          .setDescription("Where expiry warnings should be sent (optional). If omitted, warnings are DMed.")
+          .setRequired(false)
+          .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+      ),
+
+    new SlashCommandBuilder()
+      .setName("addtime")
+      .setDescription("Add minutes to a user's timed role and assign the role.")
+      .addUserOption((o) => o.setName("user").setDescription("User to add time to").setRequired(true))
+      .addIntegerOption((o) =>
+        o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1)
+      )
+      .addRoleOption((o) => o.setName("role").setDescription("Role to add time to (optional)").setRequired(false)),
+    
+    new SlashCommandBuilder()
+      .setName("pausetime")
+      .setDescription("Pause a user's timed role timer (stops countdown until resumed).")
+      .addUserOption((o) => o.setName("user").setDescription("User to pause").setRequired(true))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to pause (optional)").setRequired(false)),
+    
+    new SlashCommandBuilder()
+      .setName("resumetime")
+      .setDescription("Resume a paused timed role (continues from where it was paused).")
+      .addUserOption((o) => o.setName("user").setDescription("User to resume").setRequired(true))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to resume").setRequired(true)),
+
+    new SlashCommandBuilder()
+      .setName("removetime")
+      .setDescription("Remove minutes from a user's timed role.")
+      .addUserOption((o) => o.setName("user").setDescription("User to modify").setRequired(true))
+      .addIntegerOption((o) =>
+        o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
+      )
+      .addRoleOption((o) => o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false)),
+
+    new SlashCommandBuilder()
+      .setName("cleartime")
+      .setDescription("Clear a user's timed role timer and remove the role.")
+      .addUserOption((o) => o.setName("user").setDescription("User to clear").setRequired(true))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to clear (optional)").setRequired(false)),
+
+    new SlashCommandBuilder()
+      .setName("showtime")
+      .setDescription("Show remaining timed role time for a user (and optional role).")
+      .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
+      .addRoleOption((o) => o.setName("role").setDescription("Role to check (optional)").setRequired(false)),
+
+    new SlashCommandBuilder()
+      .setName("rolestatus")
+      .setDescription("View role members or manage automated role status reports.")
+      .addSubcommand((s) =>
+        s
+          .setName("view")
+          .setDescription("Show all users with a specific role and their remaining times.")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to check").setRequired(true))
+      )
+      .addSubcommandGroup((g) =>
+        g
+          .setName("schedule")
+          .setDescription("Manage automated role status reports")
+          .addSubcommand((s) =>
+            s
+              .setName("set")
+              .setDescription("Start automatic role status reports")
+              .addRoleOption((o) => o.setName("role").setDescription("Role to monitor").setRequired(true))
+              .addChannelOption((o) => o.setName("channel").setDescription("Channel to post reports").setRequired(true))
+              .addIntegerOption((o) =>
+                o
+                  .setName("interval")
+                  .setDescription("Minutes between reports")
+                  .setRequired(true)
+                  .setMinValue(1)
+              )
+              .addIntegerOption((o) =>
+                o
+                  .setName("purge")
+                  .setDescription("Lines to purge before posting (0-100, optional)")
+                  .setRequired(false)
+                  .setMinValue(0)
+                  .setMaxValue(100)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("disable")
+              .setDescription("Stop automated reports for a role")
+              .addRoleOption((o) => o.setName("role").setDescription("Role to stop monitoring").setRequired(true))
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("list")
+              .setDescription("Show all active automated role status reports in this server")
+          )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("autopurge")
+      .setDescription("Automatically purge bot or user messages from a channel at set intervals.")
+      .addSubcommand((s) =>
+        s
+          .setName("set")
+          .setDescription("Set up auto-purge for a channel")
+          .addChannelOption((o) => o.setName("channel").setDescription("Channel to auto-purge").setRequired(true))
+          .addStringOption((o) =>
+            o
+              .setName("type")
+              .setDescription("Message type to purge")
+              .setRequired(true)
+              .addChoices(
+                { name: "Bot messages only", value: "bot" },
+                { name: "User messages only", value: "user" },
+                { name: "Both bot and user messages", value: "both" }
+              )
+          )
+          .addIntegerOption((o) =>
+            o
+              .setName("lines")
+              .setDescription("Number of messages to purge per interval (1-100)")
+              .setRequired(true)
+              .setMinValue(1)
+              .setMaxValue(100)
+          )
+          .addIntegerOption((o) =>
+            o
+              .setName("interval")
+              .setDescription("Minutes between purges (15-10080)")
+              .setRequired(true)
+              .setMinValue(15)
+              .setMaxValue(10080)
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("disable")
+          .setDescription("Disable auto-purge for a channel")
+          .addChannelOption((o) => o.setName("channel").setDescription("Channel to disable").setRequired(true))
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("status")
+          .setDescription("Show all auto-purge settings in this server")
+      ),
+
+    new SlashCommandBuilder()
+      .setName("setup")
+      .setDescription("Configure dashboard access permissions")
+      .addSubcommand((s) =>
+        s
+          .setName("grant")
+          .setDescription("Grant a role dashboard access")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to grant access to").setRequired(true))
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("revoke")
+          .setDescription("Revoke dashboard access from a role")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to revoke access from").setRequired(true))
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("list")
+          .setDescription("List all roles with dashboard access")
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("restrict")
+          .setDescription("Enable restrict mode and whitelist a role for dashboard access")
+          .addRoleOption((o) => o.setName("role").setDescription("Role to whitelist").setRequired(true))
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("unrestrict")
+          .setDescription("Disable restrict mode and revert to normal access")
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("reports")
+          .setDescription("Configure leaderboard report settings for this server")
+          .addStringOption((o) =>
+            o
+              .setName("filter")
+              .setDescription("Sort order for leaderboard reports")
+              .setRequired(true)
+              .addChoices(
+                { name: "🔼 Ascending (expires soonest first)", value: "ascending" },
+                { name: "🔽 Descending (expires latest first)", value: "descending" }
+              )
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("streak-roles")
+          .setDescription("Configure roles for streak thresholds")
+          .addIntegerOption((o) =>
+            o.setName("days")
+              .setDescription("Day threshold for the role (e.g., 3, 7, 14, 30, 60, 90)")
+              .setRequired(true)
+              .setMinValue(1)
+          )
+          .addRoleOption((o) =>
+            o.setName("role")
+              .setDescription("Role to assign at this threshold")
+              .setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("action")
+              .setDescription("Add or remove this threshold")
+              .setRequired(false)
+              .addChoices(
+                { name: "Add/Update", value: "add" },
+                { name: "Remove", value: "remove" }
+              )
+          )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("streak")
+      .setDescription("View or manage boost streaks")
+      .addSubcommand((s) =>
+        s.setName("status")
+          .setDescription("View your current streak status or another user's")
+          .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
+      )
+      .addSubcommand((s) =>
+        s.setName("leaderboard")
+          .setDescription("View the longest boost streaks in the server")
+      )
+      .addSubcommandGroup((g) =>
+        g.setName("admin")
+          .setDescription("Admin streak management")
+          .addSubcommand((s) =>
+            s.setName("grant-save")
+              .setDescription("Grant a streak save token to a user")
+              .addUserOption((o) => o.setName("user").setDescription("User to grant save to").setRequired(true))
+              .addIntegerOption((o) => o.setName("amount").setDescription("Number of saves (default: 1)").setRequired(false).setMinValue(1))
+          )
+          .addSubcommand((s) =>
+            s.setName("remove-save")
+              .setDescription("Remove a streak save token from a user")
+              .addUserOption((o) => o.setName("user").setDescription("User to remove save from").setRequired(true))
+              .addIntegerOption((o) => o.setName("amount").setDescription("Number of saves (default: 1)").setRequired(false).setMinValue(1))
+          )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("boostqueue")
+      .setDescription("Manage the boost queue for users waiting for boosts.")
+      .addSubcommand((s) =>
+        s
+          .setName("add")
+          .setDescription("Add a user to the boost queue (admin can add others)")
+          .addStringOption((o) =>
+            o.setName("note").setDescription("Optional note or reason (max 255 chars)").setRequired(false)
+          )
+          .addUserOption((o) =>
+            o.setName("user").setDescription("User to add (optional, defaults to you)").setRequired(false)
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("remove")
+          .setDescription("Remove yourself or someone else from the queue (admin only for others)")
+          .addUserOption((o) =>
+            o.setName("user").setDescription("User to remove (optional, defaults to you)").setRequired(false)
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("view")
+          .setDescription("View the entire boost queue")
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("status")
+          .setDescription("Check your position in the boost queue")
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("complete")
+          .setDescription("Mark a user as completed (admin only)")
+          .addUserOption((o) =>
+            o.setName("user").setDescription("User who received their boost").setRequired(true)
+          )
+      ),
+
+    new SlashCommandBuilder()
+      .setName("register")
+      .setDescription("Register Discord users with their in-game information")
+      .addSubcommand((s) =>
+        s
+          .setName("user")
+          .setDescription("(Admin/Owner only) Register any user with their in-game info")
+          .addUserOption((o) =>
+            o.setName("discorduser").setDescription("Discord user to register").setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("username").setDescription("In-game username").setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("display").setDescription("Display name").setRequired(true)
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("in-game")
+          .setDescription("Register yourself with your in-game info")
+          .addStringOption((o) =>
+            o.setName("username").setDescription("Your in-game username").setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("display").setDescription("Your display name").setRequired(true)
+          )
+      ),
+  ].map((c) => c.toJSON());
+
+  console.log("Registering command names:", commands.map((c) => c.name).join(", "));
+
+  try {
+    const rest = new REST({ version: "10" }).setToken(TOKEN);
+
+    // Use global commands for multi-server support, or guild commands if GUILD_ID is set
+    const commandRoute = GUILD_ID
+      ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
+      : Routes.applicationCommands(CLIENT_ID);
+
+    const routeType = GUILD_ID ? `guild (${GUILD_ID})` : "global (all servers)";
+    console.log(`🔄 Cleaning up old commands...`);
+    
+    // First, fetch all existing commands and delete any duplicates or old versions
+    try {
+      const existingCommands = await rest.get(commandRoute);
+      
+      if (existingCommands && Array.isArray(existingCommands)) {
+        console.log(`Found ${existingCommands.length} existing commands`);
+        
+        // Create a map of command names we want to keep
+        const desiredCommandNames = new Set(commands.map(c => c.name));
+        
+        // Find duplicates and old commands to delete
+        const commandMap = new Map();
+        const toDelete = [];
+        
+        existingCommands.forEach(cmd => {
+          if (desiredCommandNames.has(cmd.name)) {
+            if (commandMap.has(cmd.name)) {
+              // Duplicate found - mark for deletion
+              toDelete.push({ id: cmd.id, name: cmd.name });
+            } else {
+              commandMap.set(cmd.name, cmd.id);
+            }
+          } else {
+            // Command not in our desired list - mark for deletion
+            toDelete.push({ id: cmd.id, name: cmd.name });
+          }
+        });
+        
+        // Delete duplicates and unwanted commands
+        if (toDelete.length > 0) {
+          console.log(`🗑️  Deleting ${toDelete.length} duplicate/old commands...`);
+          for (const cmd of toDelete) {
+            try {
+              await rest.delete(`${commandRoute}/${cmd.id}`);
+              console.log(`   ✓ Deleted /${cmd.name} (ID: ${cmd.id})`);
+            } catch (err) {
+              console.warn(`   ✗ Failed to delete /${cmd.name}: ${err.message}`);
+            }
+          }
+        } else {
+          console.log(`✓ No duplicates found`);
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not clean up old commands: ${err.message}`);
+      // Continue anyway - the put will overwrite
+    }
+    
+    console.log(`🔄 Registering ${commands.length} commands as: ${routeType}`);
+    
+    if (!GUILD_ID) {
+      console.log("ℹ️  Global commands registered. This may take 15-60 minutes to sync across Discord.");
+    }
+
+    const result = await rest.put(commandRoute, { body: commands });
+
+    console.log("✅ Slash commands registered. Discord now has:", result.map((c) => c.name).join(", "));
+  } catch (err) {
+    console.error("❌ Failed to register slash commands:", err);
+  }
+});
+
+
+//----------------------------------------
+// SECTION 6 — Slash Command Handlers
+//----------------------------------------
+async function canManageRole(guild, role) {
+  const me = await guild.members.fetchMe();
+
+  if (!me.permissions.has(PermissionFlagsBits.ManageRoles)) {
+    return { ok: false, reason: "I don't have Manage Roles permission." };
+  }
+
+  if (me.roles.highest.position <= role.position) {
+    return {
+      ok: false,
+      reason: `I can't manage **${role.name}** because my highest role is not above it. Move my bot role higher than **${role.name}**.`,
+    };
+  }
+
+  return { ok: true, me };
+}
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+try { 
+// ---------- /pausetime ----------
+if (interaction.commandName === "pausetime") {
+    // Defer immediately to prevent interaction timeout
+    await interaction.deferReply().catch(() => null);
+
+    if (!interaction.guild) {
+    return interaction.editReply({ content: "This command can only be used in a server." });
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const roleOption = interaction.options.getRole("role"); // optional
+
+  const guild = interaction.guild;
+  const member = await guild.members.fetch(targetUser.id);
+
+  const timers = await db.getTimersForUser(targetUser.id);
+  const timedRoleIds = timers.map(t => t.role_id);
+
+  if (timedRoleIds.length === 0) {
+    return interaction.editReply({ content: `${targetUser} has no active timed roles.` });
+  }
+
+  let roleIdToPause = null;
+
+  if (roleOption) {
+    roleIdToPause = roleOption.id;
+    if (!timedRoleIds.includes(roleIdToPause)) {
+      return interaction.editReply({
+        content: `${targetUser} has no saved time for **${roleOption.name}**.`,
+      });
+    }
+  } else {
+    const matching = timedRoleIds.find((rid) => member.roles.cache.has(rid));
+    roleIdToPause = matching || timedRoleIds[0];
+  }
+
+  const roleObj = guild.roles.cache.get(roleIdToPause);
+  const roleName = roleObj?.name || "that role";
+
+  if (!roleObj) {
+    return interaction.editReply({
+      content: `That role no longer exists in this server, but a timer is stored for it. Use /cleartime to remove the stored timer.`,
+    });
+  }
+
+  const permCheck = await canManageRole(guild, roleObj);
+  if (!permCheck.ok) {
+    return interaction.editReply({ content: permCheck.reason });
+  }
+
+  const entry = await db.getTimerForRole(targetUser.id, roleIdToPause);
+
+  if (entry?.paused) {
+    return interaction.editReply({
+      content: `${targetUser}'s timer for **${roleName}** is already paused.`,
+    });
+  }
+
+  const remainingMs = await db.pauseTimer(targetUser.id, roleIdToPause);
+
+  const embed = new EmbedBuilder()
+    .setColor(0xF1C40F) // yellow = paused
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Timed Role Paused")
+    .setTimestamp(new Date())
+    .addFields(
+      { name: "Command Run By", value: `${interaction.user}`, inline: true },
+      { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+      { name: "Target User", value: `${targetUser}`, inline: true },
+      { name: "Role", value: `${roleObj}`, inline: true },
+      { name: "Remaining", value: `**${formatMs(remainingMs)}**`, inline: true }
+    )
+    .setFooter({ text: "BoostMon • Paused Timer" });
+
+  return interaction.editReply({ embeds: [embed] });
+}
+
+
+// ---------- /resumetime ----------
+if (interaction.commandName === "resumetime") {
+    // Defer immediately to prevent interaction timeout
+    await interaction.deferReply().catch(() => null);
+
+    if (!interaction.guild) {
+    return interaction.editReply({ content: "This command can only be used in a server." });
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const roleOption = interaction.options.getRole("role", true); // REQUIRED
+
+  const guild = interaction.guild;
+  const member = await guild.members.fetch(targetUser.id);
+
+  const timers = await db.getTimersForUser(targetUser.id);
+  const timedRoleIds = timers.map(t => t.role_id);
+
+  if (timedRoleIds.length === 0) {
+    return interaction.editReply({ content: `${targetUser} has no active timed roles.` });
+  }
+
+  // Verify the specified role has a timer
+  const roleIdToResume = roleOption.id;
+
+  if (!timedRoleIds.includes(roleIdToResume)) {
+    return interaction.editReply({
+      content: `${targetUser} has no saved time for **${roleOption.name}**.`,
+    });
+  }
+
+  const roleObj = guild.roles.cache.get(roleIdToResume);
+  const roleName = roleObj?.name || "that role";
+
+  const entry = await db.getTimerForRole(targetUser.id, roleIdToResume);
+
+  if (!entry?.paused) {
+    return interaction.editReply({
+      content: `${targetUser}'s timer for **${roleName}** is not paused.`,
+    });
+  }
+
+  if (!roleObj) {
+    await db.clearRoleTimer(targetUser.id, roleIdToResume);
+    return interaction.editReply({
+      content: `That role no longer exists in this server, so I cleared the saved timer for ${targetUser}.`,
+    });
+  }
+
+  const permCheck = await canManageRole(guild, roleObj);
+  if (!permCheck.ok) {
+    return interaction.editReply({ content: permCheck.reason });
+  }
+
+  const remainingMs = Math.max(0, Number(entry.paused_remaining_ms || 0));
+
+  if (remainingMs <= 0) {
+    await db.clearRoleTimer(targetUser.id, roleIdToResume);
+    if (member.roles.cache.has(roleIdToResume)) {
+      await member.roles.remove(roleIdToResume).catch(() => null);
+    }
+    return interaction.editReply({
+      content: `No time remained to resume for ${targetUser} on **${roleName}**. Timer cleared and role removed.`,
+    });
+  }
+
+  // Resume properly
+  const newExpiresAt = await db.resumeTimer(targetUser.id, roleIdToResume);
+
+  // Ensure role is on the member
+  if (!member.roles.cache.has(roleIdToResume)) {
+    await member.roles.add(roleIdToResume).catch(() => null);
+  }
+
+const embed = new EmbedBuilder()
+  .setColor(0x2ECC71) // green = active
+  .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+  .setTitle("Timed Role Resumed")
+  .setTimestamp(new Date())
+  .addFields(
+    { name: "Command Run By", value: `${interaction.user}`, inline: true },
+    { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+    { name: "Target User", value: `${targetUser}`, inline: true },
+    { name: "Role", value: `${roleObj}`, inline: true },
+    { name: "Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
+    {
+      name: "New Expiry",
+      value: `<t:${Math.floor(newExpiresAt / 1000)}:F>\n(<t:${Math.floor(newExpiresAt / 1000)}:R>)`,
+      inline: true,
+    }
+  )
+  .setFooter({ text: "BoostMon • Active Timer" });
+
+return interaction.editReply({ embeds: [embed] });
+
+}
+
+
+ 
+    // ---------- /settime ----------
+    if (interaction.commandName === "settime") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const targetUser = interaction.options.getUser("user", true);
+      const minutes = interaction.options.getInteger("minutes", true);
+      const targetRole = interaction.options.getRole("role", true);
+      const channelOpt = interaction.options.getChannel("channel"); // optional
+
+      const guild = interaction.guild;
+
+      const role = guild.roles.cache.get(targetRole.id);
+      if (!role) {
+        return interaction.editReply({ content: "I couldn't find that role in this server." });
+      }
+
+      const permCheck = await canManageRole(guild, role);
+      if (!permCheck.ok) {
+        return interaction.editReply({ content: permCheck.reason });
+      }
+
+      // Validate channel if provided (and whether bot can send there)
+      let warnChannelId = null;
+      let warnModeText = "No channel selected. Automatic expiry warnings will be DMed to the user.";
+
+      if (channelOpt) {
+        const channel = await guild.channels.fetch(channelOpt.id).catch(() => null);
+
+        if (
+          channel &&
+          (channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement)
+        ) {
+          const me = await guild.members.fetchMe();
+          const perms = channel.permissionsFor(me);
+
+          const canView = perms?.has(PermissionFlagsBits.ViewChannel);
+          const canSend = perms?.has(PermissionFlagsBits.SendMessages);
+
+          if (canView && canSend) {
+            warnChannelId = channel.id;
+            warnModeText = `Expiry warnings will be posted in ${channel}.`;
+          } else {
+            warnModeText =
+              `I can't post warnings in ${channel} (missing View Channel or Send Messages). ` +
+              `Warnings will be DMed to the user instead.`;
+          }
+        } else {
+          warnModeText = "That channel isn't a text/announcement channel. Warnings will be DMed to the user.";
+        }
+      }
+
+      const member = await guild.members.fetch(targetUser.id);
+
+      const expiresAt = await setMinutesForRole(targetUser.id, role.id, minutes, warnChannelId, guild.id);
+      await member.roles.add(role.id);
+
+      // Reset streak and start new one on settime
+      await db.upsertUserStreak(guild.id, targetUser.id, {
+        streak_start_at: new Date(),
+        degradation_started_at: null,
+        grace_period_until: null
+      });
+
+      // Remove from boost queue if they were in it
+      const wasInQueue = await db.getQueueUser(targetUser.id, guild.id);
+      if (wasInQueue) {
+        await db.removeFromQueue(targetUser.id, guild.id);
+      }
+
+
+            
+        const embed = new EmbedBuilder()
+      .setColor(0x2ECC71) // active timer
+      .setTitle("Timed Role Activated")
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Command Run By", value: `${interaction.user}`, inline: true },
+        { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Role Assigned", value: `${role}`, inline: true },
+        { name: "Duration", value: `${minutes} minute(s)`, inline: true },
+        {
+          name: "Expires",
+          value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,
+          inline: true,
+        },
+        {
+          name: "Warning Channel",
+          value: warnChannelId ? `<#${warnChannelId}>` : "DMs",
+          inline: true,
+        },
+        { name: "Notes", value: warnModeText, inline: false }
+      )
+      .setFooter({ text: "BoostMon • Active Timer", iconURL: BOOSTMON_ICON_URL });
+    
+    return interaction.editReply({ embeds: [embed] });
+    }
+
+    // ---------- /addtime ----------
+    if (interaction.commandName === "addtime") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const targetUser = interaction.options.getUser("user", true);
+      const minutes = interaction.options.getInteger("minutes", true);
+      const roleOption = interaction.options.getRole("role"); // optional
+
+      const guild = interaction.guild;
+      const member = await guild.members.fetch(targetUser.id);
+
+      const timers = await db.getTimersForUser(targetUser.id);
+      const timedRoleIds = timers.map(t => t.role_id);
+
+      let roleIdToEdit = null;
+
+      if (roleOption) {
+        roleIdToEdit = roleOption.id;
+      } else {
+        if (timedRoleIds.length === 1) {
+          roleIdToEdit = timedRoleIds[0];
+        } else if (timedRoleIds.length === 0) {
+          return interaction.editReply({
+            content: `${targetUser} has no active timed roles. Use /settime with a role first.`,
+          });
+        } else {
+          return interaction.editReply({
+            content: `${targetUser} has multiple timed roles. Please specify the role.`,
+          });
+        }
+      }
+
+      const role = guild.roles.cache.get(roleIdToEdit);
+      if (!role) {
+        return interaction.editReply({ content: "That role no longer exists in this server." });
+      }
+
+      const permCheck = await canManageRole(guild, role);
+      if (!permCheck.ok) {
+        return interaction.editReply({ content: permCheck.reason });
+      }
+
+      const expiresAt = await addMinutesForRole(targetUser.id, role.id, minutes, guild.id);
+
+      if (!member.roles.cache.has(role.id)) {
+        await member.roles.add(role.id);
+      }
+
+      // Remove from boost queue if they were in it
+      const wasInQueue = await db.getQueueUser(targetUser.id, guild.id);
+      if (wasInQueue) {
+        await db.removeFromQueue(targetUser.id, guild.id);
+      }
+
+const embed = new EmbedBuilder()
+  .setColor(0x2ECC71) // 🟢 active timer
+  .setAuthor({
+    name: "BoostMon",
+    iconURL: BOOSTMON_ICON_URL,
+  })
+  .setTitle("Timed Role Extended")
+  .setTimestamp(new Date())
+  .addFields(
+    { name: "Command Run By", value: `${interaction.user}`, inline: true },
+    { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+    { name: "Target User", value: `${targetUser}`, inline: true },
+    { name: "Role", value: `${role}`, inline: true },
+    { name: "Time Added", value: `${minutes} minute(s)`, inline: true },
+    {
+      name: "New Expiry",
+      value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,
+      inline: true,
+    }
+  )
+  .setFooter({ text: "BoostMon • Active Timer" });
+
+return interaction.editReply({
+  embeds: [embed],
+});
+}
+
+// ---------- /removetime ----------
+if (interaction.commandName === "removetime") {
+    // Defer immediately to prevent interaction timeout
+    await interaction.deferReply().catch(() => null);
+
+    if (!interaction.guild) {
+    return interaction.editReply({ content: "This command can only be used in a server." });
+  }
+
+  const targetUser = interaction.options.getUser("user", true);
+  const minutes = interaction.options.getInteger("minutes", true);
+  const roleOption = interaction.options.getRole("role"); // optional
+
+  const guild = interaction.guild;
+  const member = await guild.members.fetch(targetUser.id);
+
+  const timers = await db.getTimersForUser(targetUser.id);
+  const timedRoleIds = timers.map(t => t.role_id);
+
+  if (timedRoleIds.length === 0) {
+    const embed = new EmbedBuilder()
+      .setColor(0x95A5A6) // grey
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("No Active Timed Roles")
+      .setTimestamp(new Date())
+      .addFields({ name: "Target User", value: `${targetUser}`, inline: true })
+      .setFooter({ text: "BoostMon" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // Decide which role to edit
+  let roleIdToEdit = null;
+
+  if (roleOption) {
+    roleIdToEdit = roleOption.id;
+
+    if (!timedRoleIds.includes(roleIdToEdit)) {
+      const embed = new EmbedBuilder()
+        .setColor(0xF1C40F) // yellow
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle("No Saved Time For That Role")
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Target User", value: `${targetUser}`, inline: true },
+          { name: "Role", value: `${roleOption}`, inline: true }
+        )
+        .setFooter({ text: "BoostMon" });
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+  } else {
+    const matching = timedRoleIds.filter((rid) => member.roles.cache.has(rid));
+
+    if (matching.length === 1) {
+      roleIdToEdit = matching[0];
+    } else if (matching.length === 0) {
+      if (timedRoleIds.length === 1) {
+        roleIdToEdit = timedRoleIds[0];
+      } else {
+        const possible = timedRoleIds
+          .map((rid) => guild.roles.cache.get(rid)?.name || rid)
+          .slice(0, 15)
+          .join(", ");
+
+        const embed = new EmbedBuilder()
+          .setColor(0xF1C40F) // yellow
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Please Specify a Role")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Time To Remove", value: `${minutes} minute(s)`, inline: true },
+            { name: "Reason", value: "Multiple timed roles are stored but none clearly matches current roles.", inline: false },
+            { name: "Possible Stored Roles", value: possible || "None", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Select a Role" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+    } else {
+      const possible = matching
+        .map((rid) => guild.roles.cache.get(rid)?.name || rid)
+        .slice(0, 15)
+        .join(", ");
+
+      const embed = new EmbedBuilder()
+        .setColor(0xF1C40F) // yellow
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle("Please Specify a Role")
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Target User", value: `${targetUser}`, inline: true },
+          { name: "Time To Remove", value: `${minutes} minute(s)`, inline: true },
+          { name: "Reason", value: "User currently has multiple timed roles.", inline: false },
+          { name: "Possible Roles", value: possible || "None", inline: false }
+        )
+        .setFooter({ text: "BoostMon • Select a Role" });
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+  }
+
+  const roleObj = guild.roles.cache.get(roleIdToEdit);
+  if (!roleObj) {
+    const embed = new EmbedBuilder()
+      .setColor(0xE67E22) // orange
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("Role No Longer Exists")
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Stored Role ID", value: `${roleIdToEdit}`, inline: true },
+        { name: "Note", value: "That role was deleted from this server. Use /cleartime to remove the stored timer.", inline: false }
+      )
+      .setFooter({ text: "BoostMon" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  const permCheck = await canManageRole(guild, roleObj);
+  if (!permCheck.ok) {
+    return interaction.editReply({ content: permCheck.reason });
+  }
+
+  const result = await removeMinutesForRole(targetUser.id, roleIdToEdit, minutes);
+
+  if (result === null) {
+    const embed = new EmbedBuilder()
+      .setColor(0xF1C40F) // yellow
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("No Saved Time For That Role")
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Role", value: `${roleObj}`, inline: true }
+      )
+      .setFooter({ text: "BoostMon" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // result is either 0 (expired) or an expiresAt timestamp (ms)
+  if (result === 0) {
+    if (member.roles.cache.has(roleIdToEdit)) {
+      await member.roles.remove(roleIdToEdit).catch(() => null);
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0xE74C3C) // red
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("Timed Role Reduced (Expired)")
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Command Run By", value: `${interaction.user}`, inline: true },
+        { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Role", value: `${roleObj}`, inline: true },
+        { name: "Time Removed", value: `${minutes} minute(s)`, inline: true },
+        { name: "Result", value: "Time expired — role removed.", inline: true }
+      )
+      .setFooter({ text: "BoostMon • Timer Ended" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  const leftMs = Math.max(0, result - Date.now());
+
+  const embed = new EmbedBuilder()
+    .setColor(0x2ECC71) // green
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Timed Role Reduced")
+    .setTimestamp(new Date())
+    .addFields(
+      { name: "Command Run By", value: `${interaction.user}`, inline: true },
+      { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+      { name: "Target User", value: `${targetUser}`, inline: true },
+      { name: "Role", value: `${roleObj}`, inline: true },
+      { name: "Time Removed", value: `${minutes} minute(s)`, inline: true },
+      { name: "Remaining", value: `**${formatMs(leftMs)}**`, inline: true },
+      {
+        name: "Expires",
+        value: `<t:${Math.floor(result / 1000)}:F>\n(<t:${Math.floor(result / 0)}:R>)`,
+        inline: false,
+      }
+    )
+    .setFooter({ text: "BoostMon • Active Timer" });
+
+  return interaction.editReply({ embeds: [embed] });
+}
+
+
+    // ---------- /cleartime ----------
+    if (interaction.commandName === "cleartime") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const targetUser = interaction.options.getUser("user", true);
+      const roleOption = interaction.options.getRole("role"); // optional
+
+      const guild = interaction.guild;
+      const member = await guild.members.fetch(targetUser.id);
+
+      const timers = await db.getTimersForUser(targetUser.id);
+      const timedRoleIds = timers.map(t => t.role_id);
+
+      if (timedRoleIds.length === 0) {
+        return interaction.editReply({ content: `${targetUser} has no active timed roles.` });
+      }
+
+      // Pick role to clear
+      let roleIdToClear = null;
+
+      if (roleOption) {
+        roleIdToClear = roleOption.id;
+        if (!timedRoleIds.includes(roleIdToClear)) {
+          return interaction.editReply({
+            content: `${targetUser} has no saved time for **${roleOption.name}**.`,
+          });
+        }
+      } else {
+        // "first found role" behavior: prefer one they currently have, else first stored
+        const matching = timedRoleIds.find((rid) => member.roles.cache.has(rid));
+        roleIdToClear = matching || timedRoleIds[0];
+      }
+
+      const roleObj = guild.roles.cache.get(roleIdToClear);
+      if (!roleObj) {
+        // Role deleted, but timer exists. Clear timer anyway.
+        await db.clearRoleTimer(targetUser.id, roleIdToClear);
+        return interaction.editReply({
+          content: `Cleared saved time for ${targetUser}. (Role no longer exists in this server.)`,
+        });
+      }
+
+      const permCheck = await canManageRole(guild, roleObj);
+      if (!permCheck.ok) {
+        return interaction.editReply({ content: permCheck.reason });
+      }
+
+      await db.clearRoleTimer(targetUser.id, roleIdToClear);
+
+      if (member.roles.cache.has(roleIdToClear)) {
+        await member.roles.remove(roleIdToClear);
+      }
+
+      return interaction.editReply({
+        content: `Cleared saved time for ${targetUser} on **${roleObj.name}** and removed the role.`,
+      });
+    }
+
+    // ---------- /showtime ----------
+    if (interaction.commandName === "showtime") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      const userOption = interaction.options.getUser("user"); // nullable
+      const roleOption = interaction.options.getRole("role"); // nullable
+
+      // If only role is provided (no user), show all users with that role (like /rolestatus view)
+      if (roleOption && !userOption) {
+        if (!interaction.guild) {
+          return interaction.editReply({ content: "This command can only be used in a server." });
+        }
+
+        const guild = interaction.guild;
+        const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
+        
+        if (timersFromDb.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Role Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${roleOption.name}`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "No members have timers for this role", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Role Status" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        // Fetch only the members that have timers for this role
+        const timersList = [];
+        for (const timer of timersFromDb) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            if (member) {
+              timersList.push({ member, timer });
+            }
+          } catch (err) {
+            console.error(`Failed to fetch member ${timer.user_id}:`, err);
+          }
+        }
+
+        // If no members found, they may have left the server
+        if (timersList.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Role Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${roleOption.name}`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "Members with timers have left the server", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Role Status" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        // Sort by time remaining (ascending - expires soonest first)
+        timersList.sort((a, b) => {
+          let aMs = Number(a.timer.expires_at) - Date.now();
+          let bMs = Number(b.timer.expires_at) - Date.now();
+          
+          if (a.timer.paused && a.timer.paused_remaining_ms) {
+            aMs = Number(a.timer.paused_remaining_ms);
+          }
+          if (b.timer.paused && b.timer.paused_remaining_ms) {
+            bMs = Number(b.timer.paused_remaining_ms);
+          }
+          
+          return aMs - bMs;
+        });
+
+        // Build field list
+        const fields = [];
+        let totalMembers = 0;
+        let activeMembers = 0;
+        let pausedMembers = 0;
+
+        for (const { member, timer } of timersList) {
+          totalMembers++;
+          const isPaused = timer.paused;
+          if (isPaused) pausedMembers++;
+          else activeMembers++;
+
+          let remainingMs = Number(timer.expires_at) - Date.now();
+          if (isPaused && timer.paused_remaining_ms) {
+            remainingMs = Number(timer.paused_remaining_ms);
+          }
+
+          const status = isPaused ? "⏸️ PAUSED" : remainingMs <= 0 ? "🔴 EXPIRED" : "🟢 ACTIVE";
+          const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+          
+          // Limit to 20 members per embed (leave room for summary field)
+          if (fields.length < 20) {
+            fields.push({
+              name: `${member.user.username}`,
+              value: `${status} • ${timeText}`,
+              inline: false
+            });
+          }
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71) // green
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(`${roleOption.name} - Status Report`)
+          .setTimestamp(new Date())
+          .addFields(...fields)
+          .addFields(
+            { name: "━━━━━━━━━━━━━━━", value: "Summary", inline: false },
+            { name: "Total Members", value: `${totalMembers}`, inline: true },
+            { name: "Active ⏱️", value: `${activeMembers}`, inline: true },
+            { name: "Paused ⏸️", value: `${pausedMembers}`, inline: true }
+          )
+          .setFooter({ text: `BoostMon • Showing ${Math.min(timersList.length, 20)} members` });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // If user is provided (with or without role), show that user's timer(s)
+      const targetUser = userOption ?? interaction.user;
+      const role = roleOption; // optional
+
+      if (role) {
+        const timer = await db.getTimerForRole(targetUser.id, role.id);
+        if (!timer) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("No Active Timer")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Target User", value: `${targetUser}`, inline: true },
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Time Remaining", value: "0 minutes", inline: true }
+            )
+            .setFooter({ text: "BoostMon • No Timer" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+        
+        // Calculate remaining time
+        let remainingMs = Number(timer.expires_at) - Date.now();
+        const isPaused = timer.paused;
+        if (isPaused && timer.paused_remaining_ms) {
+          remainingMs = Number(timer.paused_remaining_ms);
+        }
+        
+        if (remainingMs <= 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0xE74C3C) // red
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Timer Expired")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Target User", value: `${targetUser}`, inline: true },
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Time Remaining", value: "0 minutes (expired)", inline: true }
+            )
+            .setFooter({ text: "BoostMon • Expired" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const expiresAt = Date.now() + remainingMs;
+        const statusColor = isPaused ? 0xF1C40F : 0x2ECC71; // yellow if paused, green if active
+        const statusTitle = isPaused ? "⏸️ Timer Paused" : "⏱️ Timer Active";
+        const statusFooter = isPaused ? "BoostMon • Paused Timer" : "BoostMon • Active Timer";
+
+        const embed = new EmbedBuilder()
+          .setColor(statusColor)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(statusTitle)
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Role", value: `${role.name}`, inline: true },
+            { name: "Time Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
+            { 
+              name: "Expires", 
+              value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`, 
+              inline: false 
+            }
+          )
+          .setFooter({ text: statusFooter });
+        
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      const currentRoleId = await getFirstTimedRoleId(targetUser.id);
+      if (!currentRoleId) {
+        const embed = new EmbedBuilder()
+          .setColor(0x95A5A6) // grey
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("No Active Timers")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Status", value: "No timed roles found", inline: true }
+          )
+          .setFooter({ text: "BoostMon" });
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      const timer = await db.getTimerForRole(targetUser.id, currentRoleId);
+      const roleObj = interaction.guild?.roles?.cache?.get(currentRoleId);
+
+      if (!timer) {
+        const embed = new EmbedBuilder()
+          .setColor(0x95A5A6) // grey
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("No Active Timer")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Status", value: "No timed role found", inline: true }
+          )
+          .setFooter({ text: "BoostMon" });
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      let remainingMs = Number(timer.expires_at) - Date.now();
+      const isPaused = timer.paused;
+      if (isPaused && timer.paused_remaining_ms) {
+        remainingMs = Number(timer.paused_remaining_ms);
+      }
+
+      if (remainingMs <= 0) {
+        const embed = new EmbedBuilder()
+          .setColor(0xE74C3C) // red
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Timer Expired")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Target User", value: `${targetUser}`, inline: true },
+            { name: "Role", value: roleObj ? `${roleObj.name}` : "Unknown", inline: true },
+            { name: "Time Remaining", value: "0 minutes (expired)", inline: true }
+          )
+          .setFooter({ text: "BoostMon • Expired" });
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      const expiresAt = Date.now() + remainingMs;
+      const statusColor = isPaused ? 0xF1C40F : 0x2ECC71; // yellow if paused, green if active
+      const statusTitle = isPaused ? "⏸️ Timer Paused" : "⏱️ Timer Active";
+      const statusFooter = isPaused ? "BoostMon • Paused Timer" : "BoostMon • Active Timer";
+
+      const embed = new EmbedBuilder()
+        .setColor(statusColor)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle(statusTitle)
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Target User", value: `${targetUser}`, inline: true },
+          { name: "Role", value: roleObj ? `${roleObj.name}` : "Unknown", inline: true },
+          { name: "Time Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
+          { 
+            name: "Expires", 
+            value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`, 
+              inline: false 
+          }
+        )
+        .setFooter({ text: statusFooter });
+      
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    // ---------- /rolestatus ----------
+    if (interaction.commandName === "rolestatus") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const subcommand = interaction.options.getSubcommand();
+      const subcommandGroup = interaction.options.getSubcommandGroup();
+      const guild = interaction.guild;
+
+      // ===== ROLESTATUS VIEW =====
+      if (subcommand === "view") {
+
+        const roleOption = interaction.options.getRole("role", true);
+
+        // OPTIMIZATION: Query database FIRST to get timers for this role
+        // Then fetch only those members from Discord
+        const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
+        
+        if (timersFromDb.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Role Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${roleOption.name}`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "No members have timers for this role", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Role Status" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        // Fetch only the members that have timers for this role
+        const timersList = [];
+        for (const timer of timersFromDb) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            if (member) {
+              // Also fetch user registration data for in-game username
+              const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
+              timersList.push({ member, timer, registration });
+            }
+          } catch (err) {
+            console.error(`Failed to fetch member ${timer.user_id}:`, err);
+          }
+        }
+
+        // If no members found, they may have left the server
+        if (timersList.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6) // grey
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Role Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${roleOption.name}`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "Members with timers have left the server", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Role Status" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        // Get the sort order from database (default descending)
+        const sortOrder = await db.getReportSortOrder(guild.id).catch(() => 'descending');
+        console.log(`[/rolestatus view] sortOrder: "${sortOrder}", typeof: ${typeof sortOrder}, timersList length: ${timersList.length}`);
+
+        // Sort by time remaining based on sort order preference
+        timersList.sort((a, b) => {
+          let aMs = Number(a.timer.expires_at) - Date.now();
+          let bMs = Number(b.timer.expires_at) - Date.now();
+          
+          if (a.timer.paused && a.timer.paused_remaining_ms) {
+            aMs = Number(a.timer.paused_remaining_ms);
+          }
+          if (b.timer.paused && b.timer.paused_remaining_ms) {
+            bMs = Number(b.timer.paused_remaining_ms);
+          }
+          
+          // DESCENDING = largest first (longest boost times at top)
+          // ASCENDING = smallest first (shortest boost times at top)
+          if (sortOrder === 'ascending') {
+            return aMs - bMs; // ascending: smallest first (shortest times at top)
+          } else {
+            return bMs - aMs; // descending: largest first (longest times at top)
+          }
+        });
+
+        // Build compact list of members (one per line) with medal awards for top 3
+        let membersList = [];
+        let totalMembers = 0;
+        let activeMembers = 0;
+        let pausedMembers = 0;
+        let expiringMembers = 0;
+        let memberCount = 0; // Track position for medal awards
+
+        for (const { member, timer, registration } of timersList) {
+          totalMembers++;
+          
+          let remainingMs = Number(timer.expires_at) - Date.now();
+          if (timer.paused && timer.paused_remaining_ms) {
+            remainingMs = Number(timer.paused_remaining_ms);
+          }
+
+          const isPaused = timer.paused;
+          if (isPaused) pausedMembers++;
+          else activeMembers++;
+
+          // Determine status and check for expiring soon (< 60 minutes)
+          let status;
+          if (isPaused) {
+            status = "⏸️ PAUSED";
+          } else if (remainingMs <= 0) {
+            status = "🔴 EXPIRED";
+          } else if (remainingMs < 60 * 60 * 1000) {
+            status = "🟡 EXPIRES SOON";
+            expiringMembers++;
+          } else {
+            status = "🟢 ACTIVE";
+          }
+
+          const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+          
+          // Get Discord display name
+          const displayName = member.nickname || member.user.globalName || member.user.username;
+          
+          // Get in-game username from registration, or use Discord username as fallback
+          const inGameUsername = registration?.in_game_username || member.user.username;
+          
+          // Award rank medals to top 3 boosters (based on sorted position - longest remaining time)
+          const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
+          
+          // Format: 🥇 🟢 ACTIVE • 3h 58m 10s • Haozinho - (tauan123456789090)
+          const line = `${rankMedal} ${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
+          membersList.push(line);
+          memberCount++;
+
+          // Limit to 30 members per embed (more compact, single-line format)
+          if (membersList.length >= 30) break;
+        }
+
+        // Create description field with all members (with separator lines between entries)
+        const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+        const description = membersList.length > 0 
+          ? '\n' + membersList.join(`\n${separator}\n`)
+          : "\nNo members have timers for this role";
+
+        // Create epic leaderboard title
+        const leaderboardTitle = `【⭐】${roleOption.name} Leaderboard【⭐】`;
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71) // green
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(leaderboardTitle)
+          .setDescription(description)
+          .setTimestamp(new Date())
+          .addFields(
+            { 
+              name: "📊 Summary", 
+              value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
+              inline: false 
+            }
+          )
+          .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)} members | Sort: ${sortOrder}` });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // ===== ROLESTATUS SCHEDULE SUBCOMMANDS =====
+      if (subcommandGroup === "schedule") {
+        const scheduleSubcommand = interaction.options.getSubcommand();
+
+        if (scheduleSubcommand === "set") {
+          // Check permissions
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.editReply({
+              content: "You need **Manage Messages** permission to set up automated reports.",
+            });
+          }
+
+          const role = interaction.options.getRole("role", true);
+          const channel = interaction.options.getChannel("channel", true);
+          const interval = interaction.options.getInteger("interval", true);
+          const purgeLines = interaction.options.getInteger("purge") || 0;
+
+          // Validate channel is text-based
+          if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+            return interaction.editReply({
+              content: "Channel must be a text or announcement channel.",
+            });
+          }
+
+          // Check bot permissions in target channel
+          const me = await guild.members.fetchMe();
+          const perms = channel.permissionsFor(me);
+
+          if (!perms?.has(PermissionFlagsBits.SendMessages)) {
+            return interaction.editReply({
+              content: `I don't have permission to send messages in ${channel}.`,
+            });
+          }
+
+          if (purgeLines > 0 && !perms?.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.editReply({
+              content: `I don't have permission to manage messages in ${channel}. Purge feature requires this permission.`,
+            });
+          }
+
+          // Create schedule in database
+          const schedule = await db.createRolestatusSchedule(guild.id, role.id, channel.id, interval, purgeLines);
+          
+          if (!schedule) {
+            return interaction.editReply({
+              content: "Failed to create schedule. Please try again.",
+            });
+          }
+
+          const purgeDescription = purgeLines === 0 
+            ? "🟢 Disabled - all messages will be kept" 
+            : `🗑️ Will delete ${purgeLines} message(s) before each report`;
+
+          const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("✅ Schedule Created")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Channel", value: `${channel.name}`, inline: true },
+              { name: "Interval", value: `Every ${interval} minutes`, inline: true },
+              { name: "Purge Configuration", value: purgeDescription, inline: false },
+              { name: "Status", value: "🟢 Active - Reports will begin shortly", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Scheduled Report Started" });
+
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        if (scheduleSubcommand === "disable") {
+          // Check permissions
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+            return interaction.editReply({
+              content: "You need **Manage Messages** permission to disable automated reports.",
+            });
+          }
+
+          const role = interaction.options.getRole("role", true);
+
+          // Disable all schedules for this role
+          const success = await db.disableRolestatusSchedule(guild.id, role.id);
+
+          if (!success) {
+            return interaction.editReply({
+              content: `No active schedules found for ${role.name}.`,
+            });
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0xE74C3C)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("⛔ Schedule Disabled")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `${role.name}`, inline: true },
+              { name: "Status", value: "🔴 Inactive - Reports stopped", inline: true }
+            )
+            .setFooter({ text: "BoostMon • Scheduled Report Stopped" });
+
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        if (scheduleSubcommand === "list") {
+          const schedules = await db.getAllRolestatusSchedules(guild.id);
+
+          if (schedules.length === 0) {
+            return interaction.editReply({
+              content: "No active role status schedules in this server.",
+            });
+          }
+
+          const fields = [];
+          for (const schedule of schedules) {
+            try {
+              const role = await guild.roles.fetch(schedule.role_id).catch(() => null);
+              const channel = await guild.channels.fetch(schedule.channel_id).catch(() => null);
+
+              if (role && channel) {
+                fields.push({
+                  name: `${role.name}`,
+                  value: `📢 Posts to ${channel.name}\n⏱️ Every ${schedule.interval_minutes} min`,
+                  inline: false,
+                });
+              }
+            } catch (err) {
+              console.error("Error fetching schedule details:", err);
+            }
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0x3498DB)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("📋 Active Role Status Schedules")
+            .setTimestamp(new Date())
+            .addFields(...fields)
+            .setFooter({ text: `BoostMon • ${schedules.length} schedule(s) active` });
+
+          return interaction.editReply({ embeds: [embed] });
+        }
+      }
+    }
+
+    // ---------- /autopurge ----------
+    if (interaction.commandName === "autopurge") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const subcommand = interaction.options.getSubcommand();
+      const guild = interaction.guild;
+
+      if (subcommand === "set") {
+        const channel = interaction.options.getChannel("channel", true);
+        const type = interaction.options.getString("type", true);
+        const lines = interaction.options.getInteger("lines", true);
+        const interval = interaction.options.getInteger("interval", true);
+
+        // Validate channel is text-based
+        if (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement) {
+          return interaction.editReply({ content: "Channel must be a text or announcement channel." });
+        }
+
+        // Check bot permissions in the target channel
+        const me = await guild.members.fetchMe();
+        const perms = channel.permissionsFor(me);
+
+        if (!perms?.has(PermissionFlagsBits.ManageMessages)) {
+          return interaction.editReply({
+            content: `I don't have **Manage Messages** permission in ${channel}. I need this to delete messages.`,
+          });
+        }
+
+        // Save to database
+        const intervalSeconds = interval * 60;
+        const setting = await db.setAutopurgeSetting(guild.id, channel.id, type, lines, intervalSeconds);
+
+        if (!setting) {
+          return interaction.editReply({ content: "Failed to save autopurge setting. Try again later." });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("✅ Auto-Purge Enabled")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Channel", value: `${channel}`, inline: true },
+            { name: "Message Type", value: `${type === "bot" ? "🤖 Bot Only" : type === "user" ? "👤 User Only" : "🔀 Both"}`, inline: true },
+            { name: "Lines per Purge", value: `${lines}`, inline: true },
+            { name: "Interval", value: `${interval} minute(s)`, inline: true },
+            { name: "Next Purge", value: `In ~${interval} minute(s)`, inline: true }
+          )
+          .setFooter({ text: "BoostMon • Auto-Purge Active" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "disable") {
+        const channel = interaction.options.getChannel("channel", true);
+
+        const setting = await db.getAutopurgeSetting(guild.id, channel.id);
+        if (!setting) {
+          return interaction.editReply({
+            content: `No auto-purge setting found for ${channel}.`,
+          });
+        }
+
+        const disabled = await db.disableAutopurgeSetting(guild.id, channel.id);
+        if (!disabled) {
+          return interaction.editReply({ content: "Failed to disable auto-purge. Try again later." });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0xE74C3C)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("❌ Auto-Purge Disabled")
+          .setTimestamp(new Date())
+          .addFields({ name: "Channel", value: `${channel}`, inline: true })
+          .setFooter({ text: "BoostMon • Auto-Purge Disabled" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "status") {
+        const settings = await db.getAllAutopurgeSettings(guild.id).catch(() => []);
+
+        if (settings.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Auto-Purge Status")
+            .setTimestamp(new Date())
+            .addFields({ name: "Settings", value: "No active auto-purge settings in this server", inline: false })
+            .setFooter({ text: "BoostMon" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const fields = [];
+        for (const setting of settings) {
+          const channel = guild.channels.cache.get(setting.channel_id);
+          const channelName = channel ? channel.toString() : `<#${setting.channel_id}>`;
+          const typeEmoji = setting.type === "bot" ? "🤖" : setting.type === "user" ? "👤" : "🔀";
+          const intervalMins = Math.floor(setting.interval_seconds / 60);
+          const lastPurge = setting.last_purge_at
+            ? `<t:${Math.floor(new Date(setting.last_purge_at).getTime() / 1000)}:R>`
+            : "Never";
+
+          fields.push({
+            name: `${typeEmoji} ${channelName}`,
+            value: `**Lines:** ${setting.lines} | **Interval:** ${intervalMins}m | **Last Purge:** ${lastPurge}`,
+            inline: false,
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Auto-Purge Status")
+          .setTimestamp(new Date())
+          .addFields(...fields)
+          .addFields({ name: "━━━━━━━━━━━━━━━", value: `Total: ${settings.length}`, inline: false })
+          .setFooter({ text: "BoostMon • Active Settings" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+    }
+
+    // ---------- /setup ----------
+    if (interaction.commandName === "setup") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      // Only owner or admins can use this command
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) && interaction.guild.ownerId !== interaction.user.id) {
+        return interaction.editReply({
+          content: "⛔ Only **Server Owner** or users with **Administrator** permission can use this command.",
+          ephemeral: true
+        });
+      }
+
+      const subcommand = interaction.options.getSubcommand();
+      const guild = interaction.guild;
+      const role = interaction.options.getRole("role");
+
+      if (subcommand === "grant") {
+        if (!role) {
+          return interaction.editReply({ content: "Please specify a role." });
+        }
+
+        const result = await db.grantDashboardAccess(guild.id, role.id, interaction.user.id);
+        
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ Failed to grant access (role may already have access)`
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("✅ Dashboard Access Granted")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Role", value: `${role}`, inline: true },
+            { name: "Granted By", value: `${interaction.user}`, inline: true },
+            { name: "Status", value: "Members with this role can now access the dashboard", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "revoke") {
+        if (!role) {
+          return interaction.editReply({ content: "Please specify a role." });
+        }
+
+        const result = await db.revokeDashboardAccess(guild.id, role.id);
+        
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ Failed to revoke access (role may not have dashboard access)`
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0xE74C3C)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("❌ Dashboard Access Revoked")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Role", value: `${role}`, inline: true },
+            { name: "Revoked By", value: `${interaction.user}`, inline: true },
+            { name: "Status", value: "Members with this role can no longer access the dashboard", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "list") {
+        const accessRoles = await db.getDashboardAccessRoles(guild.id);
+        const restrictMode = await db.isRestrictModeActive(guild.id);
+
+        if (accessRoles.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Dashboard Access Roles")
+            .setTimestamp(new Date())
+            .addFields({
+              name: "Mode",
+              value: restrictMode ? "🔒 **RESTRICTED** - Only whitelisted roles have access" : "🔓 **NORMAL** - Owner + Admins + granted roles",
+              inline: false
+            })
+            .addFields({
+              name: "Status",
+              value: "**Default Access:** Server Owner + Admins only\n**Custom Roles:** None configured",
+              inline: false
+            })
+            .setFooter({ text: "BoostMon • Setup" });
+
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const fields = [];
+        for (const access of accessRoles) {
+          const grantRole = guild.roles.cache.get(access.role_id);
+          const roleName = grantRole ? `${grantRole}` : `<@&${access.role_id}>`;
+          const grantedBy = access.created_by ? `<@${access.created_by}>` : "Unknown";
+          const createdAt = new Date(access.created_at).toLocaleString();
+
+          fields.push({
+            name: `${roleName}`,
+            value: `Granted by ${grantedBy} on ${createdAt}`,
+            inline: false
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("Dashboard Access Roles")
+          .setTimestamp(new Date())
+          .addFields({ 
+            name: "Mode", 
+            value: restrictMode ? "🔒 **RESTRICTED** - Only whitelisted roles have access" : "🔓 **NORMAL** - Owner + Admins + granted roles", 
+            inline: false 
+          })
+          .addFields({ name: "Default Access", value: "Server Owner (always have access)", inline: false })
+          .addFields(...fields)
+          .addFields({ name: "Total Whitelisted Roles", value: `${accessRoles.length}`, inline: false })
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "restrict") {
+        if (!role) {
+          return interaction.editReply({ content: "Please specify a role to whitelist." });
+        }
+
+        // Enable restrict mode and add the role to whitelist
+        const result = await db.setDashboardRestrictMode(guild.id, role.id, interaction.user.id);
+        
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ Failed to enable restrict mode`
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0xF39C12)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("🔒 Restrict Mode Enabled")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Mode", value: "**RESTRICTED** - Only whitelisted roles have dashboard access", inline: false },
+            { name: "Whitelisted Role", value: `${role}`, inline: true },
+            { name: "Enabled By", value: `${interaction.user}`, inline: true },
+            { name: "Note", value: "Server Owner always has access. All other users need a whitelisted role.", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "unrestrict") {
+        // Disable restrict mode
+        const result = await db.removeDashboardRestrictMode(guild.id);
+        
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ Failed to disable restrict mode`
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x27AE60)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("🔓 Restrict Mode Disabled")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Mode", value: "**NORMAL** - Admins and granted roles have access", inline: false },
+            { name: "Disabled By", value: `${interaction.user}`, inline: true },
+            { name: "Note", value: "Server Owner + Admins automatically have access. Custom granted roles also have access.", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "reports") {
+        const sortOrder = interaction.options.getString("filter", true);
+
+        // Update the report sort order for all schedules in this guild
+        const result = await db.setReportSortOrder(guild.id, sortOrder);
+
+        if (!result) {
+          return interaction.editReply({
+            content: `⚠️ No scheduled reports found for this server, or failed to update sorting.`
+          });
+        }
+
+        const sortEmoji = sortOrder === 'ascending' ? '🔼' : '🔽';
+        const sortDescription = sortOrder === 'ascending' 
+          ? 'Shortest boost times first (expiring soonest)' 
+          : 'Longest boost times first (top boosters at top)';
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(`${sortEmoji} Leaderboard Sort Order Updated`)
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Sort Order", value: `**${sortOrder.charAt(0).toUpperCase() + sortOrder.slice(1)}**`, inline: true },
+            { name: "Display", value: sortDescription, inline: true },
+            { name: "Effect", value: "All leaderboard reports will now display members in this order", inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "streak-roles") {
+        await interaction.deferReply().catch(() => null);
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return interaction.editReply({ content: "⛔ Only administrators can use this command.", ephemeral: true });
+        }
+
+        const days = interaction.options.getInteger("days", true);
+        const role = interaction.options.getRole("role", true);
+        const action = interaction.options.getString("action") || "add";
+
+        if (action === "remove") {
+          const removed = await db.removeStreakRole(guild.id, days);
+          return interaction.editReply({ content: removed ? `✅ Removed streak role for ${days} days.` : `❌ No streak role found for ${days} days.` });
+        } else {
+          await db.setStreakRole(guild.id, days, role.id);
+          return interaction.editReply({ content: `✅ Set streak role for ${days} days to ${role}.` });
+        }
+      }
+    }
+
+    // ---------- /boostqueue ----------
+    if (interaction.commandName === "boostqueue") {
+      // Defer immediately to prevent interaction timeout
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const subcommand = interaction.options.getSubcommand();
+      const guild = interaction.guild;
+
+      // ---------- /boostqueue add ----------
+      if (subcommand === "add") {
+        const userOption = interaction.options.getUser("user");
+        const note = interaction.options.getString("note");
+        
+        let targetId = userOption?.id || interaction.user.id;
+        let targetUser = userOption || interaction.user;
+
+        // Only allow adding others if user is admin
+        if (userOption && userOption.id !== interaction.user.id) {
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+            return interaction.editReply({
+              content: "⛔ Only **Server Owner** or users with **Administrator** permission can add others to the queue.",
+              ephemeral: true
+            });
+          }
+        }
+
+        // Check if user is already in queue
+        const existingInQueue = await db.getQueueUser(targetId, guild.id);
+        if (existingInQueue) {
+          const embed = new EmbedBuilder()
+            .setColor(0xF39C12)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("⚠️ Already in Queue")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "User", value: `${targetUser}`, inline: true },
+              { name: "Status", value: `Already in position **#${existingInQueue.position_order}**`, inline: true }
+            );
+          
+          if (existingInQueue.note) {
+            embed.addFields({ name: "Note", value: existingInQueue.note, inline: false });
+          }
+          
+          embed.setFooter({ text: "BoostMon • Boost Queue" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const queueEntry = await db.addToQueue(targetId, guild.id, note);
+        if (!queueEntry) {
+          return interaction.editReply({ content: "❌ Failed to add to the queue. Please try again." });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("✅ Added to Boost Queue")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "User", value: `${targetUser}`, inline: true },
+            { name: "Position", value: `#${queueEntry.position_order}`, inline: true },
+            { name: "Added At", value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true }
+          );
+
+        if (note) {
+          embed.addFields({ name: "Note", value: note, inline: false });
+        }
+
+        if (userOption && userOption.id !== interaction.user.id) {
+          embed.addFields({ name: "Added By", value: `${interaction.user}`, inline: true });
+        }
+
+        embed.setFooter({ text: "BoostMon • Boost Queue" });
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // ---------- /boostqueue remove ----------
+      if (subcommand === "remove") {
+        const userOption = interaction.options.getUser("user");
+        let targetId = userOption?.id || interaction.user.id;
+
+        // Only allow removing others if user is admin
+        if (userOption && userOption.id !== interaction.user.id) {
+          if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+            return interaction.editReply({
+              content: "⛔ Only **Server Owner** or users with **Administrator** permission can remove others from the queue.",
+              ephemeral: true
+            });
+          }
+        }
+
+        const queueEntry = await db.getQueueUser(targetId, guild.id);
+        if (!queueEntry) {
+          const targetMention = userOption ? `<@${userOption.id}>` : "You are";
+          return interaction.editReply({
+            content: `${targetMention} not in the queue.`
+          });
+        }
+
+        const removed = await db.removeFromQueue(targetId, guild.id);
+        if (!removed) {
+          return interaction.editReply({ content: "❌ Failed to remove from queue. Please try again." });
+        }
+
+        const userMention = userOption ? `<@${userOption.id}>` : "You have been";
+        const embed = new EmbedBuilder()
+          .setColor(0xE74C3C)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("❌ Removed from Queue")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Status", value: `${userMention} removed from the boost queue.`, inline: false }
+          )
+          .setFooter({ text: "BoostMon • Boost Queue" });
+
+        if (userOption && userOption.id !== interaction.user.id) {
+          embed.addFields(
+            { name: "Removed By", value: `${interaction.user}`, inline: true }
+          );
+        }
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // ---------- /boostqueue view ----------
+      if (subcommand === "view") {
+        const queue = await db.getQueue(guild.id, 50);
+        
+        if (queue.length === 0) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Boost Queue")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Status", value: "The boost queue is empty.", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Boost Queue" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const fields = [];
+        for (const entry of queue) {
+          const user = await client.users.fetch(entry.user_id).catch(() => null);
+          const userName = user ? user.username : `<@${entry.user_id}>`;
+          const noteText = entry.note ? ` • ${entry.note}` : "";
+          const addedAt = new Date(entry.added_at).toLocaleString();
+
+          fields.push({
+            name: `#${entry.position_order} - ${userName}`,
+            value: `Added: ${addedAt}${noteText}`,
+            inline: false
+          });
+        }
+
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("🎯 Boost Queue")
+          .setTimestamp(new Date())
+          .addFields(...fields)
+          .addFields(
+            { name: "Total in Queue", value: `${queue.length}`, inline: true }
+          )
+          .setFooter({ text: "BoostMon • Boost Queue" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // ---------- /boostqueue status ----------
+      if (subcommand === "status") {
+        const position = await db.getUserQueuePosition(interaction.user.id, guild.id);
+        
+        if (position === null) {
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("Your Queue Status")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Status", value: "You are **not** in the boost queue.", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Boost Queue" });
+          return interaction.editReply({ embeds: [embed] });
+        }
+
+        const queueEntry = await db.getQueueUser(interaction.user.id, guild.id);
+        const totalInQueue = (await db.getQueue(guild.id)).length;
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("🎯 Your Queue Status")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Your Position", value: `#${position} of ${totalInQueue}`, inline: true },
+            { name: "People Ahead", value: `${position - 1}`, inline: true }
+          );
+
+        if (queueEntry.note) {
+          embed.addFields({ name: "Your Note", value: queueEntry.note, inline: false });
+        }
+
+        embed.addFields(
+          { name: "Added At", value: `<t:${Math.floor(new Date(queueEntry.added_at).getTime() / 1000)}:R>`, inline: true }
+        );
+
+        embed.setFooter({ text: "BoostMon • Boost Queue" });
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      // ---------- /boostqueue complete ----------
+      if (subcommand === "complete") {
+        // Only allow admins to mark as complete
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return interaction.editReply({
+            content: "⛔ Only **Server Owner** or users with **Administrator** permission can mark users as completed.",
+            ephemeral: true
+          });
+        }
+
+        const targetUser = interaction.options.getUser("user", true);
+        const queueEntry = await db.getQueueUser(targetUser.id, guild.id);
+
+        if (!queueEntry) {
+          return interaction.editReply({
+            content: `<@${targetUser.id}> is not in the queue.`
+          });
+        }
+
+        const completed = await db.completeQueue(targetUser.id, guild.id, interaction.user.id);
+        if (!completed) {
+          return interaction.editReply({ content: "❌ Failed to mark as completed. Please try again." });
+        }
+
+        // Get the next person in queue
+        const nextInQueue = (await db.getQueue(guild.id, 1))[0];
+
+        const embed = new EmbedBuilder()
+          .setColor(0x27AE60)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("✅ Boost Completed")
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "User", value: `<@${targetUser.id}>`, inline: true },
+            { name: "Completed By", value: `${interaction.user}`, inline: true }
+          );
+
+        if (nextInQueue) {
+          embed.addFields(
+            { name: "Next in Queue", value: `<@${nextInQueue.user_id}> (Position #1)`, inline: false }
+          );
+        } else {
+          embed.addFields(
+            { name: "Next in Queue", value: "Queue is now empty! 🎉", inline: false }
+          );
+        }
+
+        const reply = await interaction.editReply({ embeds: [embed] });
+
+        // Try to DM the next person
+        if (nextInQueue) {
+          try {
+            const nextUser = await client.users.fetch(nextInQueue.user_id);
+            const dmEmbed = new EmbedBuilder()
+              .setColor(0x2ECC71)
+              .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+              .setTitle("🎉 You're Next!")
+              .setDescription(`You've been promoted to **#1** in the boost queue for **${guild.name}**!`)
+              .setTimestamp(new Date())
+              .setFooter({ text: "BoostMon • Boost Queue" });
+
+            await nextUser.send({ embeds: [dmEmbed] }).catch(() => null);
+          } catch (err) {
+            console.warn(`Failed to DM user ${nextInQueue.user_id}:`, err.message);
+          }
+        }
+
+        return reply;
+      }
+    }
+
+    // ---------- /register ----------
+    if (interaction.commandName === "register") {
+      await interaction.deferReply().catch(() => null);
+
+      if (!interaction.guild) {
+        return interaction.editReply({ content: "This command can only be used in a server." });
+      }
+
+      const subcommand = interaction.options.getSubcommand();
+
+      // ---------- /register user ----------
+      if (subcommand === "user") {
+        // Check if user is admin or owner
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) && 
+            interaction.user.id !== interaction.guild.ownerId) {
+          return interaction.editReply({
+            content: "⛔ Only **Server Owner** or users with **Administrator** permission can register other users.",
+            ephemeral: true
+          });
+        }
+
+        const discordUser = interaction.options.getUser("discorduser", true);
+        const username = interaction.options.getString("username", true);
+        const display = interaction.options.getString("display", true);
+
+        try {
+          const registration = await db.registerUser({
+            guild_id: interaction.guild.id,
+            discord_id: discordUser.id,
+            discord_username: discordUser.username,
+            in_game_username: username,
+            display_name: display,
+            registered_by: interaction.user.id,
+            registered_at: new Date()
+          });
+
+          if (!registration) {
+            return interaction.editReply({ content: "❌ Failed to register user. Please try again." });
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("✅ User Registered")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Discord User", value: `${discordUser}`, inline: true },
+              { name: "In-Game Username", value: username, inline: true },
+              { name: "Display Name", value: display, inline: true },
+              { name: "Registered By", value: `${interaction.user}`, inline: true }
+            )
+            .setFooter({ text: "BoostMon • User Registration" });
+
+          return interaction.editReply({ embeds: [embed] });
+        } catch (err) {
+          console.error("Error registering user:", err);
+          return interaction.editReply({ 
+            content: "❌ Error registering user: " + friendlyDiscordError(err),
+            ephemeral: true 
+          });
+        }
+      }
+
+      // ---------- /register in-game ----------
+      if (subcommand === "in-game") {
+        const username = interaction.options.getString("username", true);
+        const display = interaction.options.getString("display", true);
+
+        try {
+          const registration = await db.registerUser({
+            guild_id: interaction.guild.id,
+            discord_id: interaction.user.id,
+            discord_username: interaction.user.username,
+            in_game_username: username,
+            display_name: display,
+            registered_by: interaction.user.id,
+            registered_at: new Date()
+          });
+
+          if (!registration) {
+            return interaction.editReply({ content: "❌ Failed to register. Please try again." });
+          }
+
+          const embed = new EmbedBuilder()
+            .setColor(0x2ECC71)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("✅ Registration Complete")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Discord User", value: `${interaction.user}`, inline: true },
+              { name: "In-Game Username", value: username, inline: true },
+              { name: "Display Name", value: display, inline: true }
+            )
+            .setFooter({ text: "BoostMon • User Registration" });
+
+          return interaction.editReply({ embeds: [embed] });
+        } catch (err) {
+          console.error("Error registering user:", err);
+          return interaction.editReply({ 
+            content: "❌ Error during registration: " + friendlyDiscordError(err),
+            ephemeral: true 
+          });
+        }
+      }
+    }
+
+// ---------- /streak ----------
+    if (interaction.commandName === "streak") {
+      const guild = interaction.guild;
+      const subcommand = interaction.options.getSubcommand();
+      const group = interaction.options.getSubcommandGroup(false);
+
+      if (group === "admin") {
+        await interaction.deferReply().catch(() => null);
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return interaction.editReply({ content: "⛔ Only administrators can use this command.", ephemeral: true });
+        }
+
+        const targetUser = interaction.options.getUser("user", true);
+        const amount = interaction.options.getInteger("amount") || 1;
+
+        if (subcommand === "grant-save") {
+          await db.updateUserStreakSaves(guild.id, targetUser.id, amount);
+          return interaction.editReply({ content: `✅ Granted ${amount} save token(s) to ${targetUser}.` });
+        } else if (subcommand === "remove-save") {
+          await db.updateUserStreakSaves(guild.id, targetUser.id, -amount);
+          return interaction.editReply({ content: `✅ Removed ${amount} save token(s) from ${targetUser}.` });
+        }
+      }
+
+      if (subcommand === "status") {
+        await interaction.deferReply().catch(() => null);
+        const targetUser = interaction.options.getUser("user") || interaction.user;
+        const streak = await db.getUserStreak(guild.id, targetUser.id);
+        
+        const embed = new EmbedBuilder()
+          .setColor(0x3498DB)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(`🔥 Streak Status: ${targetUser.username}`)
+          .setTimestamp(new Date());
+
+        if (!streak || !streak.streak_start_at) {
+          embed.setDescription(`${targetUser} does not have an active boost streak.`);
+        } else {
+          const days = Math.floor((Date.now() - new Date(streak.streak_start_at)) / (24 * 60 * 60 * 1000));
+          const saves = streak.save_tokens || 0;
+          
+          embed.addFields(
+            { name: "Current Streak", value: `**${days} days**`, inline: true },
+            { name: "Streak Saves", value: `**${saves}**`, inline: true },
+            { name: "Started On", value: `<t:${Math.floor(new Date(streak.streak_start_at).getTime() / 1000)}:D>`, inline: true }
+          );
+
+          if (streak.grace_period_until && new Date(streak.grace_period_until) > new Date()) {
+            embed.addFields({ name: "🛡️ Grace Period", value: `Ends <t:${Math.floor(new Date(streak.grace_period_until).getTime() / 1000)}:R>`, inline: false });
+          }
+        }
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+
+      if (subcommand === "leaderboard") {
+        await interaction.deferReply().catch(() => null);
+        const leaderboard = await db.getStreakLeaderboard(guild.id, 10);
+        
+        if (leaderboard.length === 0) {
+          return interaction.editReply({ content: "No active boost streaks found in this server." });
+        }
+
+        const fields = leaderboard.map((entry, index) => {
+          const days = Math.floor((Date.now() - new Date(entry.streak_start_at)) / (24 * 60 * 60 * 1000));
+          const medal = index === 0 ? "🥇" : index === 1 ? "🥈" : index === 2 ? "🥉" : "🔹";
+          const displayName = entry.display_name || entry.username || `<@${entry.user_id}>`;
+          return {
+            name: `${medal} #${index + 1} - ${displayName}`,
+            value: `**${days} Days** • ${entry.save_tokens} Saves`,
+            inline: false
+          };
+        });
+
+        const embed = new EmbedBuilder()
+          .setColor(0xF1C40F)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("🏆 Streak Leaderboard")
+          .setDescription("The longest uninterrupted boost streaks in the server!")
+          .addFields(...fields)
+          .setTimestamp(new Date())
+          .setFooter({ text: "BoostMon • Longest Streaks" });
+
+        return interaction.editReply({ embeds: [embed] });
+      }
+    }
+
+  } catch (err) {
+    console.error("Command error:", err);
+
+    const msg = "Error running command. Details: " + friendlyDiscordError(err);
+
+    try {
+      if (interaction.deferred || interaction.replied) {
+        return interaction.followUp({ content: msg, ephemeral: true });
+      }
+      return interaction.reply({ content: msg, ephemeral: true });
+    } catch (e) {
+      console.error("Failed to send error to Discord:", e);
+    }
+  }
+});
+
+
+
+//----------------------------------------
+// SECTION 7 — Express Web Server
+//----------------------------------------
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use((req, res, next) => {
+  console.info(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+app.use(express.json()); // Parse JSON request bodies
+app.use(cookieParser());
+app.use(express.static(path.resolve(__dirname, "public")));
+app.use("/", indexRouter);
+app.use("/auth", authRouter);
+app.use("/", dashboardRouter);
+
+// Version endpoint - available to all
+app.get('/api/version', (req, res) => {
+  res.json(VERSION);
+});
+
+app.use((req, res) => {
+  res.status(404).sendFile(path.resolve(__dirname, "views", "404.html"));
+});
+
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).send("Internal Server Error");
+});
+
+app.listen(PORT, () => {
+  console.log(`Server listening: http://localhost:${PORT}`);
+});
+
+
+
+//----------------------------------------
+// SECTION 8 — Timers: Warnings + Expiry Cleanup
+//----------------------------------------
+
+// ===== SCHEDULED ROLESTATUS REPORTING =====
+
+async function executeScheduledRolestatus(guild, now) {
+  try {
+    const schedules = await db.getAllRolestatusSchedules(guild.id).catch(() => []);
+
+    for (const schedule of schedules) {
+      console.log(`[SCHEDULED-REPORT] Processing schedule: role=${schedule.role_id}, channel=${schedule.channel_id}, interval=${schedule.interval_minutes}m, purge_lines=${schedule.purge_lines}`);
+      const channel = guild.channels.cache.get(schedule.channel_id);
+      if (!channel) {
+        console.warn(`[SCHEDULED-REPORT] Channel ${schedule.channel_id} not found in guild ${guild.id}`);
+        continue;
+      }
+
+      // Check if channel is text-based
+      if (!channel.isTextBased()) {
+        console.warn(`[SCHEDULED-REPORT] Channel ${channel.name} is not text-based`);
+        continue;
+      }
+
+      // Check bot permissions in this specific channel
+      const me = await guild.members.fetchMe().catch(() => null);
+      if (!me) {
+        console.warn(`[SCHEDULED-REPORT] Could not fetch bot member in guild ${guild.id}`);
+        continue;
+      }
+
+      const perms = channel.permissionsFor(me);
+      if (!perms?.has(PermissionFlagsBits.SendMessages)) {
+        console.error(`[SCHEDULED-REPORT] Missing SendMessages permission in channel ${channel.name} (${schedule.channel_id}) for guild ${guild.id}`);
+        continue;
+      }
+
+      if (!perms?.has(PermissionFlagsBits.EmbedLinks)) {
+        console.error(`[SCHEDULED-REPORT] Missing EmbedLinks permission in channel ${channel.name} (${schedule.channel_id}) for guild ${guild.id}`);
+        continue;
+      }
+
+      // Check if it's time to run the report
+      const lastReportTime = schedule.last_report_at ? new Date(schedule.last_report_at).getTime() : 0;
+      const timeSinceLastReport = now - lastReportTime;
+      const intervalMs = schedule.interval_minutes * 60 * 1000;
+
+      if (timeSinceLastReport < intervalMs) {
+        continue; // Not time yet
+      }
+
+      try {
+        // Get timers for this role (same logic as /rolestatus view)
+        const timersFromDb = await db.getTimersForRole(schedule.role_id).catch(() => []);
+
+        if (timersFromDb.length === 0) {
+          // No timers - send empty report
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("📋 Role Status Report")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `<@&${schedule.role_id}>`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "No members have active timers", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Automated Report" });
+
+          try {
+            await channel.send({ embeds: [embed] });
+            await db.updateRolestatusLastReport(guild.id, schedule.role_id, schedule.channel_id);
+          } catch (err) {
+            console.error(`[SCHEDULED-REPORT] Failed to send empty report to ${channel.name}: ${err.message}`);
+          }
+          continue;
+        }
+
+        // Fetch members
+        const timersList = [];
+        for (const timer of timersFromDb) {
+          try {
+            const member = await guild.members.fetch(timer.user_id).catch(() => null);
+            if (member) {
+              timersList.push({ member, timer });
+            }
+          } catch (err) {
+            console.error(`Failed to fetch member ${timer.user_id}:`, err);
+          }
+        }
+
+        if (timersList.length === 0) {
+          // Timers exist but members left server
+          const embed = new EmbedBuilder()
+            .setColor(0x95A5A6)
+            .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+            .setTitle("📋 Role Status Report")
+            .setTimestamp(new Date())
+            .addFields(
+              { name: "Role", value: `<@&${schedule.role_id}>`, inline: true },
+              { name: "Members", value: "0", inline: true },
+              { name: "Status", value: "Members with timers have left the server", inline: false }
+            )
+            .setFooter({ text: "BoostMon • Automated Report" });
+
+          try {
+            await channel.send({ embeds: [embed] });
+            await db.updateRolestatusLastReport(guild.id, schedule.role_id, schedule.channel_id);
+          } catch (err) {
+            console.error(`[SCHEDULED-REPORT] Failed to send left-members report to ${channel.name}: ${err.message}`);
+          }
+          continue;
+        }
+
+        // Get the sort order from database (default descending)
+        const sortOrder = await db.getReportSortOrder(guild.id).catch(() => 'descending');
+        console.log(`[/rolestatus schedule] sortOrder: "${sortOrder}", typeof: ${typeof sortOrder}, timersList length: ${timersList.length}`);
+
+        // Sort by time remaining based on sort order preference
+        timersList.sort((a, b) => {
+          let aMs = Number(a.timer.expires_at) - now;
+          let bMs = Number(b.timer.expires_at) - now;
+          
+          if (a.timer.paused && a.timer.paused_remaining_ms) {
+            aMs = Number(a.timer.paused_remaining_ms);
+          }
+          if (b.timer.paused && b.timer.paused_remaining_ms) {
+            bMs = Number(b.timer.paused_remaining_ms);
+          }
+          
+          // DESCENDING = largest first (longest boost times at top)
+          // ASCENDING = smallest first (shortest boost times at top)
+          if (sortOrder === 'ascending') {
+            return aMs - bMs; // ascending: smallest first (shortest times at top)
+          } else {
+            return bMs - aMs; // descending: largest first (longest times at top)
+          }
+        });
+
+        // Build compact list of members (matching /rolestatus view format)
+        let membersList = [];
+        let totalMembers = 0;
+        let activeMembers = 0;
+        let pausedMembers = 0;
+        let expiringMembers = 0;
+        let memberCount = 0; // Track position for medal awards
+
+        for (const { member, timer } of timersList) {
+          totalMembers++;
+          
+          let remainingMs = Number(timer.expires_at) - now;
+          if (timer.paused && timer.paused_remaining_ms) {
+            remainingMs = Number(timer.paused_remaining_ms);
+          }
+
+          const isPaused = timer.paused;
+          if (isPaused) pausedMembers++;
+          else activeMembers++;
+
+          // Determine status and check for expiring soon (< 60 minutes)
+          let status;
+          if (isPaused) {
+            status = "⏸️ PAUSED";
+          } else if (remainingMs <= 0) {
+            status = "🔴 EXPIRED";
+          } else if (remainingMs < 60 * 60 * 1000) {
+            status = "🟡 EXPIRES SOON";
+            expiringMembers++;
+          } else {
+            status = "🟢 ACTIVE";
+          }
+
+          const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+          
+          // Get Discord display name
+          const displayName = member.nickname || member.user.globalName || member.user.username;
+          
+          // Try to fetch registration for in-game username, or use Discord username as fallback
+          const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
+          const inGameUsername = registration?.in_game_username || member.user.username;
+          
+          // Award rank medals to top 3 boosters (based on sorted position - longest remaining time)
+          // Descending sort = longest time first = top boosters, so position 0,1,2 get medals
+          const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
+          
+          // Format: 🥇 🟢 ACTIVE • 3h 58m 10s • Haozinho - (tauan123456789090)
+          const line = `${rankMedal} ${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
+          membersList.push(line);
+          memberCount++;
+
+          // Limit to 30 members per embed (matches view command)
+          if (membersList.length >= 30) break;
+        }
+
+        // Create description field with all members (with separator lines between entries)
+        const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+        const description = membersList.length > 0 
+          ? '\n' + membersList.join(`\n${separator}\n`)
+          : "\nNo members have timers for this role";
+
+        // Create epic leaderboard title
+        const roleName = (await guild.roles.fetch(schedule.role_id).catch(() => null))?.name || "Role Status";
+        const leaderboardTitle = `【⭐】${roleName} Leaderboard【⭐】`;
+
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle(leaderboardTitle)
+          .setDescription(description)
+          .setTimestamp(new Date())
+          .addFields(
+            { 
+              name: "📊 Summary", 
+              value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
+              inline: false 
+            }
+          )
+          .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)}/${totalMembers} members | Sort: ${sortOrder}` });
+
+        // Delete old message if it exists
+        if (schedule.last_message_id) {
+          try {
+            const oldMessage = await channel.messages.fetch(schedule.last_message_id).catch(() => null);
+            if (oldMessage) {
+              await oldMessage.delete().catch(() => null);
+              console.log(`[SCHEDULED-REPORT] Deleted old message ${schedule.last_message_id} from ${channel.name}`);
+            }
+          } catch (err) {
+            console.warn(`[SCHEDULED-REPORT] Could not delete old message: ${err.message}`);
+          }
+        }
+
+        // Purge lines if configured
+        const purgeLines = Number(schedule.purge_lines) || 0;
+        if (purgeLines > 0) {
+          try {
+            console.log(`[SCHEDULED-REPORT] Attempting to purge ${purgeLines} message(s) from ${channel.name}...`);
+            const messages = await channel.messages.fetch({ limit: purgeLines });
+            console.log(`[SCHEDULED-REPORT] Fetched ${messages.size} message(s) to purge`);
+            if (messages && messages.size > 0) {
+              await channel.bulkDelete(messages, true);
+              console.log(`[SCHEDULED-REPORT] ✓ Successfully purged ${messages.size} message(s) from ${channel.name} before posting new report`);
+            } else {
+              console.log(`[SCHEDULED-REPORT] No messages found to purge in ${channel.name}`);
+            }
+          } catch (err) {
+            console.error(`[SCHEDULED-REPORT] ✗ Could not purge messages from ${channel.name}: ${err.message}`);
+            console.error(`[SCHEDULED-REPORT] Error code: ${err.code}`);
+          }
+        }
+
+        // Send new message
+        let newMessage = null;
+        try {
+          // Double-check permissions right before sending
+          const currentPerms = channel.permissionsFor(me);
+          if (!currentPerms?.has(PermissionFlagsBits.SendMessages)) {
+            console.error(`[SCHEDULED-REPORT] Permission check failed right before send in ${channel.name}: Missing SendMessages`);
+            continue;
+          }
+          if (!currentPerms?.has(PermissionFlagsBits.EmbedLinks)) {
+            console.error(`[SCHEDULED-REPORT] Permission check failed right before send in ${channel.name}: Missing EmbedLinks`);
+            continue;
+          }
+
+          newMessage = await channel.send({ embeds: [embed] });
+          console.log(`[SCHEDULED-REPORT] Sent new report to ${channel.name} in guild ${guild.name} (message ID: ${newMessage.id})`);
+        } catch (err) {
+          console.error(`[SCHEDULED-REPORT] Failed to send report to ${channel.name} in guild ${guild.name}: ${err.message}`);
+          console.error(`[SCHEDULED-REPORT] Error code: ${err.code}, HTTP Status: ${err.status}`);
+        }
+
+        // Update last report time and message ID
+        await db.updateRolestatusLastReport(guild.id, schedule.role_id, schedule.channel_id);
+        if (newMessage) {
+          await db.updateRolestatusLastMessageId(guild.id, schedule.role_id, schedule.channel_id, newMessage.id);
+        }
+      } catch (err) {
+        console.error(`[SCHEDULED-REPORT] Error processing schedule for role ${schedule.role_id} in guild ${guild.name}: ${err.message}`);
+      }
+    }
+  } catch (err) {
+    console.error("executeScheduledRolestatus error:", err);
+  }
+}
+
+async function executeAutopurges(guild, now) {
+  try {
+    const settings = await db.getAllAutopurgeSettings(guild.id).catch(() => []);
+
+    for (const setting of settings) {
+      const channel = guild.channels.cache.get(setting.channel_id);
+      if (!channel) continue;
+
+      // Check if it's time to purge
+      const lastPurgeTime = setting.last_purge_at ? new Date(setting.last_purge_at).getTime() : 0;
+      const timeSinceLastPurge = now - lastPurgeTime;
+      const intervalMs = setting.interval_seconds * 1000;
+
+      if (timeSinceLastPurge < intervalMs) {
+        continue; // Not time yet
+      }
+
+      // Fetch messages to purge
+      try {
+        const messages = await channel
+          .messages.fetch({ limit: Math.min(setting.lines + 5, 100) })
+          .catch(() => null);
+
+        if (!messages || messages.size === 0) {
+          await db.updateAutopurgeLastPurge(guild.id, setting.channel_id);
+          continue;
+        }
+
+        let messagesToDelete = [];
+
+        for (const msg of messages.values()) {
+          if (messagesToDelete.length >= setting.lines) break;
+
+          // Filter by message type
+          const isBot = msg.author.bot;
+          const isUser = !msg.author.bot;
+
+          let shouldDelete = false;
+          if (setting.type === "bot" && isBot) shouldDelete = true;
+          if (setting.type === "user" && isUser) shouldDelete = true;
+          if (setting.type === "both") shouldDelete = true;
+
+          // Don't delete pinned messages
+          if (msg.pinned) shouldDelete = false;
+
+          // Don't delete if older than 14 days (Discord API limitation)
+          const messageAge = now - msg.createdTimestamp;
+          if (messageAge > 14 * 24 * 60 * 60 * 1000) shouldDelete = false;
+
+          if (shouldDelete) {
+            messagesToDelete.push(msg);
+          }
+        }
+
+        // Delete messages using bulkDelete (more efficient)
+        if (messagesToDelete.length > 0) {
+          await channel.bulkDelete(messagesToDelete, true).catch((err) => {
+            console.warn(
+              `[AUTOPURGE] Failed to bulk delete ${messagesToDelete.length} messages from ${channel.name}: ${err.message}`
+            );
+          });
+
+          console.log(
+            `[AUTOPURGE] Purged ${messagesToDelete.length} ${setting.type} message(s) from ${channel.name}`
+          );
+        }
+
+        // Update last purge time
+        await db.updateAutopurgeLastPurge(guild.id, setting.channel_id);
+      } catch (err) {
+        console.error(`[AUTOPURGE] Error processing channel ${setting.channel_id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error("executeAutopurges error:", err);
+  }
+}
+
+// Send warning notification to channel or DM
+async function sendWarningOrDm(guild, userId, roleId, leftMin, warnChannelId) {
+  try {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return;
+
+    const role = guild.roles.cache.get(roleId);
+    const roleDisplay = role ? role.name : `<@&${roleId}>`;
+
+    const embed = new EmbedBuilder()
+      .setColor(0xF39C12)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("⏰ Timer Warning")
+      .setDescription(`Your **${roleDisplay}** role expires in **${leftMin}** minute(s)!`)
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Timer Warning" });
+
+    if (warnChannelId) {
+      const channel = guild.channels.cache.get(warnChannelId);
+      if (channel && channel.isTextBased()) {
+        await channel.send({ content: `${member}`, embeds: [embed] }).catch(() => null);
+      } else {
+        // Fallback to DM if channel not found
+        await member.send({ embeds: [embed] }).catch(() => null);
+      }
+    } else {
+      // Send DM
+      await member.send({ embeds: [embed] }).catch(() => null);
+    }
+  } catch (err) {
+    console.error("sendWarningOrDm error:", err.message);
+  }
+}
+
+// Send expiration notice when timer expires
+async function sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId) {
+  try {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return;
+
+    const role = guild.roles.cache.get(roleId);
+    const roleDisplay = role ? role.name : `<@&${roleId}>`;
+
+    const embed = new EmbedBuilder()
+      .setColor(0xE74C3C)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("❌ Timer Expired")
+      .setDescription(`Your **${roleDisplay}** role has been removed due to timer expiration.`)
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Timer Expired" });
+
+    if (warnChannelId) {
+      const channel = guild.channels.cache.get(warnChannelId);
+      if (channel && channel.isTextBased()) {
+        await channel.send({ content: `${member}`, embeds: [embed] }).catch(() => null);
+      } else {
+        // Fallback to DM if channel not found
+        await member.send({ embeds: [embed] }).catch(() => null);
+      }
+    } else {
+      // Send DM
+      await member.send({ embeds: [embed] }).catch(() => null);
+    }
+  } catch (err) {
+    console.error("sendExpiredNoticeOrDm error:", err.message);
+  }
+}
+
+async function cleanupAndWarn() {
+  try {
+    if (!client.isReady()) return;
+
+    const now = Date.now();
+
+    // Get all active timers from database
+    const allTimers = await db.getAllActiveTimers().catch(() => []);
+
+    // Group timers by guild_id for efficient processing
+    const timersByGuild = {};
+    for (const timer of allTimers) {
+      const gId = timer.guild_id || GUILD_ID;
+      if (!gId) continue; // Skip timers without guild_id
+      if (!timersByGuild[gId]) timersByGuild[gId] = [];
+      timersByGuild[gId].push(timer);
+    }
+
+    // Also get all guilds with active scheduled reports
+    const guildIdsWithSchedules = await db.getAllGuildIdsWithSchedules().catch(() => []);
+    for (const guildId of guildIdsWithSchedules) {
+      if (!timersByGuild[guildId]) {
+        timersByGuild[guildId] = [];
+      }
+    }
+
+    // Process each guild's timers
+    for (const guildId in timersByGuild) {
+      const guild = await client.guilds.fetch(guildId).catch(() => null);
+      if (!guild) continue;
+
+      const me = await guild.members.fetchMe().catch(() => null);
+      const canManage = Boolean(me?.permissions?.has(PermissionFlagsBits.ManageRoles));
+
+      // Process all timers for this guild
+      for (const entry of timersByGuild[guildId]) {
+        const userId = entry.user_id;
+        const roleId = entry.role_id;
+        const expiresAt = Number(entry.expires_at);
+        const warnChannelId = entry.warn_channel_id;
+        const isPaused = entry.paused;
+        const pausedRemainingMs = entry.paused_remaining_ms;
+
+        // Skip paused timers
+        if (isPaused) continue;
+
+        if (!expiresAt || expiresAt <= 0) continue;
+
+        const leftMs = expiresAt - now;
+
+        // Expired -> Streak Protection or Remove
+        if (leftMs <= 0) {
+          // STREAK LOGIC: Check for saves or degradation
+          const streak = await db.getUserStreak(guild.id, userId);
+          const member = await guild.members.fetch(userId).catch(() => null);
+          const roleObj = guild.roles.cache.get(roleId);
+
+          if (streak && streak.streak_start_at) {
+            if (streak.save_tokens > 0) {
+              // Use a save token
+              const gracePeriodUntil = new Date(now + 24 * 60 * 60 * 1000); // 24h grace
+              await db.upsertUserStreak(guild.id, userId, {
+                save_tokens: streak.save_tokens - 1,
+                grace_period_until: gracePeriodUntil
+              });
+              
+              const newExpiresAt = now + 24 * 60 * 60 * 1000;
+              await db.pool.query("UPDATE role_timers SET expires_at = $1 WHERE id = $2", [newExpiresAt, entry.id]);
+              console.log(`[Streak] Save used for ${userId} in ${guild.id}. 24h grace period granted.`);
+              continue; 
+            } else {
+              // Degradation logic
+              const streakDays = Math.floor((now - new Date(streak.streak_start_at).getTime()) / (24 * 60 * 60 * 1000));
+              const streakRoles = await db.getStreakRoles(guild.id);
+              
+              let currentTierDays = 0;
+              for (const sr of streakRoles) {
+                if (streakDays >= sr.day_threshold && sr.day_threshold > currentTierDays) {
+                  currentTierDays = sr.day_threshold;
+                }
+              }
+
+              let nextTierDown = 0;
+              for (const sr of streakRoles) {
+                if (sr.day_threshold < currentTierDays && sr.day_threshold > nextTierDown) {
+                  nextTierDown = sr.day_threshold;
+                }
+              }
+
+              if (currentTierDays > 0) {
+                const newStreakStart = new Date(now - nextTierDown * 24 * 60 * 60 * 1000);
+                await db.upsertUserStreak(guild.id, userId, {
+                  streak_start_at: newStreakStart,
+                  degradation_started_at: new Date(now)
+                });
+
+                if (member) await syncStreakRoles(member, nextTierDown, streakRoles);
+
+                const newExpiresAt = now + 24 * 60 * 60 * 1000;
+                await db.pool.query("UPDATE role_timers SET expires_at = $1 WHERE id = $2", [newExpiresAt, entry.id]);
+                console.log(`[Streak] Degraded ${userId} to ${nextTierDown} day tier.`);
+                continue;
+              } else {
+                await db.upsertUserStreak(guild.id, userId, { streak_start_at: null, degradation_started_at: null });
+              }
+            }
+          }
+
+          if (canManage && member && roleObj && me.roles.highest.position > roleObj.position) {
+            await member.roles.remove(roleId).catch(() => null);
+          }
+
+          await sendExpiredNoticeOrDm(guild, userId, roleId, warnChannelId).catch(() => null);
+          await db.clearRoleTimer(userId, roleId).catch(() => null);
+          continue;
+        }
+
+        // Warnings (use actual minutes left)
+        const leftMin = Math.ceil(leftMs / 60_000);
+
+        const warningsSent = entry.warnings_sent || {};
+
+        for (const thresholdMin of WARNING_THRESHOLDS_MIN) {
+          const key = String(thresholdMin);
+
+          if (leftMin <= thresholdMin && !warningsSent[key]) {
+            await sendWarningOrDm(guild, userId, roleId, leftMin, warnChannelId).catch(() => null);
+            await db.markWarningAsSent(userId, roleId, thresholdMin).catch(() => null);
+          }
+        }
+      }
+
+      // Execute autopurge tasks
+      await executeAutopurges(guild, now);
+
+      // Execute scheduled rolestatus reports
+      await executeScheduledRolestatus(guild, now);
+    }
+  } catch (e) {
+    console.error("cleanupAndWarn error:", e);
+  }
+}
+
+setInterval(() => {
+  cleanupAndWarn();
+}, CHECK_INTERVAL_MS);
+
+//----------------------------------------
+// SECTION 9 — Start Discord Client
+//----------------------------------------
+
+client.on("error", (err) => console.error("Discord client error:", err));
+process.on("unhandledRejection", (reason) => console.error("Unhandled rejection:", reason));
+
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  console.log("SIGTERM received. Closing database pool...");
+  await db.closePool().catch(err => console.error("Error closing database pool:", err));
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  console.log("SIGINT received. Closing database pool...");
+  await db.closePool().catch(err => console.error("Error closing database pool:", err));
+  process.exit(0);
+});
+
+if (!TOKEN) {
+  console.error("DISCORD_TOKEN is missing. Bot cannot log in.");
+} else {
+  client.login(TOKEN).then(() => {
+    console.log("Discord login() called.");
+  }).catch((err) => {
+    console.error("Discord login failed:", err);
+  });
+}
+
+// Helper functions for Streak System
+async function syncStreakRoles(member, currentDays, streakRoles) {
+  if (!member || !streakRoles.length) return;
+
+  const rolesToAdd = [];
+  const rolesToRemove = [];
+
+  for (const sr of streakRoles) {
+    if (currentDays >= sr.day_threshold) {
+      if (!member.roles.cache.has(sr.role_id)) {
+        rolesToAdd.push(sr.role_id);
+      }
+    } else {
+      if (member.roles.cache.has(sr.role_id)) {
+        rolesToRemove.push(sr.role_id);
+      }
+    }
+  }
+
+  if (rolesToAdd.length > 0) await member.roles.add(rolesToAdd).catch(() => null);
+  if (rolesToRemove.length > 0) await member.roles.remove(rolesToRemove).catch(() => null);
+}
+
+async function updateStreakProgress(guildId, userId) {
+  const now = new Date();
+  let streak = await db.getUserStreak(guildId, userId);
+  
+  if (!streak) {
+    streak = await db.upsertUserStreak(guildId, userId, {
+      streak_start_at: now,
+      save_tokens: 0,
+      last_save_earned_at: now
+    });
+  } else if (!streak.streak_start_at) {
+    await db.upsertUserStreak(guildId, userId, {
+      streak_start_at: now,
+      updated_at: now
+    });
+    streak.streak_start_at = now;
+  }
+
+  // Handle save token earning (1 every 30 days)
+  const lastEarnedAt = streak.last_save_earned_at ? new Date(streak.last_save_earned_at) : new Date(streak.created_at);
+  const daysSinceLastSave = Math.floor((now - lastEarnedAt) / (24 * 60 * 60 * 1000));
+  
+  if (daysSinceLastSave >= 30) {
+    const newSaves = Math.floor(daysSinceLastSave / 30);
+    await db.updateUserStreakSaves(guildId, userId, newSaves);
+    await db.upsertUserStreak(guildId, userId, {
+      last_save_earned_at: new Date(lastEarnedAt.getTime() + newSaves * 30 * 24 * 60 * 60 * 1000)
+    });
+  }
+
+  // Check and apply streak roles
+  const streakDays = Math.floor((now - new Date(streak.streak_start_at)) / (24 * 60 * 60 * 1000));
+  const streakRoles = await db.getStreakRoles(guildId);
+  const guild = client.guilds.cache.get(guildId);
+  if (guild) {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member) {
+      await syncStreakRoles(member, streakDays, streakRoles);
+    }
+  }
+}
+
+

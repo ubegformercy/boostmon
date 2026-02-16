@@ -52,6 +52,26 @@ module.exports = async function handleQueue(interaction, { client }) {
       return interaction.editReply({ embeds: [embed] });
     }
 
+    // Check if user already has active timed roles
+    const activeTimers = await db.getTimersForUser(targetId);
+    // Filter to timers belonging to this guild
+    const guildTimers = activeTimers.filter(t => t.guild_id === guild.id);
+    if (guildTimers.length > 0) {
+      const roleList = guildTimers.map(t => `<@&${t.role_id}>`).join(", ");
+      const embed = new EmbedBuilder()
+        .setColor(0xE74C3C)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle("⛔ Active Timer Detected")
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "User", value: `${targetUser}`, inline: true },
+          { name: "Active Role(s)", value: roleList, inline: true }
+        )
+        .setDescription("Users with an active timed role cannot be added to the boost queue. Remove or wait for the timer to expire first.")
+        .setFooter({ text: "BoostMon • Boost Queue" });
+      return interaction.editReply({ embeds: [embed] });
+    }
+
     const queueEntry = await db.addToQueue(targetId, guild.id, note);
     if (!queueEntry) {
       return interaction.editReply({ content: "❌ Failed to add to the queue. Please try again." });
