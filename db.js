@@ -275,6 +275,19 @@ async function initDatabase() {
       }
     }
 
+    // Add pause type and expires columns to role_timers
+    try {
+      await client.query(`
+        ALTER TABLE role_timers
+        ADD COLUMN IF NOT EXISTS pause_type VARCHAR(50),
+        ADD COLUMN IF NOT EXISTS pause_expires_at BIGINT;
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration warning for pause_type/pause_expires_at:", err.message);
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -524,6 +537,99 @@ async function resumeTimer(userId, roleId) {
     return Number(result.rows[0]?.expires_at) || newExpiresAt;
   } catch (err) {
     console.error("resumeTimer error:", err);
+    return null;
+  }
+}
+
+// ===== ADVANCED PAUSE/RESUME (with pause_type tracking) =====
+
+async function pauseTimerWithType(userId, roleId, pauseType, durationMinutes = null) {
+  try {
+    const timer = await getTimerForRole(userId, roleId);
+    if (!timer) return null;
+
+    // Don't override if already paused (unless it's a different type, but we'll keep it simple)
+    if (timer.paused) {
+      return null;
+    }
+
+    const now = Date.now();
+    const remainingMs = Math.max(0, timer.expires_at - now);
+    let pauseExpiresAt = null;
+
+    if (durationMinutes && durationMinutes > 0) {
+      pauseExpiresAt = now + (durationMinutes * 60 * 1000);
+    }
+
+    await pool.query(
+      `UPDATE role_timers 
+       SET paused = true, paused_at = $3, paused_remaining_ms = $4, pause_type = $5, pause_expires_at = $6, updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND role_id = $2`,
+      [userId, roleId, now, remainingMs, pauseType, pauseExpiresAt]
+    );
+    return { remainingMs, pauseExpiresAt };
+  } catch (err) {
+    console.error("pauseTimerWithType error:", err);
+    return null;
+  }
+}
+
+async function resumeTimerByType(userId, roleId, pauseTypeToResume) {
+  try {
+    const timer = await getTimerForRole(userId, roleId);
+    if (!timer || !timer.paused) return null;
+
+    // If a specific pause type is requested, only resume if it matches
+    if (pauseTypeToResume && timer.pause_type !== pauseTypeToResume) {
+      return null; // Don't resume if pause type doesn't match
+    }
+
+    const remainingMs = Math.max(0, timer.paused_remaining_ms || 0);
+    const newExpiresAt = Date.now() + remainingMs;
+
+    const result = await pool.query(
+      `UPDATE role_timers 
+       SET paused = false, paused_at = NULL, paused_remaining_ms = 0, pause_type = NULL, pause_expires_at = NULL, expires_at = $3, warnings_sent = '{}', updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1 AND role_id = $2
+       RETURNING expires_at`,
+      [userId, roleId, newExpiresAt]
+    );
+    return Number(result.rows[0]?.expires_at) || newExpiresAt;
+  } catch (err) {
+    console.error("resumeTimerByType error:", err);
+    return null;
+  }
+}
+
+async function autoResumeExpiredPauses(guildId) {
+  try {
+    const now = Date.now();
+    const result = await pool.query(
+      `SELECT * FROM role_timers 
+       WHERE guild_id = $1 AND paused = true AND pause_expires_at IS NOT NULL AND pause_expires_at <= $2`,
+      [guildId, now]
+    );
+    
+    const expired = result.rows;
+    for (const timer of expired) {
+      await resumeTimerByType(timer.user_id, timer.role_id, timer.pause_type);
+    }
+    return expired;
+  } catch (err) {
+    console.error("autoResumeExpiredPauses error:", err);
+    return [];
+  }
+}
+
+async function getTimersForUserRole(userId, roleId, guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM role_timers WHERE user_id = $1 AND role_id = $2 AND guild_id = $3",
+      [userId, roleId, guildId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getTimersForUserRole error:", err);
     return null;
   }
 }
@@ -1520,6 +1626,10 @@ module.exports = {
   clearRoleTimer,
   pauseTimer,
   resumeTimer,
+  pauseTimerWithType,
+  resumeTimerByType,
+  autoResumeExpiredPauses,
+  getTimersForUserRole,
   markWarningAsSent,
   hasWarningBeenSent,
   getFirstTimedRoleForUser,
