@@ -634,6 +634,55 @@ async function getTimersForUserRole(userId, roleId, guildId) {
   }
 }
 
+// ===== NEW PAUSE/RESUME SUPPORT FUNCTIONS =====
+
+async function getGuildTimers(guildId) {
+  // Get all timers in a guild (used for global pause/resume)
+  try {
+    const result = await pool.query(
+      "SELECT * FROM role_timers WHERE guild_id = $1 AND expires_at > CURRENT_TIMESTAMP",
+      [guildId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getGuildTimers error:", err);
+    return [];
+  }
+}
+
+async function getTimerRemaining(userId, roleId) {
+  // Get remaining milliseconds for a timer
+  try {
+    const result = await pool.query(
+      "SELECT expires_at FROM role_timers WHERE user_id = $1 AND role_id = $2",
+      [userId, roleId]
+    );
+    if (result.rows.length === 0) return 0;
+    
+    const expiresAt = result.rows[0].expires_at;
+    const now = Date.now();
+    return Math.max(0, expiresAt - now);
+  } catch (err) {
+    console.error("getTimerRemaining error:", err);
+    return 0;
+  }
+}
+
+async function getTimerExpiry(userId, roleId) {
+  // Get expiry timestamp in milliseconds
+  try {
+    const result = await pool.query(
+      "SELECT expires_at FROM role_timers WHERE user_id = $1 AND role_id = $2",
+      [userId, roleId]
+    );
+    if (result.rows.length === 0) return 0;
+    return result.rows[0].expires_at;
+  } catch (err) {
+    console.error("getTimerExpiry error:", err);
+    return 0;
+  }
+}
+
 // ===== WARNING TRACKING =====
 
 async function markWarningAsSent(userId, roleId, minuteThreshold) {
@@ -1630,6 +1679,9 @@ module.exports = {
   resumeTimerByType,
   autoResumeExpiredPauses,
   getTimersForUserRole,
+  getGuildTimers,
+  getTimerRemaining,
+  getTimerExpiry,
   markWarningAsSent,
   hasWarningBeenSent,
   getFirstTimedRoleForUser,

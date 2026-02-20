@@ -54,16 +54,19 @@ function getCommands() {
       .addSubcommand((s) =>
         s
           .setName("pause")
-          .setDescription("Pause a user's timed role timer (stops countdown until resumed).")
-          .addUserOption((o) => o.setName("user").setDescription("User to pause").setRequired(true))
-          .addRoleOption((o) => o.setName("role").setDescription("Role to pause (optional)").setRequired(false))
+          .setDescription("Pause a user's timed role timer or pause all timers globally.")
+          .addUserOption((o) => o.setName("user").setDescription("User to pause (required for user pause)").setRequired(false))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to pause (optional, pauses all roles for user if omitted)").setRequired(false))
+          .addIntegerOption((o) => o.setName("duration").setDescription("Pause duration in minutes (optional, indefinite if omitted)").setRequired(false).setMinValue(1).setMaxValue(1440))
+          .addBooleanOption((o) => o.setName("global").setDescription("Pause ALL timers in guild (or for a specific role if provided)").setRequired(false))
       )
       .addSubcommand((s) =>
         s
           .setName("resume")
-          .setDescription("Resume a paused timed role (continues from where it was paused).")
-          .addUserOption((o) => o.setName("user").setDescription("User to resume").setRequired(true))
-          .addRoleOption((o) => o.setName("role").setDescription("Role to resume").setRequired(true))
+          .setDescription("Resume a paused timed role timer or resume all timers globally.")
+          .addUserOption((o) => o.setName("user").setDescription("User to resume (required for user resume)").setRequired(false))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to resume (optional, resumes all roles for user if omitted)").setRequired(false))
+          .addBooleanOption((o) => o.setName("global").setDescription("Resume ALL timers that were paused globally (in guild)").setRequired(false))
       )
       .addSubcommand((s) =>
         s
