@@ -15,7 +15,7 @@ function getCommands() {
           .addIntegerOption((o) =>
             o.setName("minutes").setDescription("Minutes to set").setRequired(true).setMinValue(1)
           )
-          .addRoleOption((o) => o.setName("role").setDescription("Role to grant").setRequired(true))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to grant").setRequired(true).setAutocomplete(true))
           .addChannelOption((o) =>
             o
               .setName("channel")
@@ -32,7 +32,7 @@ function getCommands() {
           .addIntegerOption((o) =>
             o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1)
           )
-          .addRoleOption((o) => o.setName("role").setDescription("Role to add time to (optional)").setRequired(false))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to add time to (optional)").setRequired(false).setAutocomplete(true))
       )
       .addSubcommand((s) =>
         s
@@ -42,14 +42,14 @@ function getCommands() {
           .addIntegerOption((o) =>
             o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
           )
-          .addRoleOption((o) => o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false).setAutocomplete(true))
       )
       .addSubcommand((s) =>
         s
           .setName("clear")
           .setDescription("Clear a user's timed role timer and remove the role.")
           .addUserOption((o) => o.setName("user").setDescription("User to clear").setRequired(true))
-          .addRoleOption((o) => o.setName("role").setDescription("Role to clear (optional)").setRequired(false))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to clear (optional)").setRequired(false).setAutocomplete(true))
       )
       .addSubcommandGroup((g) =>
         g
@@ -60,7 +60,7 @@ function getCommands() {
               .setName("global")
               .setDescription("Pause ALL timers in the guild")
               .addIntegerOption((o) => o.setName("duration").setDescription("Pause duration in minutes (required)").setRequired(true).setMinValue(1).setMaxValue(1440))
-              .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false))
+              .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false).setAutocomplete(true))
           )
           .addSubcommand((s) =>
             s
@@ -68,7 +68,7 @@ function getCommands() {
               .setDescription("Pause a specific user's timed role timer")
               .addUserOption((o) => o.setName("user").setDescription("User to pause").setRequired(true))
               .addIntegerOption((o) => o.setName("duration").setDescription("Pause duration in minutes (required)").setRequired(true).setMinValue(1).setMaxValue(1440))
-              .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false))
+              .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false).setAutocomplete(true))
           )
       )
       .addSubcommandGroup((g) =>
@@ -79,14 +79,14 @@ function getCommands() {
             s
               .setName("global")
               .setDescription("Resume ALL timers that were paused globally")
-              .addRoleOption((o) => o.setName("role").setDescription("Specific role to resume (optional, resumes all if omitted)").setRequired(false))
+              .addRoleOption((o) => o.setName("role").setDescription("Specific role to resume (optional, resumes all if omitted)").setRequired(false).setAutocomplete(true))
           )
           .addSubcommand((s) =>
             s
               .setName("user")
               .setDescription("Resume a specific user's paused timed role timer")
               .addUserOption((o) => o.setName("user").setDescription("User to resume").setRequired(true))
-              .addRoleOption((o) => o.setName("role").setDescription("Specific role to resume (optional, resumes all if omitted)").setRequired(false))
+              .addRoleOption((o) => o.setName("role").setDescription("Specific role to resume (optional, resumes all if omitted)").setRequired(false).setAutocomplete(true))
           )
       )
       .addSubcommand((s) =>
@@ -94,7 +94,7 @@ function getCommands() {
           .setName("show")
           .setDescription("Show remaining timed role time for a user (and optional role).")
           .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
-          .addRoleOption((o) => o.setName("role").setDescription("Role to check (optional)").setRequired(false))
+          .addRoleOption((o) => o.setName("role").setDescription("Role to check (optional)").setRequired(false).setAutocomplete(true))
       )
       .addSubcommandGroup((g) =>
         g
@@ -253,32 +253,7 @@ function getCommands() {
       .addSubcommand((s) =>
         s
           .setName("timer-roles")
-          .setDescription("Set which roles can be used with the /timer command")
-          .addRoleOption((o) =>
-            o.setName("role1")
-              .setDescription("First role to allow (required)")
-              .setRequired(true)
-          )
-          .addRoleOption((o) =>
-            o.setName("role2")
-              .setDescription("Second role (optional)")
-              .setRequired(false)
-          )
-          .addRoleOption((o) =>
-            o.setName("role3")
-              .setDescription("Third role (optional)")
-              .setRequired(false)
-          )
-          .addRoleOption((o) =>
-            o.setName("role4")
-              .setDescription("Fourth role (optional)")
-              .setRequired(false)
-          )
-          .addRoleOption((o) =>
-            o.setName("role5")
-              .setDescription("Fifth role (optional)")
-              .setRequired(false)
-          )
+          .setDescription("Configure allowed timer roles (opens modal for unlimited roles)")
       ),
 
     // ── /streak (status, leaderboard, admin grant-save/remove-save/set — list-size moved to /setup) ──

@@ -280,25 +280,171 @@ client.once("ready", async () => {
 // Interaction Router — Dispatch to command handlers
 //----------------------------------------
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  try {
-    const handler = commandHandlers[interaction.commandName];
-    if (handler) {
-      await handler(interaction, { client });
-    }
-  } catch (err) {
-    console.error("Command error:", err);
-
-    const msg = "Error running command. Details: " + friendlyDiscordError(err);
-
+  // Handle autocomplete
+  if (interaction.isAutocomplete()) {
     try {
-      if (interaction.deferred || interaction.replied) {
-        return interaction.followUp({ content: msg, ephemeral: true });
+      const { name } = interaction;
+      const focusedOption = interaction.options.getFocused(true);
+      
+      // Only handle autocomplete for "role" options in timer subcommands
+      if (name === "timer" && focusedOption.name === "role") {
+        const guild = interaction.guild;
+        if (!guild) {
+          return interaction.respond([]);
+        }
+        
+        // Get allowed timer roles for this guild
+        const allowedRoles = await db.getTimerAllowedRoles(guild.id);
+        
+        if (!allowedRoles || allowedRoles.length === 0) {
+          return interaction.respond([]);
+        }
+        
+        const focusedValue = focusedOption.value.toLowerCase();
+        
+        // Filter roles based on user input
+        const filtered = allowedRoles
+          .filter(r => r.role_name.toLowerCase().includes(focusedValue))
+          .slice(0, 25) // Discord limit
+          .map(r => ({
+            name: r.role_name,
+            value: r.role_id
+          }));
+        
+        return interaction.respond(filtered);
       }
-      return interaction.reply({ content: msg, ephemeral: true });
-    } catch (e) {
-      console.error("Failed to send error to Discord:", e);
+    } catch (err) {
+      console.error("Autocomplete error:", err);
+      return interaction.respond([]);
+    }
+  }
+  
+  // Handle modal submits
+  if (interaction.isModalSubmit()) {
+    try {
+      if (interaction.customId === "timer_roles_modal") {
+        const { PermissionFlagsBits } = require("discord.js");
+        const { BOOSTMON_ICON_URL } = require("./utils/helpers");
+        const { EmbedBuilder } = require("discord.js");
+        
+        // Check permissions
+        if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) && interaction.guild.ownerId !== interaction.user.id) {
+          return interaction.reply({
+            content: "⛔ Only **Server Owner** or users with **Administrator** permission can use this command.",
+            ephemeral: true
+          });
+        }
+        
+        await interaction.deferReply().catch(() => null);
+        
+        const guild = interaction.guild;
+        const roles = [];
+        
+        // Extract role IDs from modal inputs (format: "Role Name (role_id)")
+        for (let i = 1; i <= 5; i++) {
+          const value = interaction.fields.getTextInputValue(`timer_role_${i}`).trim();
+          if (value) {
+            // Try to extract role ID from format "Name (id)"
+            const match = value.match(/\((\d+)\)$/);
+            let roleId = null;
+            
+            if (match) {
+              roleId = match[1];
+            } else {
+              // Try to fetch role by name
+              const foundRole = guild.roles.cache.find(r => r.name === value);
+              if (foundRole) {
+                roleId = foundRole.id;
+              }
+            }
+            
+            if (roleId) {
+              const role = guild.roles.cache.get(roleId);
+              if (role) {
+                roles.push({ roleId: role.id, roleName: role.name });
+              }
+            }
+          }
+        }
+        
+        if (roles.length === 0) {
+          return interaction.editReply({ content: "❌ You must provide at least one valid role." });
+        }
+        
+        // Validate bot can manage all roles
+        const botMember = await guild.members.fetch(interaction.client.user.id).catch(() => null);
+        if (!botMember) {
+          return interaction.editReply({ content: "❌ I couldn't fetch my member info for this server." });
+        }
+        
+        for (const roleData of roles) {
+          const role = guild.roles.cache.get(roleData.roleId);
+          if (!role) {
+            return interaction.editReply({ content: `❌ Role ${roleData.roleName} not found in this server.` });
+          }
+          if (botMember.roles.highest.position <= role.position) {
+            return interaction.editReply({
+              content: `⛔ I cannot manage the role **${role.name}** because it is higher than or equal to my highest role. Please move my role above it in Server Settings → Roles.`
+            });
+          }
+        }
+        
+        // Save to database (replaces entire list)
+        const success = await db.setTimerAllowedRoles(guild.id, roles);
+        
+        if (!success) {
+          return interaction.editReply({ content: "❌ Failed to save timer roles. Please try again." });
+        }
+        
+        const roleList = roles.map(r => `<@&${r.roleId}>`).join(", ");
+        
+        const embed = new EmbedBuilder()
+          .setColor(0x2ECC71)
+          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+          .setTitle("✅ Timer Roles Updated")
+          .setDescription(`These roles can now be used with the \`/timer\` command:`)
+          .setTimestamp(new Date())
+          .addFields(
+            { name: "Allowed Roles", value: roleList, inline: false }
+          )
+          .setFooter({ text: "BoostMon • Setup" });
+        
+        return interaction.editReply({ embeds: [embed] });
+      }
+    } catch (err) {
+      console.error("Modal submit error:", err);
+      const msg = "Error processing modal. Details: " + friendlyDiscordError(err);
+      try {
+        if (interaction.deferred || interaction.replied) {
+          return interaction.followUp({ content: msg, ephemeral: true });
+        }
+        return interaction.reply({ content: msg, ephemeral: true });
+      } catch (e) {
+        console.error("Failed to send error to Discord:", e);
+      }
+    }
+  }
+  
+  // Handle slash commands
+  if (interaction.isChatInputCommand()) {
+    try {
+      const handler = commandHandlers[interaction.commandName];
+      if (handler) {
+        await handler(interaction, { client });
+      }
+    } catch (err) {
+      console.error("Command error:", err);
+
+      const msg = "Error running command. Details: " + friendlyDiscordError(err);
+
+      try {
+        if (interaction.deferred || interaction.replied) {
+          return interaction.followUp({ content: msg, ephemeral: true });
+        }
+        return interaction.reply({ content: msg, ephemeral: true });
+      } catch (e) {
+        console.error("Failed to send error to Discord:", e);
+      }
     }
   }
 });
