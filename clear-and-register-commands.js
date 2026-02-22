@@ -7,12 +7,12 @@
 require('dotenv').config();
 const { REST, Routes } = require('discord.js');
 
-const TOKEN = process.env.DISCORD_BOT_TOKEN;
+const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID; // Optional: for guild-specific commands
 
 if (!TOKEN || !CLIENT_ID) {
-  console.error('❌ Missing DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID in .env');
+  console.error('❌ Missing DISCORD_TOKEN or DISCORD_CLIENT_ID in .env');
   process.exit(1);
 }
 
