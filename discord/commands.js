@@ -252,24 +252,32 @@ function getCommands() {
       )
       .addSubcommand((s) =>
         s
-          .setName("queue-role")
-          .setDescription("Set the role to assign to users when they are added to the boost queue")
+          .setName("timer-roles")
+          .setDescription("Set which roles can be used with the /timer command")
           .addRoleOption((o) =>
-            o.setName("role")
-              .setDescription("Role to assign to queued users (leave empty to clear)")
+            o.setName("role1")
+              .setDescription("First role to allow (required)")
+              .setRequired(true)
+          )
+          .addRoleOption((o) =>
+            o.setName("role2")
+              .setDescription("Second role (optional)")
               .setRequired(false)
           )
-          .addChannelOption((o) =>
-            o.setName("channel")
-              .setDescription("Channel to post queue notifications when users are waiting")
+          .addRoleOption((o) =>
+            o.setName("role3")
+              .setDescription("Third role (optional)")
               .setRequired(false)
           )
-          .addIntegerOption((o) =>
-            o.setName("interval")
-              .setDescription("How often (in minutes) to post queue notifications (0 to disable)")
+          .addRoleOption((o) =>
+            o.setName("role4")
+              .setDescription("Fourth role (optional)")
               .setRequired(false)
-              .setMinValue(0)
-              .setMaxValue(1440)
+          )
+          .addRoleOption((o) =>
+            o.setName("role5")
+              .setDescription("Fifth role (optional)")
+              .setRequired(false)
           )
       ),
 

@@ -19,6 +19,14 @@ module.exports = async function handleAddtime(interaction) {
   const guild = interaction.guild;
   const member = await guild.members.fetch(targetUser.id);
 
+  // Check if timer roles are configured for this guild
+  const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);
+  if (!hasAllowedRoles) {
+    return interaction.editReply({
+      content: "❌ No timer roles configured. Admin must use `/setup timer-roles` to add roles."
+    });
+  }
+
   const timers = await db.getTimersForUser(targetUser.id);
   const timedRoleIds = timers.map(t => t.role_id);
 
@@ -26,6 +34,14 @@ module.exports = async function handleAddtime(interaction) {
 
   if (roleOption) {
     roleIdToEdit = roleOption.id;
+    // Check if this role is allowed
+    const allowedRoles = await db.getTimerAllowedRoles(guild.id);
+    const isRoleAllowed = allowedRoles.some(ar => ar.role_id === roleOption.id);
+    if (!isRoleAllowed) {
+      return interaction.editReply({
+        content: `❌ The role **${roleOption.name}** is not configured for timer use. Admin must add it via \`/setup timer-roles\`.`
+      });
+    }
   } else {
     if (timedRoleIds.length === 1) {
       roleIdToEdit = timedRoleIds[0];

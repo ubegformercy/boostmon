@@ -157,4 +157,59 @@ module.exports = async function handleSetup(interaction) {
 
     return interaction.editReply({ embeds: [embed] });
   }
+
+  if (subcommand === "timer-roles") {
+    // Collect all provided roles
+    const roles = [];
+    for (let i = 1; i <= 5; i++) {
+      const role = interaction.options.getRole(`role${i}`);
+      if (role) {
+        roles.push({ roleId: role.id, roleName: role.name });
+      }
+    }
+
+    if (roles.length === 0) {
+      return interaction.editReply({ content: "❌ You must provide at least one role." });
+    }
+
+    // Validate bot can manage all roles
+    const botMember = await guild.members.fetch(interaction.client.user.id).catch(() => null);
+    if (!botMember) {
+      return interaction.editReply({ content: "❌ I couldn't fetch my member info for this server." });
+    }
+
+    for (const roleData of roles) {
+      const role = guild.roles.cache.get(roleData.roleId);
+      if (!role) {
+        return interaction.editReply({ content: `❌ Role ${roleData.roleName} not found in this server.` });
+      }
+      if (botMember.roles.highest.position <= role.position) {
+        return interaction.editReply({
+          content: `⛔ I cannot manage the role **${role.name}** because it is higher than or equal to my highest role. Please move my role above it in Server Settings → Roles.`
+        });
+      }
+    }
+
+    // Save to database (replaces entire list)
+    const success = await db.setTimerAllowedRoles(guild.id, roles);
+
+    if (!success) {
+      return interaction.editReply({ content: "❌ Failed to save timer roles. Please try again." });
+    }
+
+    const roleList = roles.map(r => `<@&${r.roleId}>`).join(", ");
+
+    const embed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("✅ Timer Roles Updated")
+      .setDescription(`These roles can now be used with the \`/timer\` command:`)
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Allowed Roles", value: roleList, inline: false }
+      )
+      .setFooter({ text: "BoostMon • Setup" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
 };

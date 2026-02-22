@@ -17,6 +17,19 @@ module.exports = async function handleShowtime(interaction) {
     }
 
     const guild = interaction.guild;
+
+    // Check if this role is allowed
+    const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);
+    if (hasAllowedRoles) {
+      const allowedRoles = await db.getTimerAllowedRoles(guild.id);
+      const isRoleAllowed = allowedRoles.some(ar => ar.role_id === roleOption.id);
+      if (!isRoleAllowed) {
+        return interaction.editReply({
+          content: `❌ The role **${roleOption.name}** is not configured for timer use. Admin must add it via \`/setup timer-roles\`.`
+        });
+      }
+    }
+
     const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
 
     if (timersFromDb.length === 0) {

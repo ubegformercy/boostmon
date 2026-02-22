@@ -19,6 +19,23 @@ module.exports = async function handleSettime(interaction) {
 
   const guild = interaction.guild;
 
+  // Check if timer roles are configured for this guild
+  const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);
+  if (!hasAllowedRoles) {
+    return interaction.editReply({
+      content: "❌ No timer roles configured. Admin must use `/setup timer-roles` to add roles."
+    });
+  }
+
+  // Check if the provided role is in the allowed list
+  const allowedRoles = await db.getTimerAllowedRoles(guild.id);
+  const isRoleAllowed = allowedRoles.some(ar => ar.role_id === targetRole.id);
+  if (!isRoleAllowed) {
+    return interaction.editReply({
+      content: `❌ The role **${targetRole.name}** is not configured for timer use. Admin must add it via \`/setup timer-roles\`.`
+    });
+  }
+
   const role = guild.roles.cache.get(targetRole.id);
   if (!role) {
     return interaction.editReply({ content: "I couldn't find that role in this server." });

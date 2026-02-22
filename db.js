@@ -193,6 +193,17 @@ async function initDatabase() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS timer_allowed_roles (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        role_id VARCHAR(255) NOT NULL,
+        role_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(guild_id, role_id)
+      );
+    `);
+
     // Add missing column if it doesn't exist (for existing databases)
     try {
       await client.query(`
@@ -1612,6 +1623,60 @@ async function deleteServerUrl(guildId, roleId) {
   return result.rows[0] || null;
 }
 
+// ===== TIMER ALLOWED ROLES =====
+
+async function setTimerAllowedRoles(guildId, roles) {
+  try {
+    // Delete all existing roles for this guild
+    await pool.query(
+      "DELETE FROM timer_allowed_roles WHERE guild_id = $1",
+      [guildId]
+    );
+
+    // Insert new roles (roles is an array of { roleId, roleName })
+    if (roles && roles.length > 0) {
+      for (const role of roles) {
+        await pool.query(
+          `INSERT INTO timer_allowed_roles (guild_id, role_id, role_name)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (guild_id, role_id) DO UPDATE SET role_name = $3`,
+          [guildId, role.roleId, role.roleName]
+        );
+      }
+    }
+    return true;
+  } catch (err) {
+    console.error("setTimerAllowedRoles error:", err);
+    return false;
+  }
+}
+
+async function getTimerAllowedRoles(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT role_id, role_name FROM timer_allowed_roles WHERE guild_id = $1 ORDER BY created_at ASC",
+      [guildId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getTimerAllowedRoles error:", err);
+    return [];
+  }
+}
+
+async function hasTimerAllowedRoles(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT COUNT(*) as count FROM timer_allowed_roles WHERE guild_id = $1",
+      [guildId]
+    );
+    return result.rows[0].count > 0;
+  } catch (err) {
+    console.error("hasTimerAllowedRoles error:", err);
+    return false;
+  }
+}
+
 async function closePool() {
   await pool.end();
   console.log("Database connection pool closed");
@@ -1812,6 +1877,11 @@ module.exports = {
   upsertUserStreak,
   getStreakLeaderboard,
   updateUserStreakSaves,
+
+  // Timer Allowed Roles
+  setTimerAllowedRoles,
+  getTimerAllowedRoles,
+  hasTimerAllowedRoles,
 
   // Server URLs Management
   setServerUrl,

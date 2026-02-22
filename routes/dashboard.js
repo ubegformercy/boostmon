@@ -785,16 +785,26 @@ router.get('/api/dropdown-data', requireAuth, requireGuildAccess, requireDashboa
       data.users = [];
     }
 
-    // Get all roles in the guild
+    // Get all roles in the guild (or just timer allowed roles if configured)
     try {
       if (guild) {
-        data.roles = guild.roles.cache
-          .filter(r => r.id !== guildId) // Exclude @everyone role
-          .map(r => ({
-            id: r.id,
-            name: r.name
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name));
+        // Check if timer allowed roles are configured for this guild
+        const allowedRoles = await db.getTimerAllowedRoles(guildId);
+        
+        if (allowedRoles && allowedRoles.length > 0) {
+          // Use only the allowed roles
+          data.roles = allowedRoles
+            .map(r => ({
+              id: r.role_id,
+              name: r.role_name
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          console.log(`[Dropdown] Using ${data.roles.length} timer allowed roles`);
+        } else {
+          // No timer roles configured - return empty list
+          data.roles = [];
+          console.log(`[Dropdown] No timer allowed roles configured for guild`);
+        }
       }
     } catch (err) {
       console.error('Error processing guild roles:', err);
