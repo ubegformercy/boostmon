@@ -250,11 +250,22 @@ function getCommands() {
               .setMaxValue(50)
           )
       )
-      .addSubcommand((s) =>
-        s
+      .addSubcommand((s) => {
+        const cmd = s
           .setName("timer-roles")
-          .setDescription("Configure allowed timer roles (opens modal for unlimited roles)")
-      ),
+          .setDescription("Configure allowed timer roles");
+        
+        // Add 25 role options
+        for (let i = 1; i <= 25; i++) {
+          cmd.addRoleOption((o) =>
+            o
+              .setName(`role_${i}`)
+              .setDescription(`Role #${i} (optional)`)
+              .setRequired(false)
+          );
+        }
+        return cmd;
+      }),
 
     // ── /streak (status, leaderboard, admin grant-save/remove-save/set — list-size moved to /setup) ──
     new SlashCommandBuilder()
