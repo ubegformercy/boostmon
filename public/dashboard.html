@@ -2284,17 +2284,10 @@
                 console.log('[Dashboard] sessionStorage.guildId:', sessionStorage.getItem('guildId'));
                 
                 if (!guildId) {
-                    console.warn('[Dashboard] No guildId found, showing error message');
-                    const guildIdErrorEl = document.getElementById('guildIdError');
-                    const currentUrlDisplayEl = document.getElementById('currentUrlDisplay');
-                    const statusBadgeEl = document.getElementById('statusBadge');
-                    
-                    if (guildIdErrorEl) guildIdErrorEl.style.display = 'block';
-                    if (currentUrlDisplayEl) currentUrlDisplayEl.textContent = window.location.href;
-                    if (statusBadgeEl) {
-                        statusBadgeEl.textContent = 'NO GUILD';
-                        statusBadgeEl.classList.add('offline');
-                    }
+                    console.warn('[Dashboard] No guildId found, redirecting to guild selection');
+                    // Clear sessionStorage and redirect to guild selection
+                    sessionStorage.removeItem('guildId');
+                    window.location.href = '/guild-select.html';
                     return;
                 }
                 
