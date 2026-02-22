@@ -162,9 +162,9 @@ module.exports = async function handleSetup(interaction) {
     // Get current allowed roles from database
     const currentRoles = await db.getTimerAllowedRoles(guild.id);
     
-    const { Modal, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
+    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
     
-    const modal = new Modal()
+    const modal = new ModalBuilder()
       .setCustomId("timer_roles_modal")
       .setTitle("Configure Timer Roles");
     
