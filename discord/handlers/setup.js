@@ -4,22 +4,58 @@ const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
 module.exports = async function handleSetup(interaction) {
-  await interaction.deferReply().catch(() => null);
-
   if (!interaction.guild) {
-    return interaction.editReply({ content: "This command can only be used in a server." });
+    await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+    return;
   }
 
   // Only owner or admins can use this command
   if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) && interaction.guild.ownerId !== interaction.user.id) {
-    return interaction.editReply({
+    await interaction.reply({
       content: "⛔ Only **Server Owner** or users with **Administrator** permission can use this command.",
       ephemeral: true
     });
+    return;
   }
 
   const subcommand = interaction.options.getSubcommand();
   const guild = interaction.guild;
+
+  // Handle timer-roles modal BEFORE defer (modals can't be shown after defer)
+  if (subcommand === "timer-roles") {
+    // Get current allowed roles from database
+    const currentRoles = await db.getTimerAllowedRoles(guild.id);
+    
+    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
+    
+    const modal = new ModalBuilder()
+      .setCustomId("timer_roles_modal")
+      .setTitle("Configure Timer Roles");
+    
+    // Add up to 5 text inputs (one for each role, leave blank if no more roles needed)
+    for (let i = 1; i <= 5; i++) {
+      const currentRole = currentRoles[i - 1];
+      const textInput = new TextInputBuilder()
+        .setCustomId(`timer_role_${i}`)
+        .setLabel(`Role #${i}`)
+        .setStyle(TextInputStyle.Short)
+        .setRequired(false)
+        .setPlaceholder("Leave blank to remove this slot")
+        .setMaxLength(100);
+      
+      if (currentRole) {
+        textInput.setValue(`${currentRole.role_name} (${currentRole.role_id})`);
+      }
+      
+      const actionRow = new ActionRowBuilder().addComponents(textInput);
+      modal.addComponents(actionRow);
+    }
+    
+    return await interaction.showModal(modal);
+  }
+
+  // Defer for all other subcommands
+  await interaction.deferReply().catch(() => null);
 
   if (subcommand === "reports") {
     const sortOrder = interaction.options.getString("filter", true);
@@ -158,35 +194,4 @@ module.exports = async function handleSetup(interaction) {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  if (subcommand === "timer-roles") {
-    // Get current allowed roles from database
-    const currentRoles = await db.getTimerAllowedRoles(guild.id);
-    
-    const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
-    
-    const modal = new ModalBuilder()
-      .setCustomId("timer_roles_modal")
-      .setTitle("Configure Timer Roles");
-    
-    // Add up to 5 text inputs (one for each role, leave blank if no more roles needed)
-    for (let i = 1; i <= 5; i++) {
-      const currentRole = currentRoles[i - 1];
-      const textInput = new TextInputBuilder()
-        .setCustomId(`timer_role_${i}`)
-        .setLabel(`Role #${i}`)
-        .setStyle(TextInputStyle.Short)
-        .setRequired(false)
-        .setPlaceholder("Leave blank to remove this slot")
-        .setMaxLength(100);
-      
-      if (currentRole) {
-        textInput.setValue(`${currentRole.role_name} (${currentRole.role_id})`);
-      }
-      
-      const actionRow = new ActionRowBuilder().addComponents(textInput);
-      modal.addComponents(actionRow);
-    }
-    
-    return await interaction.showModal(modal);
-  }
 };
