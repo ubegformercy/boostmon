@@ -2294,15 +2294,34 @@
                     console.warn('[Dashboard] Role filter element not found');
                 }
                 
-                console.log('[Dashboard] Role selector populated');
+                console.log('[Dashboard] Role selector populated, allRoles count:', allRoles.length, 'allTimers count:', allTimers.length);
                 
                 // Restore previous selection if still available
                 if (roleSelect && currentValue && allRoles.find(r => r.id === currentValue)) {
                     console.log('[Dashboard] Preserving selectedRoleId:', currentValue);
                     selectedRoleId = currentValue; // Ensure selectedRoleId is set before filtering
+                    roleSelect.value = currentValue;
                     // Don't trigger change, just update display
                     updateRoleInfo();
                     filterAndSortTimers();
+                    filterAndSortTimersTab();
+                } else if (roleSelect && allRoles.length > 0 && allTimers.length > 0) {
+                    // Auto-select first role if there are timers and no previous selection
+                    console.log('[Dashboard] Auto-selecting first role since timers exist');
+                    const firstRole = allRoles[0];
+                    selectedRoleId = firstRole.id;
+                    roleSelect.value = firstRole.id;
+                    // Show the forms and tables
+                    const addEntryFormEl = document.getElementById('addEntryForm');
+                    const tableControlsEl = document.getElementById('tableControls');
+                    if (addEntryFormEl) addEntryFormEl.style.display = 'block';
+                    if (tableControlsEl) tableControlsEl.style.display = 'block';
+                    const addEntryFormTab = document.getElementById('addTimerSectionTab');
+                    if (addEntryFormTab) addEntryFormTab.style.display = 'block';
+                    // Apply filters
+                    updateRoleInfo();
+                    filterAndSortTimers();
+                    filterAndSortTimersTab();
                 } else {
                     // Clear selection and hide form/table only if there was a selection before
                     if (currentValue) {
