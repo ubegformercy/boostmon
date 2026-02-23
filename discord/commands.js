@@ -118,7 +118,13 @@ function getCommands() {
           .setName("show")
           .setDescription("Show remaining timed role time for a user (and optional role).")
           .addUserOption((o) => o.setName("user").setDescription("User to check (default: you)").setRequired(false))
-          .addRoleOption((o) => o.setName("role").setDescription("Role to check (optional)").setRequired(false))
+          .addStringOption((o) =>
+            o
+              .setName("role")
+              .setDescription("Role to check (optional, must be configured via /setup timer-roles)")
+              .setRequired(false)
+              .setAutocomplete(true)
+          )
       )
       .addSubcommandGroup((g) =>
         g

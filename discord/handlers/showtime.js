@@ -8,15 +8,36 @@ module.exports = async function handleShowtime(interaction) {
   await interaction.deferReply().catch(() => null);
 
   const userOption = interaction.options.getUser("user"); // nullable
-  const roleOption = interaction.options.getRole("role"); // nullable
+  const roleInput = interaction.options.getString("role"); // nullable, now a string
 
   // If only role is provided (no user), show all users with that role (same format as /rolestatus view)
-  if (roleOption && !userOption) {
+  if (roleInput && !userOption) {
     if (!interaction.guild) {
       return interaction.editReply({ content: "This command can only be used in a server." });
     }
 
     const guild = interaction.guild;
+
+    // Parse role from input (could be role ID or mention)
+    let roleOption = null;
+    
+    // Try to extract role ID from mention format <@&123456>
+    const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
+    if (mentionMatch) {
+      roleOption = guild.roles.cache.get(mentionMatch[1]);
+    } else if (/^\d+$/.test(roleInput)) {
+      // Try as direct ID
+      roleOption = guild.roles.cache.get(roleInput);
+    } else {
+      // Try to find by name
+      roleOption = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
+    }
+
+    if (!roleOption) {
+      return interaction.editReply({
+        content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
+      });
+    }
 
     // Check if this role is allowed
     const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);
