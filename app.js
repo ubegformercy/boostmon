@@ -384,6 +384,7 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // Handle prefix commands (b! prefix)
+console.log("[STARTUP] Registering messageCreate event handler...");
 client.on("messageCreate", async (message) => {
   console.log("[PREFIX] messageCreate event fired for:", message.content?.substring(0, 50));
   try {
@@ -392,6 +393,7 @@ client.on("messageCreate", async (message) => {
     console.error("[PREFIX] Error:", err);
   }
 });
+console.log("[STARTUP] messageCreate handler registered");
 
 
 //----------------------------------------
