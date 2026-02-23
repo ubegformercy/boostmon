@@ -66,19 +66,13 @@ module.exports = async function handleSetup(interaction) {
     }
     
     // Save to database
-    console.log(`[Setup] Saving ${roles.length} timer roles for guild ${guild.id}:`, roles);
     const success = await db.setTimerAllowedRoles(guild.id, roles);
-    console.log(`[Setup] Save result: ${success}`);
     
     if (!success) {
       return interaction.editReply({
         content: "❌ Failed to save timer roles. Please try again."
       });
     }
-    
-    // Verify roles were saved
-    const verifyRoles = await db.getTimerAllowedRoles(guild.id);
-    console.log(`[Setup] Verification: Retrieved ${verifyRoles.length} roles from database:`, verifyRoles);
     
     const roleList = roles.map(r => `<@&${r.roleId}>`).join(", ");
     

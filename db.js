@@ -1627,51 +1627,42 @@ async function deleteServerUrl(guildId, roleId) {
 
 async function setTimerAllowedRoles(guildId, roles) {
   try {
-    console.log(`[DB] setTimerAllowedRoles - Guild: ${guildId}, Roles count: ${roles?.length || 0}`);
-    console.log(`[DB] setTimerAllowedRoles - Roles data:`, roles);
-    
     // Delete all existing roles for this guild
-    const delResult = await pool.query(
+    await pool.query(
       "DELETE FROM timer_allowed_roles WHERE guild_id = $1",
       [guildId]
     );
-    console.log(`[DB] Deleted ${delResult.rowCount} existing roles for guild ${guildId}`);
 
     // Insert new roles (roles is an array of { roleId, roleName })
     if (roles && roles.length > 0) {
       for (const role of roles) {
-        console.log(`[DB] Inserting role: ${role.roleName} (${role.roleId}) for guild ${guildId}`);
-        const insResult = await pool.query(
+        await pool.query(
           `INSERT INTO timer_allowed_roles (guild_id, role_id, role_name)
            VALUES ($1, $2, $3)
            ON CONFLICT (guild_id, role_id) DO UPDATE SET role_name = $3`,
           [guildId, role.roleId, role.roleName]
         );
-        console.log(`[DB] Insert result for ${role.roleName}: ${insResult.rowCount} row(s)`);
       }
     }
-    console.log(`[DB] setTimerAllowedRoles completed successfully`);
     return true;
   } catch (err) {
-    console.error("[DB] setTimerAllowedRoles error:", err);
+    console.error("setTimerAllowedRoles error:", err);
     return false;
   }
-
+}
 
 async function getTimerAllowedRoles(guildId) {
   try {
-    console.log(`[DB] getTimerAllowedRoles - Guild: ${guildId}`);
     const result = await pool.query(
       "SELECT role_id, role_name FROM timer_allowed_roles WHERE guild_id = $1 ORDER BY created_at ASC",
       [guildId]
     );
-    console.log(`[DB] getTimerAllowedRoles - Found ${result.rows.length} roles:`, result.rows);
     return result.rows;
   } catch (err) {
-    console.error("[DB] getTimerAllowedRoles error:", err);
+    console.error("getTimerAllowedRoles error:", err);
     return [];
   }
-
+}
 
 async function hasTimerAllowedRoles(guildId) {
   try {
