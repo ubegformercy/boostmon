@@ -292,7 +292,8 @@ client.on("interactionCreate", async (interaction) => {
           const guild = interaction.guild;
           if (!guild) {
             console.warn("No guild in autocomplete");
-            return await interaction.respond([]);
+            await interaction.respond([]);
+            return;
           }
           
           // Get allowed timer roles for this guild
@@ -301,7 +302,8 @@ client.on("interactionCreate", async (interaction) => {
           
           if (!allowedRoles || allowedRoles.length === 0) {
             console.log("[Autocomplete] No allowed roles found");
-            return await interaction.respond([]);
+            await interaction.respond([]);
+            return;
           }
           
           const focusedValue = (focusedOption.value || "").toLowerCase();
@@ -316,15 +318,20 @@ client.on("interactionCreate", async (interaction) => {
             }));
           
           console.log("[Autocomplete] Filtered results:", filtered);
-          return await interaction.respond(filtered);
+          await interaction.respond(filtered);
+          return;
         } catch (autocompleteErr) {
           console.error("[Autocomplete] Handler error:", autocompleteErr.message, autocompleteErr.stack);
-          return await interaction.respond([]).catch(() => null);
+          await interaction.respond([]).catch(() => null);
+          return;
         }
       }
+      
+      // If we reach here, respond with empty array to avoid "Loading options failed"
+      await interaction.respond([]);
     } catch (err) {
       console.error("[Autocomplete] Outer error:", err.message, err.stack);
-      return await interaction.respond([]).catch(() => null);
+      await interaction.respond([]).catch(() => null);
     }
   }
   
