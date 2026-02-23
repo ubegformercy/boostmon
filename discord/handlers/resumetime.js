@@ -17,10 +17,10 @@ module.exports = async function handleResumetime(interaction) {
 
   // ── GLOBAL RESUME (resume only timers paused by global pause, respecting user pauses) ──
   if (subcommand === "global") {
-    // Check if user has Manage Guild permission
-    if (!interaction.memberPermissions?.has("ManageGuild")) {
+    // Check if user is admin or owner (checked in timer.js, but adding defensive check)
+    if (!interaction.memberPermissions?.has("Administrator") && guild.ownerId !== interaction.user.id) {
       return interaction.editReply({
-        content: "You need **Manage Guild** permission to resume timers globally.",
+        content: "❌ Only administrators and server owner can resume global timers.",
       });
     }
 

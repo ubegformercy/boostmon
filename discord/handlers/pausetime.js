@@ -14,15 +14,8 @@ module.exports = async function handlePausetime(interaction) {
   const guild = interaction.guild;
   const subcommand = interaction.options.getSubcommand(); // "global", "user", or "credit"
 
-  // ── PAUSE CREDIT MANAGEMENT (Admin only) ──
+  // ── PAUSE CREDIT MANAGEMENT (Admin only - checked in timer.js) ──
   if (subcommand === "credit") {
-    // Check admin permission
-    if (!interaction.memberPermissions?.has("Administrator") && guild.ownerId !== interaction.user.id) {
-      return interaction.editReply({
-        content: "⛔ Only **Server Owner** or users with **Administrator** permission can manage pause credits."
-      });
-    }
-
     const targetUser = interaction.options.getUser("user", true);
     const action = interaction.options.getString("action", true); // "add" or "remove"
     const amount = interaction.options.getInteger("amount", true);
@@ -63,10 +56,10 @@ module.exports = async function handlePausetime(interaction) {
 
   // ── GLOBAL PAUSE (pause all or all with a specific role) ──
   if (subcommand === "global") {
-    // Check if user has Manage Guild permission
-    if (!interaction.memberPermissions?.has("ManageGuild")) {
+    // Check if user is admin or owner (checked in timer.js, but adding defensive check)
+    if (!interaction.memberPermissions?.has("Administrator") && guild.ownerId !== interaction.user.id) {
       return interaction.editReply({
-        content: "You need **Manage Guild** permission to pause timers globally.",
+        content: "❌ Only administrators and server owner can pause timers globally.",
       });
     }
 

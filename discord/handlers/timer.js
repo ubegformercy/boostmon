@@ -23,6 +23,14 @@ const subcommandGroupMap = {
   resume: handleResumetime,
 };
 
+// Helper: Check if user is admin or server owner
+function isAdminOrOwner(interaction) {
+  return (
+    interaction.member.permissions.has(PermissionFlagsBits.Administrator) ||
+    interaction.guild.ownerId === interaction.user.id
+  );
+}
+
 module.exports = async function handleTimer(interaction) {
   const subcommand = interaction.options.getSubcommand();
   const group = interaction.options.getSubcommandGroup(false);
@@ -37,13 +45,17 @@ module.exports = async function handleTimer(interaction) {
 
     const guild = interaction.guild;
 
-    // --- /timer schedule set ---
-    if (subcommand === "set") {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.ManageMessages)) {
+    // --- /timer schedule set|list: Admin and owner only ---
+    if (subcommand === "set" || subcommand === "list") {
+      if (!isAdminOrOwner(interaction)) {
         return interaction.editReply({
-          content: "You need **Manage Messages** permission to manage scheduled reports.",
+          content: "❌ Only administrators and server owner can manage timer schedules.",
         });
       }
+    }
+
+    // --- /timer schedule set ---
+    if (subcommand === "set") {
 
       const role = interaction.options.getRole("role", true);
       const enabled = interaction.options.getString("enabled") || "on";
@@ -177,6 +189,60 @@ module.exports = async function handleTimer(interaction) {
 
   // ── Subcommand groups (pause, resume) ──
   if (group) {
+    // Permission checks for subcommand groups
+    if (group === "pause") {
+      const pauseSubcommand = subcommand;
+      
+      // /timer pause credit: admin and owner only
+      if (pauseSubcommand === "credit") {
+        if (!isAdminOrOwner(interaction)) {
+          return interaction.reply({
+            content: "❌ Only administrators and server owner can manage pause credits.",
+            ephemeral: true,
+          });
+        }
+      }
+      
+      // /timer pause global: admin and owner only
+      if (pauseSubcommand === "global") {
+        if (!isAdminOrOwner(interaction)) {
+          return interaction.reply({
+            content: "❌ Only administrators and server owner can pause global timers.",
+            ephemeral: true,
+          });
+        }
+      }
+      
+      // /timer pause user: anyone (they spend their own credits)
+    }
+
+    if (group === "resume") {
+      const resumeSubcommand = subcommand;
+      
+      // /timer resume global: admin and owner only
+      if (resumeSubcommand === "global") {
+        if (!isAdminOrOwner(interaction)) {
+          return interaction.reply({
+            content: "❌ Only administrators and server owner can resume global timers.",
+            ephemeral: true,
+          });
+        }
+      }
+      
+      // /timer resume user: check if they're resuming their own timer
+      if (resumeSubcommand === "user") {
+        const targetUser = interaction.options.getUser("user", true);
+        
+        // Users can only resume their own timers (unless admin/owner)
+        if (targetUser.id !== interaction.user.id && !isAdminOrOwner(interaction)) {
+          return interaction.reply({
+            content: `❌ You can only resume your own timers. Contact an admin to resume <@${targetUser.id}>'s timers.`,
+            ephemeral: true,
+          });
+        }
+      }
+    }
+
     const groupHandler = subcommandGroupMap[group];
     if (!groupHandler) {
       return interaction.reply({ content: `Unknown timer subcommand group: ${group}`, ephemeral: true });
@@ -190,6 +256,49 @@ module.exports = async function handleTimer(interaction) {
   if (!handler) {
     return interaction.reply({ content: `Unknown timer subcommand: ${subcommand}`, ephemeral: true });
   }
+
+  // Permission checks for direct subcommands
+  // /timer set: admin and owner only
+  if (subcommand === "set") {
+    if (!isAdminOrOwner(interaction)) {
+      return interaction.reply({
+        content: "❌ Only administrators and server owner can set timers.",
+        ephemeral: true,
+      });
+    }
+  }
+
+  // /timer add: admin and owner only
+  if (subcommand === "add") {
+    if (!isAdminOrOwner(interaction)) {
+      return interaction.reply({
+        content: "❌ Only administrators and server owner can add timer time.",
+        ephemeral: true,
+      });
+    }
+  }
+
+  // /timer remove: admin and owner only
+  if (subcommand === "remove") {
+    if (!isAdminOrOwner(interaction)) {
+      return interaction.reply({
+        content: "❌ Only administrators and server owner can remove timer time.",
+        ephemeral: true,
+      });
+    }
+  }
+
+  // /timer clear: admin and owner only
+  if (subcommand === "clear") {
+    if (!isAdminOrOwner(interaction)) {
+      return interaction.reply({
+        content: "❌ Only administrators and server owner can clear timers.",
+        ephemeral: true,
+      });
+    }
+  }
+
+  // /timer show: anyone can use
 
   return handler(interaction);
 };
