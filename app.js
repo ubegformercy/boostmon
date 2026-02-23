@@ -288,34 +288,39 @@ client.on("interactionCreate", async (interaction) => {
       
       // Only handle autocomplete for "role" options in timer subcommands
       if (name === "timer" && focusedOption.name === "role") {
-        const guild = interaction.guild;
-        if (!guild) {
-          return interaction.respond([]);
+        try {
+          const guild = interaction.guild;
+          if (!guild) {
+            return await interaction.respond([]);
+          }
+          
+          // Get allowed timer roles for this guild
+          const allowedRoles = await db.getTimerAllowedRoles(guild.id);
+          
+          if (!allowedRoles || allowedRoles.length === 0) {
+            return await interaction.respond([]);
+          }
+          
+          const focusedValue = (focusedOption.value || "").toLowerCase();
+          
+          // Filter roles based on user input
+          const filtered = allowedRoles
+            .filter(r => r.role_name.toLowerCase().includes(focusedValue))
+            .slice(0, 25) // Discord limit
+            .map(r => ({
+              name: r.role_name,
+              value: r.role_id
+            }));
+          
+          return await interaction.respond(filtered);
+        } catch (autocompleteErr) {
+          console.error("Autocomplete handler error:", autocompleteErr);
+          return await interaction.respond([]).catch(() => null);
         }
-        
-        // Get allowed timer roles for this guild
-        const allowedRoles = await db.getTimerAllowedRoles(guild.id);
-        
-        if (!allowedRoles || allowedRoles.length === 0) {
-          return interaction.respond([]);
-        }
-        
-        const focusedValue = focusedOption.value.toLowerCase();
-        
-        // Filter roles based on user input
-        const filtered = allowedRoles
-          .filter(r => r.role_name.toLowerCase().includes(focusedValue))
-          .slice(0, 25) // Discord limit
-          .map(r => ({
-            name: r.role_name,
-            value: r.role_id
-          }));
-        
-        return interaction.respond(filtered);
       }
     } catch (err) {
-      console.error("Autocomplete error:", err);
-      return interaction.respond([]);
+      console.error("Autocomplete outer error:", err);
+      return await interaction.respond([]).catch(() => null);
     }
   }
   
