@@ -94,6 +94,23 @@ function getCommands() {
               .addIntegerOption((o) => o.setName("duration").setDescription("Pause duration in minutes (required)").setRequired(true).setMinValue(1).setMaxValue(1440))
               .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false))
           )
+          .addSubcommand((s) =>
+            s
+              .setName("credit")
+              .setDescription("Manage pause credits (Admin only)")
+              .addUserOption((o) => o.setName("user").setDescription("User to manage credits for").setRequired(true))
+              .addStringOption((o) =>
+                o
+                  .setName("action")
+                  .setDescription("Add or remove pause credits")
+                  .setRequired(true)
+                  .addChoices(
+                    { name: "Add", value: "add" },
+                    { name: "Remove", value: "remove" }
+                  )
+              )
+              .addIntegerOption((o) => o.setName("amount").setDescription("Number of minutes to add/remove").setRequired(true).setMinValue(1))
+          )
       )
       .addSubcommandGroup((g) =>
         g

@@ -12,7 +12,52 @@ module.exports = async function handlePausetime(interaction) {
   }
 
   const guild = interaction.guild;
-  const subcommand = interaction.options.getSubcommand(); // "global" or "user"
+  const subcommand = interaction.options.getSubcommand(); // "global", "user", or "credit"
+
+  // ── PAUSE CREDIT MANAGEMENT (Admin only) ──
+  if (subcommand === "credit") {
+    // Check admin permission
+    if (!interaction.memberPermissions?.has("Administrator") && guild.ownerId !== interaction.user.id) {
+      return interaction.editReply({
+        content: "⛔ Only **Server Owner** or users with **Administrator** permission can manage pause credits."
+      });
+    }
+
+    const targetUser = interaction.options.getUser("user", true);
+    const action = interaction.options.getString("action", true); // "add" or "remove"
+    const amount = interaction.options.getInteger("amount", true);
+
+    let newBalance;
+    if (action === "add") {
+      newBalance = await db.addPauseCredits(targetUser.id, guild.id, amount);
+    } else {
+      newBalance = await db.removePauseCredits(targetUser.id, guild.id, amount);
+    }
+
+    if (newBalance === null) {
+      return interaction.editReply({
+        content: `❌ Failed to ${action} pause credits for ${targetUser}.`
+      });
+    }
+
+    const actionText = action === "add" ? "Added" : "Removed";
+    const embed = new EmbedBuilder()
+      .setColor(action === "add" ? 0x2ECC71 : 0xE74C3C)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`💳 Pause Credits ${actionText}`)
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Command Run By", value: `${interaction.user}`, inline: true },
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Action", value: `${action === "add" ? "➕ Added" : "➖ Removed"}`, inline: true },
+        { name: "Amount", value: `**${amount}** minute(s)`, inline: true },
+        { name: "New Balance", value: `**${newBalance}** minute(s)`, inline: true }
+      )
+      .setFooter({ text: "BoostMon • Pause Credit Management" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
   const durationMinutes = interaction.options.getInteger("duration", true); // required
   const roleOption = interaction.options.getRole("role", false); // optional
 
@@ -70,6 +115,15 @@ module.exports = async function handlePausetime(interaction) {
   // ── USER PAUSE (pause specific user's timer(s)) ──
   if (subcommand === "user") {
     const targetUser = interaction.options.getUser("user", true); // required
+    const issuerId = interaction.user.id; // Person running the command
+
+    // Check if issuer has enough pause credits
+    const issuerCredits = await db.getPauseCredits(issuerId, guild.id);
+    if (issuerCredits < durationMinutes) {
+      return interaction.editReply({
+        content: `❌ You don't have enough pause credits. You have **${issuerCredits}** minute(s) but need **${durationMinutes}** minute(s).`
+      });
+    }
 
     let member;
     try {
@@ -117,14 +171,6 @@ module.exports = async function handlePausetime(interaction) {
       return interaction.editReply({ content: permCheck.reason });
     }
 
-    const entry = await db.getTimerForRole(targetUser.id, roleIdToPause);
-
-    if (entry?.paused) {
-      return interaction.editReply({
-        content: `${targetUser}'s timer for **${roleName}** is already paused.`,
-      });
-    }
-
     // Pause with "user" type and get the pause result with remaining time
     const pauseResult = await db.pauseTimerWithType(targetUser.id, roleIdToPause, "user", durationMinutes);
     
@@ -134,24 +180,32 @@ module.exports = async function handlePausetime(interaction) {
       });
     }
 
+    // Deduct credits from issuer
+    const issuerNewBalance = await db.removePauseCredits(issuerId, guild.id, durationMinutes);
+    if (issuerNewBalance === null) {
+      // Rollback the pause if credit deduction fails
+      await db.resumeTimer(targetUser.id, roleIdToPause);
+      return interaction.editReply({
+        content: `Failed to deduct pause credits. Pause reverted.`
+      });
+    }
+
     const remainingMs = Number(pauseResult.remainingMs || 0);
-    const durationInfo = ` for ${durationMinutes} minute(s)`;
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F) // yellow = paused
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle("⏸️ Timed Role Paused")
+      .setTitle("⏸️ Timed Role Paused with Pause Credits")
       .setTimestamp(new Date())
       .addFields(
-        { name: "Command Run By", value: `${interaction.user}`, inline: true },
-        { name: "Time Run", value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+        { name: "Paused By", value: `${interaction.user}`, inline: true },
         { name: "Target User", value: `${targetUser}`, inline: true },
         { name: "Role", value: `${roleObj}`, inline: true },
-        { name: "Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
-        { name: "Pause Type", value: "User Pause", inline: true },
-        { name: "Duration", value: `**${durationInfo}**`, inline: false }
+        { name: "Credits Used", value: `**${durationMinutes}** minute(s)`, inline: true },
+        { name: "Issuer's Remaining Credits", value: `**${issuerNewBalance}** minute(s)`, inline: true },
+        { name: "Remaining Pause Time", value: `**${formatMs(remainingMs)}**`, inline: true }
       )
-      .setFooter({ text: "BoostMon • Paused Timer" });
+      .setFooter({ text: "BoostMon • Paused with Credits" });
 
     return interaction.editReply({ embeds: [embed] });
   }

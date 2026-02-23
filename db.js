@@ -204,6 +204,18 @@ async function initDatabase() {
       );
     `);
 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pause_credits (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(255) NOT NULL,
+        guild_id VARCHAR(255) NOT NULL,
+        balance BIGINT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, guild_id)
+      );
+    `);
+
     // Add missing column if it doesn't exist (for existing databases)
     try {
       await client.query(`
@@ -309,6 +321,18 @@ async function initDatabase() {
     } catch (err) {
       if (!err.message.includes("already exists")) {
         console.warn("Migration warning for pause_type/pause_expires_at:", err.message);
+      }
+    }
+
+    // Add issued_by column to role_timers for pause credit tracking
+    try {
+      await client.query(`
+        ALTER TABLE role_timers
+        ADD COLUMN IF NOT EXISTS issued_by VARCHAR(255);
+      `);
+    } catch (err) {
+      if (!err.message.includes("already exists")) {
+        console.warn("Migration warning for issued_by:", err.message);
       }
     }
 
@@ -1681,6 +1705,54 @@ async function hasTimerAllowedRoles(guildId) {
   }
 }
 
+// ===== PAUSE CREDITS =====
+
+async function getPauseCredits(userId, guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT balance FROM pause_credits WHERE user_id = $1 AND guild_id = $2",
+      [userId, guildId]
+    );
+    return result.rows.length > 0 ? result.rows[0].balance : 0;
+  } catch (err) {
+    console.error("[PAUSE-CREDITS] getPauseCredits error:", err);
+    return 0;
+  }
+}
+
+async function addPauseCredits(userId, guildId, amount) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO pause_credits (user_id, guild_id, balance, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (user_id, guild_id) 
+       DO UPDATE SET balance = balance + $3, updated_at = NOW()
+       RETURNING balance`,
+      [userId, guildId, amount]
+    );
+    return result.rows[0].balance;
+  } catch (err) {
+    console.error("[PAUSE-CREDITS] addPauseCredits error:", err);
+    return null;
+  }
+}
+
+async function removePauseCredits(userId, guildId, amount) {
+  try {
+    const result = await pool.query(
+      `UPDATE pause_credits 
+       SET balance = GREATEST(0, balance - $3), updated_at = NOW()
+       WHERE user_id = $1 AND guild_id = $2
+       RETURNING balance`,
+      [userId, guildId, amount]
+    );
+    return result.rows.length > 0 ? result.rows[0].balance : 0;
+  } catch (err) {
+    console.error("[PAUSE-CREDITS] removePauseCredits error:", err);
+    return null;
+  }
+}
+
 async function closePool() {
   await pool.end();
   console.log("Database connection pool closed");
@@ -1886,6 +1958,11 @@ module.exports = {
   setTimerAllowedRoles,
   getTimerAllowedRoles,
   hasTimerAllowedRoles,
+
+  // Pause Credits
+  getPauseCredits,
+  addPauseCredits,
+  removePauseCredits,
 
   // Server URLs Management
   setServerUrl,
