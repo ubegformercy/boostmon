@@ -283,12 +283,12 @@ client.on("interactionCreate", async (interaction) => {
   // Handle autocomplete
   if (interaction.isAutocomplete()) {
     try {
-      const { name } = interaction;
+      const commandName = interaction.commandName;
       const focusedOption = interaction.options.getFocused(true);
-      console.log(`[AUTOCOMPLETE] Command: ${name}, Option: ${focusedOption.name}`);
+      console.log(`[AUTOCOMPLETE] Command: ${commandName}, Option: ${focusedOption.name}`);
       
       // Only handle autocomplete for "role" options in timer subcommands
-      if (name === "timer" && focusedOption.name === "role") {
+      if (commandName === "timer" && focusedOption.name === "role") {
         try {
           const guild = interaction.guild;
           console.log(`[AUTOCOMPLETE] Guild: ${guild?.id || "undefined"}, User: ${interaction.user.id}`);
