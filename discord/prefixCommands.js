@@ -126,12 +126,7 @@ async function handleTimers(message, args) {
 }
 
 async function processPrefixCommand(message) {
-  // Ignore bot messages and messages without prefix
-  if (message.author.bot) {
-    console.log("[PREFIX] Ignoring bot message");
-    return;
-  }
-
+  // Ignore messages without prefix
   if (!message.content) {
     console.log("[PREFIX] No message content");
     return;
