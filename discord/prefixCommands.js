@@ -127,26 +127,46 @@ async function handleTimers(message, args) {
 
 async function processPrefixCommand(message) {
   // Ignore bot messages and messages without prefix
-  if (message.author.bot || !message.content.startsWith(PREFIX)) return;
+  if (message.author.bot) {
+    console.log("[PREFIX] Ignoring bot message");
+    return;
+  }
+
+  if (!message.content) {
+    console.log("[PREFIX] No message content");
+    return;
+  }
+
+  console.log(`[PREFIX] Message from ${message.author.username}: "${message.content}"`);
+  
+  if (!message.content.startsWith(PREFIX)) {
+    console.log(`[PREFIX] Content doesn't start with "${PREFIX}"`);
+    return;
+  }
+
+  console.log("[PREFIX] Prefix detected! Processing command...");
 
   // Extract command and arguments
   const args = message.content.slice(PREFIX.length).trim().split(/ +/);
   const command = args.shift().toLowerCase();
 
+  console.log(`[PREFIX] Parsed command: "${command}", args: ${JSON.stringify(args)}`);
+
   // Get handler for command
   const handler = prefixHandlers[command];
   if (!handler) {
+    console.log(`[PREFIX] No handler for "${command}", showing help`);
     // Unknown command — just send help
     return handleHelp(message, args);
   }
 
   try {
+    console.log(`[PREFIX] Executing handler for "${command}"`);
     await handler(message, args);
   } catch (err) {
     console.error(`[PREFIX-COMMAND] Error handling ${PREFIX}${command}:`, err);
     return message.reply({
       content: "❌ Error processing command. Try using slash commands instead!",
-      ephemeral: true,
     }).catch(() => null);
   }
 }

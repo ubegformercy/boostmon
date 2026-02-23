@@ -385,6 +385,7 @@ client.on("interactionCreate", async (interaction) => {
 
 // Handle prefix commands (b! prefix)
 client.on("messageCreate", async (message) => {
+  console.log("[MESSAGE-CREATE] Event triggered");
   try {
     await processPrefixCommand(message);
   } catch (err) {
