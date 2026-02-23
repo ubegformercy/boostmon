@@ -285,20 +285,22 @@ client.on("interactionCreate", async (interaction) => {
     try {
       const { name } = interaction;
       const focusedOption = interaction.options.getFocused(true);
+      console.log(`[Autocomplete] Triggered - Command: ${name}, Option: ${focusedOption.name}, Value: "${focusedOption.value}"`);
       
       // Only handle autocomplete for "role" options in timer subcommands
       if (name === "timer" && focusedOption.name === "role") {
         try {
           const guild = interaction.guild;
+          console.log(`[Autocomplete] Guild ID: ${guild?.id}`);
           if (!guild) {
-            console.warn("No guild in autocomplete");
+            console.warn("[Autocomplete] No guild in autocomplete");
             await interaction.respond([]);
             return;
           }
           
           // Get allowed timer roles for this guild
           const allowedRoles = await db.getTimerAllowedRoles(guild.id);
-          console.log(`[Autocomplete] Guild: ${guild.id}, Allowed roles:`, allowedRoles);
+          console.log(`[Autocomplete] Guild: ${guild.id}, Allowed roles count: ${allowedRoles?.length || 0}`, allowedRoles);
           
           if (!allowedRoles || allowedRoles.length === 0) {
             console.log("[Autocomplete] No allowed roles found");
