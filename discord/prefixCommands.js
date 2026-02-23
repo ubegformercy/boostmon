@@ -47,7 +47,7 @@ async function handleHelp(message, args) {
       },
       {
         name: "💡 Prefix Commands",
-        value: `${PREFIX}help, ${PREFIX}info, ${PREFIX}queue, ${PREFIX}streak, ${PREFIX}timers`,
+        value: `${PREFIX} help, ${PREFIX} info, ${PREFIX} queue, ${PREFIX} streak, ${PREFIX} timers`,
         inline: false,
       }
     )
