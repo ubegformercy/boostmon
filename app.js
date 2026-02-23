@@ -34,6 +34,7 @@ const cleanupService = require("./services/cleanup");
 // Discord modules
 const { registerCommands } = require("./discord/register");
 const commandHandlers = require("./discord/handlers");
+const { processPrefixCommand } = require("./discord/prefixCommands");
 const { friendlyDiscordError } = require("./utils/helpers");
 
 console.log("=== BoostMon app.js booted ===");
@@ -62,7 +63,7 @@ console.log("[Member Cache] Initialized for fast dashboard performance");
 // Discord Client
 //----------------------------------------
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
 });
 
 // Expose client globally for dashboard API
@@ -379,6 +380,15 @@ client.on("interactionCreate", async (interaction) => {
         console.error("Failed to send error to Discord:", e);
       }
     }
+  }
+});
+
+// Handle prefix commands (b! prefix)
+client.on("messageCreate", async (message) => {
+  try {
+    await processPrefixCommand(message);
+  } catch (err) {
+    console.error("[MESSAGE-CREATE] Error processing message:", err);
   }
 });
 
