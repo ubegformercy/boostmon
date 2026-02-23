@@ -14,10 +14,32 @@ module.exports = async function handleRemovetime(interaction) {
 
   const targetUser = interaction.options.getUser("user", true);
   const minutes = interaction.options.getInteger("minutes", true);
-  const roleOption = interaction.options.getRole("role"); // optional
+  const roleInput = interaction.options.getString("role"); // optional
 
   const guild = interaction.guild;
   const member = await guild.members.fetch(targetUser.id);
+
+  // Parse role from input if provided
+  let roleOption = null;
+  if (roleInput) {
+    // Try to extract role ID from mention format <@&123456>
+    const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
+    if (mentionMatch) {
+      roleOption = guild.roles.cache.get(mentionMatch[1]);
+    } else if (/^\d+$/.test(roleInput)) {
+      // Try as direct ID
+      roleOption = guild.roles.cache.get(roleInput);
+    } else {
+      // Try to find by name
+      roleOption = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
+    }
+
+    if (!roleOption) {
+      return interaction.editReply({
+        content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
+      });
+    }
+  }
 
   const timers = await db.getTimersForUser(targetUser.id);
   const timedRoleIds = timers.map(t => t.role_id);

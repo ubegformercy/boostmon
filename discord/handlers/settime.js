@@ -14,10 +14,31 @@ module.exports = async function handleSettime(interaction) {
 
   const targetUser = interaction.options.getUser("user", true);
   const minutes = interaction.options.getInteger("minutes", true);
-  const targetRole = interaction.options.getRole("role", true);
+  const roleInput = interaction.options.getString("role", true);
   const channelOpt = interaction.options.getChannel("channel"); // optional
 
   const guild = interaction.guild;
+
+  // Parse role from input (could be role ID or mention)
+  let targetRole = null;
+  
+  // Try to extract role ID from mention format <@&123456>
+  const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
+  if (mentionMatch) {
+    targetRole = guild.roles.cache.get(mentionMatch[1]);
+  } else if (/^\d+$/.test(roleInput)) {
+    // Try as direct ID
+    targetRole = guild.roles.cache.get(roleInput);
+  } else {
+    // Try to find by name
+    targetRole = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
+  }
+
+  if (!targetRole) {
+    return interaction.editReply({
+      content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
+    });
+  }
 
   // Check if timer roles are configured for this guild
   const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);

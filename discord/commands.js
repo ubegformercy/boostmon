@@ -15,7 +15,13 @@ function getCommands() {
           .addIntegerOption((o) =>
             o.setName("minutes").setDescription("Minutes to set").setRequired(true).setMinValue(1)
           )
-          .addRoleOption((o) => o.setName("role").setDescription("Role to grant").setRequired(true))
+          .addStringOption((o) =>
+            o
+              .setName("role")
+              .setDescription("Role to grant (must be configured via /setup timer-roles)")
+              .setRequired(true)
+              .setAutocomplete(true)
+          )
           .addChannelOption((o) =>
             o
               .setName("channel")
@@ -32,7 +38,13 @@ function getCommands() {
           .addIntegerOption((o) =>
             o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1)
           )
-          .addRoleOption((o) => o.setName("role").setDescription("Role to add time to (optional)").setRequired(false))
+          .addStringOption((o) =>
+            o
+              .setName("role")
+              .setDescription("Role to add time to (optional, must be configured via /setup timer-roles)")
+              .setRequired(false)
+              .setAutocomplete(true)
+          )
       )
       .addSubcommand((s) =>
         s
@@ -42,14 +54,26 @@ function getCommands() {
           .addIntegerOption((o) =>
             o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
           )
-          .addRoleOption((o) => o.setName("role").setDescription("Role to remove time from (optional)").setRequired(false))
+          .addStringOption((o) =>
+            o
+              .setName("role")
+              .setDescription("Role to remove time from (optional, must be configured via /setup timer-roles)")
+              .setRequired(false)
+              .setAutocomplete(true)
+          )
       )
       .addSubcommand((s) =>
         s
           .setName("clear")
           .setDescription("Clear a user's timed role timer and remove the role.")
           .addUserOption((o) => o.setName("user").setDescription("User to clear").setRequired(true))
-          .addRoleOption((o) => o.setName("role").setDescription("Role to clear (optional)").setRequired(false))
+          .addStringOption((o) =>
+            o
+              .setName("role")
+              .setDescription("Role to clear (optional, must be configured via /setup timer-roles)")
+              .setRequired(false)
+              .setAutocomplete(true)
+          )
       )
       .addSubcommandGroup((g) =>
         g
