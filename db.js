@@ -1726,7 +1726,7 @@ async function addPauseCredits(userId, guildId, amount) {
       `INSERT INTO pause_credits (user_id, guild_id, balance, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (user_id, guild_id) 
-       DO UPDATE SET balance = balance + $3, updated_at = NOW()
+       DO UPDATE SET balance = pause_credits.balance + $3, updated_at = NOW()
        RETURNING balance`,
       [userId, guildId, amount]
     );
