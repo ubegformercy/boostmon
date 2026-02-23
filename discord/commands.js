@@ -422,6 +422,14 @@ function getCommands() {
           .setName("get")
           .setDescription("Get server URLs for your roles")
       ),
+
+    // ── /info (Show user stats) ──
+    new SlashCommandBuilder()
+      .setName("info")
+      .setDescription("View your stats (streak, timer, pause credits, etc)")
+      .addUserOption((o) =>
+        o.setName("user").setDescription("User to check (default: you)").setRequired(false)
+      ),
   ];
 }
 

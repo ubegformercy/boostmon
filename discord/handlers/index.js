@@ -7,6 +7,7 @@ const handlers = {
   register:   require("./register"),
   streak:     require("./streak"),
   url:        require("./url"),
+  info:       require("./info"),
 };
 
 module.exports = handlers;
