@@ -285,23 +285,24 @@ client.on("interactionCreate", async (interaction) => {
     try {
       const { name } = interaction;
       const focusedOption = interaction.options.getFocused(true);
+      console.log(`[AUTOCOMPLETE] Command: ${name}, Option: ${focusedOption.name}`);
       
       // Only handle autocomplete for "role" options in timer subcommands
       if (name === "timer" && focusedOption.name === "role") {
         try {
           const guild = interaction.guild;
           if (!guild) {
-            console.warn("No guild in autocomplete");
+            console.log("[AUTOCOMPLETE] No guild found, responding empty");
             await interaction.respond([]);
             return;
           }
           
           // Get allowed timer roles for this guild
           const allowedRoles = await db.getTimerAllowedRoles(guild.id);
-          console.log(`[Autocomplete] Guild: ${guild.id}, Allowed roles:`, allowedRoles);
+          console.log(`[AUTOCOMPLETE] Got ${allowedRoles?.length || 0} allowed roles`);
           
           if (!allowedRoles || allowedRoles.length === 0) {
-            console.log("[Autocomplete] No allowed roles found");
+            console.log("[AUTOCOMPLETE] No allowed roles, responding empty");
             await interaction.respond([]);
             return;
           }
@@ -317,11 +318,11 @@ client.on("interactionCreate", async (interaction) => {
               value: r.role_id
             }));
           
-          console.log("[Autocomplete] Filtered results:", filtered);
+          console.log(`[AUTOCOMPLETE] Returning ${filtered.length} filtered results`);
           await interaction.respond(filtered);
           return;
         } catch (autocompleteErr) {
-          console.error("[Autocomplete] Handler error:", autocompleteErr.message, autocompleteErr.stack);
+          console.error("[AUTOCOMPLETE] Handler error:", autocompleteErr.message);
           await interaction.respond([]).catch(() => null);
           return;
         }
@@ -330,7 +331,7 @@ client.on("interactionCreate", async (interaction) => {
       // If we reach here, respond with empty array to avoid "Loading options failed"
       await interaction.respond([]);
     } catch (err) {
-      console.error("[Autocomplete] Outer error:", err.message, err.stack);
+      console.error("[AUTOCOMPLETE] Outer error:", err.message);
       await interaction.respond([]).catch(() => null);
     }
   }

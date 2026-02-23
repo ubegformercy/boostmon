@@ -1627,6 +1627,7 @@ async function deleteServerUrl(guildId, roleId) {
 
 async function setTimerAllowedRoles(guildId, roles) {
   try {
+    console.log(`[TIMER-ROLES] Saving for guild ${guildId}:`, roles);
     // Delete all existing roles for this guild
     await pool.query(
       "DELETE FROM timer_allowed_roles WHERE guild_id = $1",
@@ -1644,22 +1645,25 @@ async function setTimerAllowedRoles(guildId, roles) {
         );
       }
     }
+    console.log(`[TIMER-ROLES] Saved ${roles?.length || 0} roles for guild ${guildId}`);
     return true;
   } catch (err) {
-    console.error("setTimerAllowedRoles error:", err);
+    console.error("[TIMER-ROLES] setTimerAllowedRoles error:", err);
     return false;
   }
 }
 
 async function getTimerAllowedRoles(guildId) {
   try {
+    console.log(`[TIMER-ROLES] Retrieving roles for guild ${guildId}`);
     const result = await pool.query(
       "SELECT role_id, role_name FROM timer_allowed_roles WHERE guild_id = $1 ORDER BY created_at ASC",
       [guildId]
     );
+    console.log(`[TIMER-ROLES] Found ${result.rows.length} roles:`, result.rows);
     return result.rows;
   } catch (err) {
-    console.error("getTimerAllowedRoles error:", err);
+    console.error("[TIMER-ROLES] getTimerAllowedRoles error:", err);
     return [];
   }
 }
