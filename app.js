@@ -291,6 +291,8 @@ client.on("interactionCreate", async (interaction) => {
       if (name === "timer" && focusedOption.name === "role") {
         try {
           const guild = interaction.guild;
+          console.log(`[AUTOCOMPLETE] Guild: ${guild?.id || "undefined"}, User: ${interaction.user.id}`);
+          
           if (!guild) {
             console.log("[AUTOCOMPLETE] No guild found, responding empty");
             await interaction.respond([]);
@@ -298,8 +300,9 @@ client.on("interactionCreate", async (interaction) => {
           }
           
           // Get allowed timer roles for this guild
+          console.log(`[AUTOCOMPLETE] Querying roles for guild ${guild.id}...`);
           const allowedRoles = await db.getTimerAllowedRoles(guild.id);
-          console.log(`[AUTOCOMPLETE] Got ${allowedRoles?.length || 0} allowed roles`);
+          console.log(`[AUTOCOMPLETE] Database returned ${allowedRoles?.length || 0} roles:`, allowedRoles);
           
           if (!allowedRoles || allowedRoles.length === 0) {
             console.log("[AUTOCOMPLETE] No allowed roles, responding empty");
@@ -308,6 +311,7 @@ client.on("interactionCreate", async (interaction) => {
           }
           
           const focusedValue = (focusedOption.value || "").toLowerCase();
+          console.log(`[AUTOCOMPLETE] User typed: "${focusedOption.value}" (lowercase: "${focusedValue}")`);
           
           // Filter roles based on user input
           const filtered = allowedRoles
@@ -318,7 +322,7 @@ client.on("interactionCreate", async (interaction) => {
               value: r.role_id
             }));
           
-          console.log(`[AUTOCOMPLETE] Returning ${filtered.length} filtered results`);
+          console.log(`[AUTOCOMPLETE] Filtered to ${filtered.length} results:`, filtered.map(f => f.name));
           await interaction.respond(filtered);
           return;
         } catch (autocompleteErr) {
