@@ -131,17 +131,23 @@ async function processPrefixCommand(message) {
     return;
   }
 
+  console.log(`[PREFIX] Found prefix command: "${message.content}"`);
+
   try {
     // Extract command and arguments
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
+    console.log(`[PREFIX] Command: "${command}"`);
+
     // Get handler for command
     const handler = prefixHandlers[command];
     if (!handler) {
+      console.log(`[PREFIX] No handler, showing help`);
       return handleHelp(message, args);
     }
 
+    console.log(`[PREFIX] Executing: "${command}"`);
     await handler(message, args);
   } catch (err) {
     console.error(`[PREFIX-COMMAND] Error:`, err);
