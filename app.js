@@ -63,7 +63,7 @@ console.log("[Member Cache] Initialized for fast dashboard performance");
 // Discord Client
 //----------------------------------------
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.DirectMessages, GatewayIntentBits.MessageContent],
 });
 
 // Expose client globally for dashboard API
@@ -384,9 +384,6 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 // Handle prefix commands (b! prefix)
-// NOTE: MessageContent intent is privileged and must be enabled in Discord Developer Portal
-// Temporarily disabled until intent is properly configured
-/*
 client.on("messageCreate", async (message) => {
   console.log("[MESSAGE-CREATE] Event triggered");
   try {
@@ -395,7 +392,6 @@ client.on("messageCreate", async (message) => {
     console.error("[MESSAGE-CREATE] Error processing message:", err);
   }
 });
-*/
 
 
 //----------------------------------------
