@@ -126,42 +126,27 @@ async function handleTimers(message, args) {
 }
 
 async function processPrefixCommand(message) {
-  // Ignore messages without prefix
-  if (!message.content) {
-    console.log("[PREFIX] No message content");
+  // Only process messages that start with our prefix
+  if (!message.content || !message.content.startsWith(PREFIX)) {
     return;
-  }
-
-  console.log(`[PREFIX] Message from ${message.author.username}: "${message.content}"`);
-  
-  if (!message.content.startsWith(PREFIX)) {
-    console.log(`[PREFIX] Content doesn't start with "${PREFIX}"`);
-    return;
-  }
-
-  console.log("[PREFIX] Prefix detected! Processing command...");
-
-  // Extract command and arguments
-  const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-  const command = args.shift().toLowerCase();
-
-  console.log(`[PREFIX] Parsed command: "${command}", args: ${JSON.stringify(args)}`);
-
-  // Get handler for command
-  const handler = prefixHandlers[command];
-  if (!handler) {
-    console.log(`[PREFIX] No handler for "${command}", showing help`);
-    // Unknown command — just send help
-    return handleHelp(message, args);
   }
 
   try {
-    console.log(`[PREFIX] Executing handler for "${command}"`);
+    // Extract command and arguments
+    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    // Get handler for command
+    const handler = prefixHandlers[command];
+    if (!handler) {
+      return handleHelp(message, args);
+    }
+
     await handler(message, args);
   } catch (err) {
-    console.error(`[PREFIX-COMMAND] Error handling ${PREFIX}${command}:`, err);
+    console.error(`[PREFIX-COMMAND] Error:`, err);
     return message.reply({
-      content: "❌ Error processing command. Try using slash commands instead!",
+      content: "❌ Error processing command.",
     }).catch(() => null);
   }
 }
