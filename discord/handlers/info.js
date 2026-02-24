@@ -88,9 +88,12 @@ module.exports = async function handleInfo(interaction) {
       }
     }
 
-    // Streak info
-    const streakDays = streak?.streak_days || 0;
-    const saveTokens = streak?.streaksaves || 0;
+    // Streak info - calculate from start date if streak exists
+    let streakDays = 0;
+    if (streak && streak.streak_start_at) {
+      streakDays = Math.floor((Date.now() - new Date(streak.streak_start_at).getTime()) / (24 * 60 * 60 * 1000));
+    }
+    const saveTokens = streak?.save_tokens || 0;
 
     // Build embed
     const embed = new EmbedBuilder()
