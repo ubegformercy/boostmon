@@ -33,22 +33,7 @@ async function syncStreakRoles(member, currentDays, streakRoles) {
 async function updateStreakProgress(guildId, userId) {
   const now = new Date();
   let streak = await db.getUserStreak(guildId, userId);
-  
-  // Check if user has ANY active timers
-  const userTimers = await db.getTimersForUser(userId).catch(() => []);
-  const activeTimers = userTimers.filter(t => t.guild_id === guildId && !t.paused && t.expires_at > now.getTime());
-  
-  // If no active timers, reset streak
-  if (activeTimers.length === 0) {
-    if (streak && streak.streak_start_at) {
-      await db.upsertUserStreak(guildId, userId, {
-        streak_start_at: null,
-        degradation_started_at: null,
-      });
-    }
-    return;
-  }
-  
+
   if (!streak) {
     streak = await db.upsertUserStreak(guildId, userId, {
       streak_start_at: now,
