@@ -1,7 +1,7 @@
 // discord/handlers/showtime.js — /showtime command handler
 const { EmbedBuilder } = require("discord.js");
 const db = require("../../db");
-const { BOOSTMON_ICON_URL, formatMs } = require("../../utils/helpers");
+const { BOOSTMON_ICON_URL, formatMs, formatPauseDuration } = require("../../utils/helpers");
 const { getFirstTimedRoleId } = require("../../services/timer");
 
 module.exports = async function handleShowtime(interaction) {
@@ -135,23 +135,33 @@ module.exports = async function handleShowtime(interaction) {
       if (isPaused) pausedMembers++;
       else activeMembers++;
 
-      let status;
+      let emoji;
       if (isPaused) {
-        status = "⏸️ PAUSED";
+        emoji = "⏸️";
       } else if (remainingMs <= 0) {
-        status = "🔴 EXPIRED";
-      } else if (remainingMs < 60 * 60 * 1000) {
-        status = "🟡 EXPIRES SOON";
+        emoji = "🔴";
+      } else if (remainingMs < 60 * 60 * 1000) { // < 1 hour
+        emoji = "🔴";
+        expiringMembers++;
+      } else if (remainingMs < 24 * 60 * 60 * 1000) { // < 1 day
+        emoji = "🟡";
         expiringMembers++;
       } else {
-        status = "🟢 ACTIVE";
+        emoji = "🟢";
       }
 
-      const timeText = remainingMs > 0 ? formatMs(remainingMs) : "0s";
+      const timeText = formatMs(remainingMs);
       const displayName = member.nickname || member.user.globalName || member.user.username;
       const inGameUsername = registration?.in_game_username || member.user.username;
       const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
-      const line = `${rankMedal} ${status} • ${timeText} • ${displayName} - (${inGameUsername})`;
+      
+      let line;
+      if (isPaused) {
+        const pauseDuration = formatPauseDuration(timer.paused_remaining_ms);
+        line = `${rankMedal} ${emoji} ${pauseDuration} • ${timeText} • ${displayName} - (${inGameUsername})`;
+      } else {
+        line = `${rankMedal} ${emoji} • ${timeText} • ${displayName} - (${inGameUsername})`;
+      }
       membersList.push(line);
       memberCount++;
 
@@ -239,7 +249,7 @@ module.exports = async function handleShowtime(interaction) {
       .addFields(
         { name: "Target User", value: `${targetUser}`, inline: true },
         { name: "Role", value: `${role.name}`, inline: true },
-        { name: "Time Remaining", value: `**${formatMs(remainingMs)}**`, inline: true },
+        { name: "Time Remaining", value: `**${isPaused && timer.paused_remaining_ms ? formatPauseDuration(timer.paused_remaining_ms) + '\n' : ''}${formatMs(remainingMs)}**`, inline: true },
         {
           name: "Expires",
           value: `<t:${Math.floor(expiresAt / 1000)}:F>\n(<t:${Math.floor(expiresAt / 1000)}:R>)`,

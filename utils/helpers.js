@@ -30,10 +30,16 @@ function buildActiveTimerEmbed({ actor, targetUser, role, minutes, expiresAt, wa
 
 function formatMs(ms) {
   const totalSec = Math.floor(ms / 1000);
-  const h = Math.floor(totalSec / 3600);
+  const days = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${h}h ${m}m ${s}s`;
+  return days > 0 ? `[${days}d ${h}h ${m}m]` : `[${h}h ${m}m]`;
+}
+
+function formatPauseDuration(ms) {
+  if (!ms || ms <= 0) return "[0m]";
+  const totalMin = Math.floor(ms / 60000);
+  return `[${totalMin}m]`;
 }
 
 function friendlyDiscordError(err) {
@@ -48,5 +54,6 @@ module.exports = {
   ACTIVE_GREEN,
   buildActiveTimerEmbed,
   formatMs,
+  formatPauseDuration,
   friendlyDiscordError,
 };
