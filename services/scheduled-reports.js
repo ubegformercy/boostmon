@@ -135,9 +135,13 @@ async function executeScheduledRolestatus(guild, now) {
         for (const { member, timer } of timersList) {
           totalMembers++;
 
-          let remainingMs = Number(timer.expires_at) - now;
-          if (timer.paused && timer.paused_remaining_ms) {
-            remainingMs = Number(timer.paused_remaining_ms);
+          // Timer remaining time (when paused, this is what was frozen)
+          let timerRemainingMs = Math.max(0, Number(timer.expires_at) - now);
+          
+          // Pause duration remaining (how much pause time is left)
+          let pauseRemainingMs = 0;
+          if (timer.paused && timer.pause_expires_at) {
+            pauseRemainingMs = Math.max(0, Number(timer.pause_expires_at) - now);
           }
 
           const isPaused = timer.paused;
@@ -147,28 +151,30 @@ async function executeScheduledRolestatus(guild, now) {
           let emoji;
           if (isPaused) {
             emoji = "⏸️";
-          } else if (remainingMs <= 0) {
+          } else if (timerRemainingMs <= 0) {
             emoji = "🔴";
-          } else if (remainingMs < 60 * 60 * 1000) {
+          } else if (timerRemainingMs < 60 * 60 * 1000) {
             emoji = "🔴";
             expiringMembers++;
-          } else if (remainingMs < 24 * 60 * 60 * 1000) {
+          } else if (timerRemainingMs < 24 * 60 * 60 * 1000) {
             emoji = "🟡";
             expiringMembers++;
           } else {
             emoji = "🟢";
           }
 
-          const timeText = formatMs(remainingMs);
+          const timeText = formatMs(timerRemainingMs);
           const displayName = member.nickname || member.user.globalName || member.user.username;
           const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
           const inGameUsername = registration?.in_game_username || member.user.username;
           const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
           
           let line;
-          if (isPaused) {
-            const pauseDuration = formatPauseDuration(timer.paused_remaining_ms);
+          if (isPaused && pauseRemainingMs > 0) {
+            const pauseDuration = formatPauseDuration(pauseRemainingMs);
             line = `${rankMedal} ${emoji} ${pauseDuration} • ${timeText} • ${displayName} - (${inGameUsername})`;
+          } else if (isPaused) {
+            line = `${rankMedal} ${emoji} [>0m] • ${timeText} • ${displayName} - (${inGameUsername})`;
           } else {
             line = `${rankMedal} ${emoji} • ${timeText} • ${displayName} - (${inGameUsername})`;
           }
