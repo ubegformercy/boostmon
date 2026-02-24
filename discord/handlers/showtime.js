@@ -126,8 +126,13 @@ module.exports = async function handleShowtime(interaction) {
     for (const { member, timer, registration } of timersList) {
       totalMembers++;
 
-      // Timer remaining time (when paused, this is what was frozen)
+      // Timer remaining time (frozen when paused)
       let timerRemainingMs = Math.max(0, Number(timer.expires_at) - Date.now());
+      
+      // When paused, use the frozen time stored in paused_remaining_ms
+      if (timer.paused && timer.paused_remaining_ms) {
+        timerRemainingMs = Math.max(0, Number(timer.paused_remaining_ms));
+      }
       
       // Pause duration remaining (how much pause time is left)
       let pauseRemainingMs = 0;
