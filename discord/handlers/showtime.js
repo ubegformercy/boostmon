@@ -7,20 +7,17 @@ const { getFirstTimedRoleId } = require("../../services/timer");
 module.exports = async function handleShowtime(interaction) {
   await interaction.deferReply().catch(() => null);
 
+  if (!interaction.guild) {
+    return interaction.editReply({ content: "This command can only be used in a server." });
+  }
+
+  const guild = interaction.guild;
   const userOption = interaction.options.getUser("user"); // nullable
   const roleInput = interaction.options.getString("role"); // nullable, now a string
+  let roleOption = null;
 
-  // If only role is provided (no user), show all users with that role (same format as /rolestatus view)
-  if (roleInput && !userOption) {
-    if (!interaction.guild) {
-      return interaction.editReply({ content: "This command can only be used in a server." });
-    }
-
-    const guild = interaction.guild;
-
-    // Parse role from input (could be role ID or mention)
-    let roleOption = null;
-    
+  // Parse role from input if provided (could be role ID or mention)
+  if (roleInput) {
     // Try to extract role ID from mention format <@&123456>
     const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
     if (mentionMatch) {
@@ -38,7 +35,10 @@ module.exports = async function handleShowtime(interaction) {
         content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
       });
     }
+  }
 
+  // If only role is provided (no user), show all users with that role (leaderboard view)
+  if (roleOption && !userOption) {
     // Check if this role is allowed
     const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);
     if (hasAllowedRoles) {
