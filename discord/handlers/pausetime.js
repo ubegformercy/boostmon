@@ -229,7 +229,10 @@ module.exports = async function handlePausetime(interaction) {
       });
     }
 
-    const remainingMs = Number(pauseResult.remainingMs || 0);
+    // Pause duration in milliseconds
+    const pauseDurationMs = durationMinutes * 60 * 1000;
+    // Frozen timer time
+    const frozenTimerMs = Number(pauseResult.remainingMs || 0);
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F) // yellow = paused
@@ -242,7 +245,8 @@ module.exports = async function handlePausetime(interaction) {
         { name: "Role", value: `${roleObj}`, inline: true },
         { name: "Credits Used", value: `**${durationMinutes}** minute(s)`, inline: true },
         { name: "Issuer's Remaining Credits", value: `**${issuerNewBalance}** minute(s)`, inline: true },
-        { name: "Remaining Pause Time", value: `**${formatMs(remainingMs)}**`, inline: true }
+        { name: "Pause Duration", value: `**${formatMs(pauseDurationMs)}**`, inline: true },
+        { name: "Frozen Timer", value: `**${formatMs(frozenTimerMs)}**`, inline: true }
       )
       .setFooter({ text: "BoostMon • Paused with Credits" });
 
