@@ -240,7 +240,6 @@ module.exports = async function handlePausetime(interaction) {
       .setTitle("⏸️ Timed Role Paused with Pause Credits")
       .setTimestamp(new Date())
       .addFields(
-        { name: "Paused By", value: `${interaction.user}`, inline: true },
         { name: "Target User", value: `${targetUser}`, inline: true },
         { name: "Role", value: `${roleObj}`, inline: true },
         { name: "Credits Used", value: `**${durationMinutes}** minute(s)`, inline: true },
@@ -249,7 +248,7 @@ module.exports = async function handlePausetime(interaction) {
         { name: "Pause Duration", value: `**${formatMs(totalPauseDurationMs)}**`, inline: true },
         { name: "Frozen Timer", value: `**${formatMs(frozenTimerMs)}**`, inline: true }
       )
-      .setFooter({ text: "BoostMon • Paused with Credits" });
+      .setFooter({ text: `Paused by ${interaction.user.username} with ${durationMinutes} Credits` });
 
     return interaction.editReply({ embeds: [embed] });
   }
