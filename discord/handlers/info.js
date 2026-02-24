@@ -29,9 +29,6 @@ module.exports = async function handleInfo(interaction) {
     // Build the title with user info
     const userTitle = `📊 ${displayName} (@${targetUser.username}) - (${inGameUsername || targetUser.username})`;
 
-    // Fetch user's streak info
-    const streak = await db.getUserStreak(guild.id, targetUser.id).catch(() => null);
-    
     // Get user's timers across ALL guilds
     const allTimers = await db.getTimersForUser(targetUser.id).catch(() => []);
     
@@ -43,7 +40,7 @@ module.exports = async function handleInfo(interaction) {
       t.expires_at > now
     );
     
-    // Get streak - but if no active timers, should show 0
+    // Fetch user's streak - but if no active timers, should show 0
     let streak = await db.getUserStreak(guild.id, targetUser.id).catch(() => null);
     if (activeTimersInGuild.length === 0) {
       streak = null; // No active timers = no streak

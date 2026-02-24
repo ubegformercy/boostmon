@@ -87,7 +87,7 @@ async function updateStreakProgress(guildId, userId) {
       await syncStreakRoles(member, streakDays, streakRoles);
     }
   }
-
+}
 
 module.exports = {
   init,
