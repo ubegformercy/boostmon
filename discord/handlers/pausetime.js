@@ -118,13 +118,24 @@ module.exports = async function handlePausetime(interaction) {
   if (subcommand === "user") {
     const targetUser = interaction.options.getUser("member", true); // required
     const issuerId = interaction.user.id; // Person running the command
+    const removeOverride = interaction.options.getBoolean("remove", false); // admin-only option
 
-    // Check if issuer has enough pause credits
-    const issuerCredits = await db.getPauseCredits(issuerId, guild.id);
-    if (issuerCredits < durationMinutes) {
-      return interaction.editReply({
-        content: `❌ You don't have enough pause credits. You have **${issuerCredits}** minute(s) but need **${durationMinutes}** minute(s).`
-      });
+    // Check if removeOverride is being used and restrict to admin/owner
+    if (removeOverride) {
+      const isAdmin = interaction.memberPermissions?.has("Administrator") || guild.ownerId === issuerId;
+      if (!isAdmin) {
+        return interaction.editReply({
+          content: "❌ Only administrators and server owner can use the **remove** option to bypass pause credits."
+        });
+      }
+    } else {
+      // Normal flow: Check if issuer has enough pause credits
+      const issuerCredits = await db.getPauseCredits(issuerId, guild.id);
+      if (issuerCredits < durationMinutes) {
+        return interaction.editReply({
+          content: `❌ You don't have enough pause credits. You have **${issuerCredits}** minute(s) but need **${durationMinutes}** minute(s).`
+        });
+      }
     }
 
     let member;
@@ -173,7 +184,33 @@ module.exports = async function handlePausetime(interaction) {
       return interaction.editReply({ content: permCheck.reason });
     }
 
-    // Pause with "user" type and get the pause result with remaining time
+    // Handle remove override (admin only)
+    if (removeOverride) {
+      // Admin removing/changing pause
+      const resumeResult = await db.resumeTimer(targetUser.id, roleIdToPause);
+      if (!resumeResult) {
+        return interaction.editReply({
+          content: `Failed to remove pause for ${targetUser}'s **${roleName}** timer.`
+        });
+      }
+
+      const embed = new EmbedBuilder()
+        .setColor(0x3498DB) // blue = admin action
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle("🔧 Pause Removed (Admin Override)")
+        .setTimestamp(new Date())
+        .addFields(
+          { name: "Removed By", value: `${interaction.user}`, inline: true },
+          { name: "Target User", value: `${targetUser}`, inline: true },
+          { name: "Role", value: `${roleObj}`, inline: true },
+          { name: "Action", value: `Pause forcefully removed by admin`, inline: false }
+        )
+        .setFooter({ text: "BoostMon • Admin Override" });
+
+      return interaction.editReply({ embeds: [embed] });
+    }
+
+    // Normal pause with "user" type and get the pause result with remaining time
     const pauseResult = await db.pauseTimerWithType(targetUser.id, roleIdToPause, "user", durationMinutes);
     
     if (!pauseResult) {

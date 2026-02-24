@@ -93,6 +93,7 @@ function getCommands() {
               .addUserOption((o) => o.setName("member").setDescription("User to pause").setRequired(true))
               .addStringOption((o) => o.setName("duration").setDescription("Pause duration (1d, 24h, 1440m, 1440, or 1d 12h)").setRequired(true))
               .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false))
+              .addBooleanOption((o) => o.setName("remove").setDescription("Remove/override pause (admin only, bypasses credits)").setRequired(false))
           )
           .addSubcommand((s) =>
             s
