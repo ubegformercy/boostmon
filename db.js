@@ -607,18 +607,20 @@ async function pauseTimerWithType(userId, roleId, pauseType, durationMinutes = n
     const now = Date.now();
     const remainingMs = Math.max(0, timer.expires_at - now);
     let pauseExpiresAt = null;
+    let pauseDurationMs = 0;
 
     if (durationMinutes && durationMinutes > 0) {
-      pauseExpiresAt = now + (durationMinutes * 60 * 1000);
+      pauseDurationMs = durationMinutes * 60 * 1000;
+      pauseExpiresAt = now + pauseDurationMs;
     }
 
     await pool.query(
       `UPDATE role_timers 
        SET paused = true, paused_at = $3, paused_remaining_ms = $4, pause_type = $5, pause_expires_at = $6, updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $1 AND role_id = $2`,
-      [userId, roleId, now, remainingMs, pauseType, pauseExpiresAt]
+      [userId, roleId, now, pauseDurationMs, pauseType, pauseExpiresAt]
     );
-    return { remainingMs, pauseExpiresAt };
+    return { pauseDurationMs, pauseExpiresAt };
   } catch (err) {
     console.error("pauseTimerWithType error:", err);
     return null;
