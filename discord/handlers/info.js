@@ -38,20 +38,16 @@ module.exports = async function handleInfo(interaction) {
     // Fetch pause credits
     const pauseCredits = await db.getPauseCredits(targetUser.id, guild.id).catch(() => 0);
 
-    // Build timers info (organize by guild)
+    // Build timers info and pause durations separately
     let timerInfo = "None";
+    let pauseInfo = "None";
+    const activeTimerLines = [];
+    const pauseDurationLines = [];
+
     if (allTimers.length > 0) {
-      const timersByGuild = {};
-      
       for (const timer of allTimers) {
         try {
           const timerGuild = interaction.client.guilds.cache.get(timer.guild_id);
-          const guildName = timerGuild?.name || `Guild ${timer.guild_id}`;
-          
-          if (!timersByGuild[guildName]) {
-            timersByGuild[guildName] = [];
-          }
-
           const roleObj = timerGuild?.roles.cache.get(timer.role_id);
           const roleName = roleObj?.name || `Role ${timer.role_id}`;
           
@@ -61,29 +57,24 @@ module.exports = async function handleInfo(interaction) {
           }
 
           const timeText = formatMs(remainingMs);
-          let timerLine;
 
-          if (timer.paused) {
-            const pauseDuration = formatPauseDuration(timer.paused_remaining_ms);
-            timerLine = `• ${roleName}: ${pauseDuration} • ${timeText}`;
+          if (timer.paused && timer.pause_expires_at) {
+            const pauseRemainingMs = Math.max(0, Number(timer.pause_expires_at) - Date.now());
+            const pauseText = formatMs(pauseRemainingMs);
+            activeTimerLines.push(`• ${roleName}: ${timeText}`);
+            pauseDurationLines.push(`• ${roleName}: ${pauseText}`);
           } else {
-            timerLine = `• ${roleName}: ${timeText}`;
+            activeTimerLines.push(`• ${roleName}: ${timeText}`);
           }
-
-          timersByGuild[guildName].push(timerLine);
         } catch (err) {
           console.error(`[INFO] Error processing timer:`, err);
         }
       }
 
-      // Build final timer display
-      const timerLines = [];
-      for (const [guildName, timersList] of Object.entries(timersByGuild)) {
-        timerLines.push(`**${guildName}**`);
-        timerLines.push(...timersList.slice(0, 3)); // Max 3 per guild
+      timerInfo = activeTimerLines.slice(0, 10).join("\n") || "None";
+      if (pauseDurationLines.length > 0) {
+        pauseInfo = pauseDurationLines.slice(0, 10).join("\n");
       }
-
-      timerInfo = timerLines.slice(0, 10).join("\n") || "None"; // Max 10 lines total
     }
 
     // Streak info
@@ -101,8 +92,16 @@ module.exports = async function handleInfo(interaction) {
         { name: "💾 Streak Saves", value: `**${saveTokens}**`, inline: true },
         { name: "💳 Pause Credits", value: `**${pauseCredits}** min`, inline: true },
         { name: "⏱️ Active Timers", value: timerInfo || "None", inline: false }
-      )
-      .setFooter({ text: `BoostMon • Requested by ${interaction.user.username}` });
+      );
+
+    // Add pause durations field if there are any paused timers
+    if (pauseInfo !== "None") {
+      embed.addFields(
+        { name: "⏸️ Pause Durations", value: pauseInfo, inline: false }
+      );
+    }
+
+    embed.setFooter({ text: `BoostMon • Requested by ${interaction.user.username}` });
 
     return interaction.editReply({ embeds: [embed] });
   } catch (err) {
