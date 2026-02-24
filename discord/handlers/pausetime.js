@@ -109,7 +109,7 @@ module.exports = async function handlePausetime(interaction) {
         { name: "Timers Paused", value: `**${pauseCount}** timer(s)${roleInfo}`, inline: false },
         { name: "Duration", value: `**${durationInfo}**`, inline: false }
       )
-      .setFooter({ text: "BoostMon • Global Pause" });
+            .setFooter({ text: "BoostMon • Paused Globally" });
 
     return interaction.editReply({ embeds: [embed] });
   }
@@ -229,10 +229,10 @@ module.exports = async function handlePausetime(interaction) {
       });
     }
 
-    // Pause duration in milliseconds
-    const pauseDurationMs = durationMinutes * 60 * 1000;
-    // Frozen timer time
-    const frozenTimerMs = Number(pauseResult.remainingMs || 0);
+    // Frozen timer time (what's being paused)
+    const frozenTimerMs = Number(pauseResult.timerRemainingMs || 0);
+    // Total remaining pause countdown (from database)
+    const totalPauseDurationMs = Math.max(0, Number(pauseResult.pauseExpiresAt || 0) - Date.now());
 
     const embed = new EmbedBuilder()
       .setColor(0xF1C40F) // yellow = paused
@@ -245,7 +245,8 @@ module.exports = async function handlePausetime(interaction) {
         { name: "Role", value: `${roleObj}`, inline: true },
         { name: "Credits Used", value: `**${durationMinutes}** minute(s)`, inline: true },
         { name: "Issuer's Remaining Credits", value: `**${issuerNewBalance}** minute(s)`, inline: true },
-        { name: "Pause Duration", value: `**${formatMs(pauseDurationMs)}**`, inline: true },
+        { name: "Time Paused At", value: `<t:${Math.floor(Date.now() / 1000)}:t>`, inline: true },
+        { name: "Pause Duration", value: `**${formatMs(totalPauseDurationMs)}**`, inline: true },
         { name: "Frozen Timer", value: `**${formatMs(frozenTimerMs)}**`, inline: true }
       )
       .setFooter({ text: "BoostMon • Paused with Credits" });

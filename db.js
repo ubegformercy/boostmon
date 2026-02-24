@@ -594,6 +594,7 @@ async function resumeTimer(userId, roleId) {
 async function pauseTimerWithType(userId, roleId, pauseType, durationMinutes = null) {
   // Pause a timer with a specific pause type (global, user, role, etc.)
   // HIERARCHY: global > user (can't override global with user pause)
+  // If already paused: ACCUMULATE pause duration
   try {
     const timer = await getTimerForRole(userId, roleId);
     if (!timer) return null;
@@ -606,11 +607,24 @@ async function pauseTimerWithType(userId, roleId, pauseType, durationMinutes = n
 
     const now = Date.now();
     // Store the TIMER remaining time (what gets frozen)
-    const timerRemainingMs = Math.max(0, timer.expires_at - now);
+    // If already paused, use the already frozen time; otherwise calculate from expires_at
+    const timerRemainingMs = timer.paused 
+      ? Math.max(0, Number(timer.paused_remaining_ms))
+      : Math.max(0, timer.expires_at - now);
+    
     let pauseExpiresAt = null;
 
     if (durationMinutes && durationMinutes > 0) {
-      pauseExpiresAt = now + (durationMinutes * 60 * 1000);
+      const newPauseDurationMs = durationMinutes * 60 * 1000;
+      
+      // If already paused, ADD to existing pause duration; otherwise start fresh
+      if (timer.paused && timer.pause_expires_at) {
+        // Accumulate: extend the existing pause_expires_at
+        pauseExpiresAt = Number(timer.pause_expires_at) + newPauseDurationMs;
+      } else {
+        // New pause: set from now
+        pauseExpiresAt = now + newPauseDurationMs;
+      }
     }
 
     await pool.query(
@@ -619,7 +633,7 @@ async function pauseTimerWithType(userId, roleId, pauseType, durationMinutes = n
        WHERE user_id = $1 AND role_id = $2`,
       [userId, roleId, now, timerRemainingMs, pauseType, pauseExpiresAt]
     );
-    return { timerRemainingMs, pauseExpiresAt };
+    return { timerRemainingMs, pauseExpiresAt, pausedAt: timer.paused_at || now };
   } catch (err) {
     console.error("pauseTimerWithType error:", err);
     return null;
