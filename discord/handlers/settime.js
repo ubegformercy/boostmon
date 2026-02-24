@@ -2,7 +2,7 @@
 const { EmbedBuilder, ChannelType, PermissionFlagsBits } = require("discord.js");
 const db = require("../../db");
 const { canManageRole } = require("../../utils/permissions");
-const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
+const { BOOSTMON_ICON_URL, parseDuration } = require("../../utils/helpers");
 const { setMinutesForRole } = require("../../services/timer");
 
 module.exports = async function handleSettime(interaction) {
@@ -13,9 +13,17 @@ module.exports = async function handleSettime(interaction) {
   }
 
   const targetUser = interaction.options.getUser("user", true);
-  const minutes = interaction.options.getInteger("minutes", true);
+  const timeInput = interaction.options.getString("time", true);
   const roleInput = interaction.options.getString("role", true);
   const channelOpt = interaction.options.getChannel("channel"); // optional
+
+  // Parse time input (1d, 24h, 1440m, 1440, or 1d 12h 30m)
+  const minutes = parseDuration(timeInput);
+  if (!minutes || minutes < 1) {
+    return interaction.editReply({
+      content: `❌ Invalid duration format: **${timeInput}**\n\nValid formats:\n\`1d\` • \`24h\` • \`1440m\` • \`1440\` • \`1d 12h 30m\``
+    });
+  }
 
   const guild = interaction.guild;
 

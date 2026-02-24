@@ -2,7 +2,7 @@
 const { EmbedBuilder } = require("discord.js");
 const db = require("../../db");
 const { canManageRole } = require("../../utils/permissions");
-const { BOOSTMON_ICON_URL, formatMs } = require("../../utils/helpers");
+const { BOOSTMON_ICON_URL, formatMs, parseDuration } = require("../../utils/helpers");
 const { removeMinutesForRole } = require("../../services/timer");
 
 module.exports = async function handleRemovetime(interaction) {
@@ -13,32 +13,38 @@ module.exports = async function handleRemovetime(interaction) {
   }
 
   const targetUser = interaction.options.getUser("user", true);
-  const minutes = interaction.options.getInteger("minutes", true);
-  const roleInput = interaction.options.getString("role"); // optional
+  const timeInput = interaction.options.getString("time", true);
+  const roleInput = interaction.options.getString("role", true); // now mandatory
+
+  // Parse time input (1d, 24h, 1440m, 1440, or 1d 12h 30m)
+  const minutes = parseDuration(timeInput);
+  if (!minutes || minutes < 1) {
+    return interaction.editReply({
+      content: `❌ Invalid duration format: **${timeInput}**\n\nValid formats:\n\`1d\` • \`24h\` • \`1440m\` • \`1440\` • \`1d 12h 30m\``
+    });
+  }
 
   const guild = interaction.guild;
   const member = await guild.members.fetch(targetUser.id);
 
-  // Parse role from input if provided
+  // Parse role from input (now mandatory)
   let roleOption = null;
-  if (roleInput) {
-    // Try to extract role ID from mention format <@&123456>
-    const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
-    if (mentionMatch) {
-      roleOption = guild.roles.cache.get(mentionMatch[1]);
-    } else if (/^\d+$/.test(roleInput)) {
-      // Try as direct ID
-      roleOption = guild.roles.cache.get(roleInput);
-    } else {
-      // Try to find by name
-      roleOption = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
-    }
+  // Try to extract role ID from mention format <@&123456>
+  const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
+  if (mentionMatch) {
+    roleOption = guild.roles.cache.get(mentionMatch[1]);
+  } else if (/^\d+$/.test(roleInput)) {
+    // Try as direct ID
+    roleOption = guild.roles.cache.get(roleInput);
+  } else {
+    // Try to find by name
+    roleOption = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
+  }
 
-    if (!roleOption) {
-      return interaction.editReply({
-        content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
-      });
-    }
+  if (!roleOption) {
+    return interaction.editReply({
+      content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
+    });
   }
 
   const timers = await db.getTimersForUser(targetUser.id);
@@ -56,76 +62,21 @@ module.exports = async function handleRemovetime(interaction) {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  // Decide which role to edit
-  let roleIdToEdit = null;
+  const roleIdToEdit = roleOption.id;
 
-  if (roleOption) {
-    roleIdToEdit = roleOption.id;
+  if (!timedRoleIds.includes(roleIdToEdit)) {
+    const embed = new EmbedBuilder()
+      .setColor(0xF1C40F) // yellow
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("No Saved Time For That Role")
+      .setTimestamp(new Date())
+      .addFields(
+        { name: "Target User", value: `${targetUser}`, inline: true },
+        { name: "Role", value: `${roleOption}`, inline: true }
+      )
+      .setFooter({ text: "BoostMon" });
 
-    if (!timedRoleIds.includes(roleIdToEdit)) {
-      const embed = new EmbedBuilder()
-        .setColor(0xF1C40F) // yellow
-        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle("No Saved Time For That Role")
-        .setTimestamp(new Date())
-        .addFields(
-          { name: "Target User", value: `${targetUser}`, inline: true },
-          { name: "Role", value: `${roleOption}`, inline: true }
-        )
-        .setFooter({ text: "BoostMon" });
-
-      return interaction.editReply({ embeds: [embed] });
-    }
-  } else {
-    const matching = timedRoleIds.filter((rid) => member.roles.cache.has(rid));
-
-    if (matching.length === 1) {
-      roleIdToEdit = matching[0];
-    } else if (matching.length === 0) {
-      if (timedRoleIds.length === 1) {
-        roleIdToEdit = timedRoleIds[0];
-      } else {
-        const possible = timedRoleIds
-          .map((rid) => guild.roles.cache.get(rid)?.name || rid)
-          .slice(0, 15)
-          .join(", ");
-
-        const embed = new EmbedBuilder()
-          .setColor(0xF1C40F) // yellow
-          .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-          .setTitle("Please Specify a Role")
-          .setTimestamp(new Date())
-          .addFields(
-            { name: "Target User", value: `${targetUser}`, inline: true },
-            { name: "Time To Remove", value: `${minutes} minute(s)`, inline: true },
-            { name: "Reason", value: "Multiple timed roles are stored but none clearly matches current roles.", inline: false },
-            { name: "Possible Stored Roles", value: possible || "None", inline: false }
-          )
-          .setFooter({ text: "BoostMon • Select a Role" });
-
-        return interaction.editReply({ embeds: [embed] });
-      }
-    } else {
-      const possible = matching
-        .map((rid) => guild.roles.cache.get(rid)?.name || rid)
-        .slice(0, 15)
-        .join(", ");
-
-      const embed = new EmbedBuilder()
-        .setColor(0xF1C40F) // yellow
-        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle("Please Specify a Role")
-        .setTimestamp(new Date())
-        .addFields(
-          { name: "Target User", value: `${targetUser}`, inline: true },
-          { name: "Time To Remove", value: `${minutes} minute(s)`, inline: true },
-          { name: "Reason", value: "User currently has multiple timed roles.", inline: false },
-          { name: "Possible Roles", value: possible || "None", inline: false }
-        )
-        .setFooter({ text: "BoostMon • Select a Role" });
-
-      return interaction.editReply({ embeds: [embed] });
-    }
+    return interaction.editReply({ embeds: [embed] });
   }
 
   const roleObj = guild.roles.cache.get(roleIdToEdit);

@@ -12,8 +12,8 @@ function getCommands() {
           .setName("set")
           .setDescription("Set a user's timed role time to exactly N minutes from now and assign the role.")
           .addUserOption((o) => o.setName("user").setDescription("User to set time for").setRequired(true))
-          .addIntegerOption((o) =>
-            o.setName("minutes").setDescription("Minutes to set").setRequired(true).setMinValue(1)
+          .addStringOption((o) =>
+            o.setName("time").setDescription("Duration: 1d, 24h, 1440m, 1440, or 1d 12h 30m").setRequired(true)
           )
           .addStringOption((o) =>
             o
@@ -35,14 +35,14 @@ function getCommands() {
           .setName("add")
           .setDescription("Add minutes to a user's timed role and assign the role.")
           .addUserOption((o) => o.setName("user").setDescription("User to add time to").setRequired(true))
-          .addIntegerOption((o) =>
-            o.setName("minutes").setDescription("Minutes to add").setRequired(true).setMinValue(1)
+          .addStringOption((o) =>
+            o.setName("time").setDescription("Duration: 1d, 24h, 1440m, 1440, or 1d 12h 30m").setRequired(true)
           )
           .addStringOption((o) =>
             o
               .setName("role")
-              .setDescription("Role to add time to (optional, must be configured via /setup timer-roles)")
-              .setRequired(false)
+              .setDescription("Role to add time to (must be configured via /setup timer-roles)")
+              .setRequired(true)
               .setAutocomplete(true)
           )
       )
@@ -51,14 +51,14 @@ function getCommands() {
           .setName("remove")
           .setDescription("Remove minutes from a user's timed role.")
           .addUserOption((o) => o.setName("user").setDescription("User to modify").setRequired(true))
-          .addIntegerOption((o) =>
-            o.setName("minutes").setDescription("Minutes to remove").setRequired(true).setMinValue(1)
+          .addStringOption((o) =>
+            o.setName("time").setDescription("Duration: 1d, 24h, 1440m, 1440, or 1d 12h 30m").setRequired(true)
           )
           .addStringOption((o) =>
             o
               .setName("role")
-              .setDescription("Role to remove time from (optional, must be configured via /setup timer-roles)")
-              .setRequired(false)
+              .setDescription("Role to remove time from (must be configured via /setup timer-roles)")
+              .setRequired(true)
               .setAutocomplete(true)
           )
       )
