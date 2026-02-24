@@ -32,8 +32,22 @@ module.exports = async function handleInfo(interaction) {
     // Fetch user's streak info
     const streak = await db.getUserStreak(guild.id, targetUser.id).catch(() => null);
     
-    // Fetch user's timers across ALL guilds
+    // Get user's timers across ALL guilds
     const allTimers = await db.getTimersForUser(targetUser.id).catch(() => []);
+    
+    // Check if user has any ACTIVE (non-paused, non-expired) timers in current guild
+    const now = Date.now();
+    const activeTimersInGuild = allTimers.filter(t => 
+      t.guild_id === guild.id && 
+      !t.paused && 
+      t.expires_at > now
+    );
+    
+    // Get streak - but if no active timers, should show 0
+    let streak = await db.getUserStreak(guild.id, targetUser.id).catch(() => null);
+    if (activeTimersInGuild.length === 0) {
+      streak = null; // No active timers = no streak
+    }
     
     // Fetch pause credits
     const pauseCredits = await db.getPauseCredits(targetUser.id, guild.id).catch(() => 0);
@@ -88,7 +102,7 @@ module.exports = async function handleInfo(interaction) {
       .setTitle(userTitle)
       .setTimestamp(new Date())
       .addFields(
-        { name: "🔥 Boost Streak", value: `**${streakDays}** day(s)`, inline: true },
+        { name: "🔥 Boost Streak", value: `**${streakDays}** day(s) ${activeTimersInGuild.length > 0 ? '✅' : '❌'}`, inline: true },
         { name: "💾 Streak Saves", value: `**${saveTokens}**`, inline: true },
         { name: "💳 Pause Credits", value: `**${pauseCredits}** min`, inline: true },
         { name: "⏱️ Active Timers", value: timerInfo || "None", inline: false }
