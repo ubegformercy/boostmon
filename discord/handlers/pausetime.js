@@ -2,7 +2,7 @@
 const { EmbedBuilder } = require("discord.js");
 const db = require("../../db");
 const { canManageRole } = require("../../utils/permissions");
-const { BOOSTMON_ICON_URL, formatMs } = require("../../utils/helpers");
+const { BOOSTMON_ICON_URL, formatMs, parseDuration } = require("../../utils/helpers");
 
 module.exports = async function handlePausetime(interaction) {
   await interaction.deferReply().catch(() => null);
@@ -51,7 +51,16 @@ module.exports = async function handlePausetime(interaction) {
     return interaction.editReply({ embeds: [embed] });
   }
 
-  const durationMinutes = interaction.options.getInteger("duration", true); // required
+  // Parse duration for global and user pause
+  const durationInput = interaction.options.getString("duration", true);
+  const durationMinutes = parseDuration(durationInput);
+  
+  if (durationMinutes === null) {
+    return interaction.editReply({
+      content: `❌ Invalid duration format: **${durationInput}**\n\nValid formats:\n• \`1440\` (minutes)\n• \`1d\`, \`24h\`, \`1440m\` (with units)\n• \`1d 12h\` (combined)\n\nRange: 1 minute to 1440 minutes (24 hours)`
+    });
+  }
+
   const roleOption = interaction.options.getRole("role", false); // optional
 
   // ── GLOBAL PAUSE (pause all or all with a specific role) ──
@@ -107,7 +116,7 @@ module.exports = async function handlePausetime(interaction) {
 
   // ── USER PAUSE (pause specific user's timer(s)) ──
   if (subcommand === "user") {
-    const targetUser = interaction.options.getUser("user", true); // required
+    const targetUser = interaction.options.getUser("member", true); // required
     const issuerId = interaction.user.id; // Person running the command
 
     // Check if issuer has enough pause credits

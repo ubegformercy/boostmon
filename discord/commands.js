@@ -90,8 +90,8 @@ function getCommands() {
             s
               .setName("user")
               .setDescription("Pause a specific user's timed role timer")
-              .addUserOption((o) => o.setName("user").setDescription("User to pause").setRequired(true))
-              .addIntegerOption((o) => o.setName("duration").setDescription("Pause duration in minutes (required)").setRequired(true).setMinValue(1).setMaxValue(1440))
+              .addUserOption((o) => o.setName("member").setDescription("User to pause").setRequired(true))
+              .addStringOption((o) => o.setName("duration").setDescription("Pause duration (1d, 24h, 1440m, 1440, or 1d 12h)").setRequired(true))
               .addRoleOption((o) => o.setName("role").setDescription("Specific role to pause (optional, pauses all if omitted)").setRequired(false))
           )
           .addSubcommand((s) =>

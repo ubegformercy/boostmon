@@ -49,6 +49,36 @@ function friendlyDiscordError(err) {
   return `${rawMsg}${code}${status}`;
 }
 
+function parseDuration(input) {
+  // Parse flexible duration formats
+  // Accepts: 1440, 1440m, 24h, 1d, 1d 12h, etc.
+  if (!input || input.trim() === "") return null;
+
+  let totalMinutes = 0;
+  const parts = input.toLowerCase().trim().split(/\s+/);
+
+  for (const part of parts) {
+    const match = part.match(/^(\d+(?:\.\d+)?)([dhm]?)$/);
+    if (!match) return null; // Invalid format
+
+    const value = parseFloat(match[1]);
+    const unit = match[2] || "m"; // Default to minutes
+
+    if (unit === "d") {
+      totalMinutes += value * 1440; // 1 day = 1440 minutes
+    } else if (unit === "h") {
+      totalMinutes += value * 60; // 1 hour = 60 minutes
+    } else if (unit === "m") {
+      totalMinutes += value; // minutes
+    }
+  }
+
+  // Validate range: 1 minute to 1440 minutes (24 hours)
+  if (totalMinutes < 1 || totalMinutes > 1440) return null;
+  
+  return Math.floor(totalMinutes);
+}
+
 module.exports = {
   BOOSTMON_ICON_URL,
   ACTIVE_GREEN,
@@ -56,4 +86,5 @@ module.exports = {
   formatMs,
   formatPauseDuration,
   friendlyDiscordError,
+  parseDuration,
 };
