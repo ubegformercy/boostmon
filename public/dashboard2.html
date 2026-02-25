@@ -794,32 +794,36 @@
 
         async function loadGuildInfo() {
             try {
-                const res = await fetch(`/api/guild?guildId=${STATE.guildId}`, {
+                // Get guild name from Discord client
+                const res = await fetch(`/api/dropdown-data?guildId=${STATE.guildId}`, {
                     credentials: 'include'
                 });
                 if (res.ok) {
-                    const data = await res.json();
-                    document.getElementById('guildName').textContent = data.name;
+                    // Try to get guild info - for now just use the guild ID
+                    document.getElementById('guildName').textContent = `Guild: ${STATE.guildId}`;
                 }
             } catch (err) {
                 console.error('[loadGuildInfo] Error:', err);
+                document.getElementById('guildName').textContent = `Guild: ${STATE.guildId}`;
             }
         }
 
         async function loadChannels() {
             try {
-                const res = await fetch(`/api/channels?guildId=${STATE.guildId}`, {
+                const res = await fetch(`/api/dropdown-data?guildId=${STATE.guildId}`, {
                     credentials: 'include'
                 });
                 if (res.ok) {
-                    const channels = await res.json();
+                    const data = await res.json();
                     const select = document.getElementById('warningChannel');
-                    channels.forEach(ch => {
-                        const option = document.createElement('option');
-                        option.value = ch.id;
-                        option.textContent = `#${ch.name}`;
-                        select.appendChild(option);
-                    });
+                    if (data.channels && data.channels.length > 0) {
+                        data.channels.forEach(ch => {
+                            const option = document.createElement('option');
+                            option.value = ch.id;
+                            option.textContent = `#${ch.name}`;
+                            select.appendChild(option);
+                        });
+                    }
                 }
             } catch (err) {
                 console.error('[loadChannels] Error:', err);
@@ -828,20 +832,22 @@
 
         async function loadRoles() {
             try {
-                const res = await fetch(`/api/roles?guildId=${STATE.guildId}`, {
+                const res = await fetch(`/api/dropdown-data?guildId=${STATE.guildId}`, {
                     credentials: 'include'
                 });
                 if (res.ok) {
-                    const roles = await res.json();
+                    const data = await res.json();
                     const selects = [document.getElementById('roleSelect'), document.getElementById('roleFilter')];
-                    selects.forEach(select => {
-                        roles.forEach(role => {
-                            const option = document.createElement('option');
-                            option.value = role.id;
-                            option.textContent = role.name;
-                            select.appendChild(option);
+                    if (data.roles && data.roles.length > 0) {
+                        selects.forEach(select => {
+                            data.roles.forEach(role => {
+                                const option = document.createElement('option');
+                                option.value = role.id;
+                                option.textContent = role.name;
+                                select.appendChild(option);
+                            });
                         });
-                    });
+                    }
                 }
             } catch (err) {
                 console.error('[loadRoles] Error:', err);
@@ -850,11 +856,23 @@
 
         async function loadTimers() {
             try {
-                const res = await fetch(`/api/timers?guildId=${STATE.guildId}`, {
+                const res = await fetch(`/api/dashboard?guildId=${STATE.guildId}`, {
                     credentials: 'include'
                 });
                 if (res.ok) {
-                    STATE.allTimers = await res.json();
+                    const data = await res.json();
+                    // Transform the timer data to match our expected format
+                    STATE.allTimers = (data.timers || []).map(timer => ({
+                        id: timer.id,
+                        userId: timer.user_id,
+                        userName: timer.user_name || timer.user_id,
+                        userAvatar: timer.user_avatar || 'https://discord.com/assets/1f0bfc0865d324c2587920a7d80c609b.png',
+                        roleId: timer.role_id,
+                        roleName: timer.role_name || timer.role_id,
+                        expiresAt: timer.expires_at,
+                        isPaused: timer.is_paused || false,
+                        pausedAt: timer.paused_at
+                    }));
                     renderTimersTable();
                 }
             } catch (err) {
@@ -1032,17 +1050,17 @@
                 const statusBadge = getStatusBadge(timer.isPaused, timer.expiresAt);
 
                 html += '<tr>';
-                html += `<td><div class="user-row"><img src="${timer.userAvatar}" class="user-avatar-sm" alt="Avatar">${timer.userName}</div></td>`;
+                html += `<td><div class="user-row"><img src="${timer.userAvatar}" class="user-avatar-sm" alt="Avatar" onerror="this.src='https://discord.com/assets/1f0bfc0865d324c2587920a7d80c609b.png'">${timer.userName}</div></td>`;
                 html += `<td>${timer.roleName}</td>`;
                 html += `<td><span class="time-badge ${timeBadgeClass}">${timeRemaining}</span></td>`;
                 html += `<td><span class="status-badge ${statusBadge.class}">${statusBadge.text}</span></td>`;
                 html += '<td><div class="action-buttons">';
                 if (!timer.isPaused) {
-                    html += `<button class="btn-action btn-pause" onclick="pauseTimer('${timer.id}')">Pause</button>`;
+                    html += `<button class="btn-action btn-pause" onclick="pauseTimer('${timer.userId}', '${timer.roleId}')">Pause</button>`;
                 } else {
-                    html += `<button class="btn-action btn-resume" onclick="resumeTimer('${timer.id}')">Resume</button>`;
+                    html += `<button class="btn-action btn-resume" onclick="resumeTimer('${timer.userId}', '${timer.roleId}')">Resume</button>`;
                 }
-                html += `<button class="btn-action btn-delete" onclick="deleteTimer('${timer.id}')">Delete</button>`;
+                html += `<button class="btn-action btn-delete" onclick="deleteTimer('${timer.id}', '${timer.userId}', '${timer.roleId}')">Delete</button>`;
                 html += '</div></td>';
                 html += '</tr>';
             });
@@ -1092,13 +1110,13 @@
         // TIMER ACTIONS
         // ============================================
 
-        async function pauseTimer(timerId) {
+        async function pauseTimer(userId, roleId) {
             try {
-                const res = await fetch(`/api/timer/pause?guildId=${STATE.guildId}`, {
+                const res = await fetch(`/api/timer/pause-toggle?guildId=${STATE.guildId}`, {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ timerId })
+                    body: JSON.stringify({ userId, roleId })
                 });
 
                 if (res.ok) {
@@ -1111,13 +1129,13 @@
             }
         }
 
-        async function resumeTimer(timerId) {
+        async function resumeTimer(userId, roleId) {
             try {
-                const res = await fetch(`/api/timer/resume?guildId=${STATE.guildId}`, {
+                const res = await fetch(`/api/timer/pause-toggle?guildId=${STATE.guildId}`, {
                     method: 'POST',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ timerId })
+                    body: JSON.stringify({ userId, roleId })
                 });
 
                 if (res.ok) {
@@ -1130,12 +1148,12 @@
             }
         }
 
-        async function deleteTimer(timerId) {
+        async function deleteTimer(timerId, userId, roleId) {
             if (!confirm('Are you sure you want to delete this timer?')) return;
 
             try {
                 const res = await fetch(`/api/timer/delete?guildId=${STATE.guildId}`, {
-                    method: 'POST',
+                    method: 'DELETE',
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ timerId })
