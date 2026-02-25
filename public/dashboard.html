@@ -1505,13 +1505,18 @@
                                 <div class="form-group">
                                     <label for="newUserSearchTab">User *</label>
                                     <div class="dropdown-wrapper">
-                                        <input type="text" id="newUserSearchTab" class="dropdown-search-input" placeholder="Search users or paste Discord ID..." autocomplete="off">
-                                        <div class="dropdown-list" id="newUserListTab"></div>
+                                        <input type="text" id="newUserSearchTab" class="dropdown-search-input" placeholder="Paste Discord User ID (18-20 digits)..." autocomplete="off" onkeypress="if(event.key==='Enter') lookupUserTab()">
+                                        <div id="userCardDisplayTab" style="margin-top: 10px; display: none;">
+                                            <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onclick="selectUserTab()" onmouseover="this.style.background='#e8e8e8'" onmouseout="this.style.background='#f5f5f5'">
+                                                <img id="userAvatarImgTab" src="" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+                                                <div>
+                                                    <div id="userNameDisplayTab" style="font-weight: bold; color: #333;"></div>
+                                                    <div id="userIdDisplayTab" style="font-size: 12px; color: #999;"></div>
+                                                </div>
+                                            </div>
+                                        </div>
                                         <input type="hidden" id="newUserTab" required>
                                     </div>
-                                    <span id="memberCountBadgeTab" style="margin-top: 6px; padding: 4px 8px; background: #e8f4f8; border-radius: 4px; font-size: 11px; color: #0066cc; display: none;">
-                                        📊 <span id="memberCountTab">0</span> members cached
-                                    </span>
                                 </div>
                                 <div class="form-group">
                                     <label for="newMinutesTab">Minutes *</label>
@@ -2204,6 +2209,72 @@
             const userId = document.getElementById('selectedUserId').value;
             if (userId) {
                 showAlert('User selected! Click "Add Entry" to create the timer.', 'success');
+            }
+        }
+
+        async function lookupUserTab() {
+            const userId = document.getElementById('newUserSearchTab').value.trim();
+            
+            if (!userId) {
+                showAlert('Please enter a Discord ID', 'error');
+                return;
+            }
+
+            // Validate Discord ID format (18-20 digits)
+            if (!/^\d{18,20}$/.test(userId)) {
+                showAlert('Invalid Discord ID format. Must be 18-20 digits.', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/search-user?userId=${userId}`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        showAlert('User not found', 'error');
+                    } else {
+                        throw new Error(`Error: ${response.status}`);
+                    }
+                    return;
+                }
+
+                const userData = await response.json();
+                displayUserCardTab(userData);
+            } catch (err) {
+                console.error('Error looking up user:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            }
+        }
+
+        function displayUserCardTab(userData) {
+            const cardContainer = document.getElementById('userCardDisplayTab');
+            const avatarImg = document.getElementById('userAvatarImgTab');
+            const nameDisplay = document.getElementById('userNameDisplayTab');
+            const idDisplay = document.getElementById('userIdDisplayTab');
+            const hiddenInput = document.getElementById('newUserTab');
+
+            // Build avatar URL from Discord CDN
+            let avatarUrl = `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png`;
+            
+            // Build display name
+            const displayText = userData.displayName ? 
+                `${userData.username} (${userData.displayName})` : 
+                userData.username;
+
+            avatarImg.src = avatarUrl;
+            nameDisplay.textContent = displayText;
+            idDisplay.textContent = userData.id;
+            hiddenInput.value = userData.id;
+
+            cardContainer.style.display = 'block';
+        }
+
+        function selectUserTab() {
+            const userId = document.getElementById('newUserTab').value;
+            if (userId) {
+                showAlert('User selected!', 'success');
             }
         }
 
@@ -4290,7 +4361,7 @@
                     loadMemberCount()
                 ]);
                 initSearchableDropdown(); // Initialize the searchable dropdown for GRID VIEW
-                initSearchableDropdownTab(); // Initialize the searchable dropdown for TABBED VIEW
+                // initSearchableDropdownTab(); // DISABLED: Using direct Discord ID lookup instead
                 // REMOVED: setInterval(loadDashboard, 30000) - was refreshing dashboard every 30s, disrupting user filters
                 // Users can now manually refresh via browser refresh or UI button if needed
                 setInterval(loadDropdownData, 60000); // Refresh dropdowns every minute
@@ -4489,8 +4560,17 @@
             }).join('');
         }
 
-        // Select user for TABBED VIEW
-        function selectUserTab(userId, username, displayName) {
+        // Select user for TABBED VIEW (Discord ID lookup)
+        function selectUserTab() {
+            const userId = document.getElementById('newUserTab').value;
+            if (userId) {
+                showAlert('User selected!', 'success');
+            }
+        }
+
+        // OLD DROPDOWN-BASED selectUserTab - DISABLED (no longer used, replaced by direct ID lookup above)
+        /*
+        function selectUserTabOld(userId, username, displayName) {
             const searchInput = document.getElementById('newUserSearchTab');
             const hiddenInput = document.getElementById('newUserTab');
             const dropdown = document.getElementById('newUserListTab');
@@ -4513,6 +4593,7 @@
                 dropdown.classList.remove('active');
             }
         }
+        */
 
     </script>
 </body>
