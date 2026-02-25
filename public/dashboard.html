@@ -2219,6 +2219,8 @@
         }
 
         function onUserIdInput(value) {
+            console.log('[onUserIdInput] Input received:', value);
+            
             // Clear existing timeout
             if (lookupTimerTab) {
                 clearTimeout(lookupTimerTab);
@@ -2226,12 +2228,15 @@
 
             // Hide card if input is empty
             if (!value.trim()) {
+                console.log('[onUserIdInput] Empty input, hiding card');
                 document.getElementById('userCardDisplayTab').style.display = 'none';
                 return;
             }
 
+            console.log('[onUserIdInput] Setting debounce timeout for:', value.trim());
             // Debounce API call by 500ms
             lookupTimerTab = setTimeout(() => {
+                console.log('[onUserIdInput] Debounce timeout fired, calling lookupUserTab');
                 lookupUserTab(value.trim());
             }, 500);
         }
