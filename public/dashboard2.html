@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BoostMon - Timer Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        header {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            color: #667eea;
+            font-size: 24px;
+        }
+
+        .header-info {
+            display: flex;
+            gap: 30px;
+            align-items: center;
+        }
+
+        .guild-info {
+            text-align: right;
+        }
+
+        .guild-info label {
+            font-size: 12px;
+            color: #999;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .guild-info p {
+            font-size: 14px;
+            color: #333;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .version-label {
+            font-size: 11px;
+            color: #999;
+            background: #f5f5f5;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .logout-btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .logout-btn:hover {
+            background: #ff5252;
+        }
+
+        /* Alert Messages */
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .alert-close {
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
+
+        .alert-close:hover {
+            opacity: 1;
+        }
+
+        /* Main Layout */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Card Styling */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        .card h2 {
+            color: #667eea;
+            font-size: 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* User Lookup Section */
+        .user-lookup-section {
+            grid-column: 1 / -1;
+        }
+
+        .lookup-input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .lookup-input-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .lookup-input {
+            padding: 12px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .lookup-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* User Card Display */
+        .user-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            opacity: 0;
+            height: 0;
+            overflow: hidden;
+        }
+
+        .user-card.visible {
+            opacity: 1;
+            height: auto;
+            margin-top: 12px;
+        }
+
+        .user-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 12px rgba(0,0,0,0.15);
+        }
+
+        .user-card-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .user-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .user-info h3 {
+            font-size: 14px;
+            color: #333;
+            font-weight: 600;
+            margin: 0;
+        }
+
+        .user-info p {
+            font-size: 12px;
+            color: #666;
+            margin: 2px 0 0 0;
+        }
+
+        .select-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+
+        .select-button:hover {
+            background: #5568d3;
+            transform: scale(1.05);
+        }
+
+        /* Timer Entry Form */
+        .timer-form-section {
+            grid-column: 1 / -1;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .form-group label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .form-input, .form-select {
+            padding: 10px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-input:disabled, .form-select:disabled {
+            background: #f5f5f5;
+            color: #999;
+            cursor: not-allowed;
+        }
+
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+
+        /* Timers List Section */
+        .timers-list-section {
+            grid-column: 1 / -1;
+        }
+
+        .list-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        /* Timers Table */
+        .timers-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        .timers-table thead {
+            background: #f5f5f5;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .timers-table th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 12px;
+        }
+
+        .timers-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+            color: #333;
+        }
+
+        .timers-table tbody tr:hover {
+            background: #f9f9f9;
+        }
+
+        .user-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .user-avatar-sm {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #e0e0e0;
+        }
+
+        .time-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .time-badge.critical {
+            background: #ffe0e0;
+            color: #c33;
+        }
+
+        .time-badge.warning {
+            background: #fff3cd;
+            color: #997404;
+        }
+
+        .time-badge.ok {
+            background: #d1e7dd;
+            color: #0f5132;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-badge.active {
+            background: #d1e7dd;
+            color: #0f5132;
+        }
+
+        .status-badge.paused {
+            background: #fff3cd;
+            color: #997404;
+        }
+
+        .status-badge.expired {
+            background: #ffe0e0;
+            color: #c33;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 6px;
+        }
+
+        .btn-action {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-weight: 600;
+        }
+
+        .btn-pause {
+            background: #ffd93d;
+            color: #333;
+        }
+
+        .btn-pause:hover {
+            background: #ffcc00;
+        }
+
+        .btn-resume {
+            background: #6bcf7f;
+            color: white;
+        }
+
+        .btn-resume:hover {
+            background: #52b88a;
+        }
+
+        .btn-delete {
+            background: #ff6b6b;
+            color: white;
+        }
+
+        .btn-delete:hover {
+            background: #ff5252;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 12px;
+        }
+
+        .empty-state p {
+            font-size: 14px;
+            margin: 0;
+        }
+
+        /* Loading State */
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            header {
+                flex-direction: column;
+                gap: 16px;
+                text-align: center;
+            }
+
+            .header-info {
+                flex-direction: column;
+                gap: 16px;
+                width: 100%;
+            }
+
+            .guild-info {
+                text-align: center;
+            }
+
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .timers-table {
+                font-size: 12px;
+            }
+
+            .timers-table th, .timers-table td {
+                padding: 8px;
+            }
+
+            .action-buttons {
+                flex-direction: column;
+                width: 100%;
+            }
+
+            .btn-action {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div>
+                <h1>⏱️ BoostMon - Timer Dashboard</h1>
+            </div>
+            <div class="header-info">
+                <div class="guild-info">
+                    <label>Current Guild</label>
+                    <p id="guildName">Loading...</p>
+                </div>
+                <div class="guild-info">
+                    <label>Version</label>
+                    <div class="version-label" id="versionLabel">v?.?.?</div>
+                </div>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </header>
+
+        <!-- Alerts Container -->
+        <div id="alertsContainer"></div>
+
+        <!-- User Lookup Section -->
+        <div class="card user-lookup-section">
+            <h2>🔍 Find User</h2>
+            <div class="lookup-input-group">
+                <label for="userIdInput">Discord User ID (searches this guild)</label>
+                <input 
+                    type="text" 
+                    id="userIdInput" 
+                    class="lookup-input" 
+                    placeholder="Paste Discord User ID (18-20 digits)..."
+                    autocomplete="off"
+                >
+                <div id="userCardContainer" class="user-card">
+                    <div class="user-card-content">
+                        <img id="userAvatar" class="user-avatar" src="" alt="Avatar">
+                        <div class="user-info">
+                            <h3 id="userName"></h3>
+                            <p id="userDiscriminator"></p>
+                        </div>
+                    </div>
+                    <button class="select-button" onclick="selectUser()" title="Add this user">➕</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Timer Entry Form -->
+        <div class="card timer-form-section">
+            <h2>➕ Add New Timer</h2>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="selectedUserId">Selected User *</label>
+                    <input 
+                        type="text" 
+                        id="selectedUserId" 
+                        class="form-input" 
+                        placeholder="Select user above"
+                        disabled
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="timerMinutes">Minutes *</label>
+                    <input 
+                        type="number" 
+                        id="timerMinutes" 
+                        class="form-input" 
+                        placeholder="e.g., 30"
+                        min="1"
+                        max="43200"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="warningChannel">Warning Channel</label>
+                    <select id="warningChannel" class="form-select">
+                        <option value="">DM warnings</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="roleSelect">Role *</label>
+                    <select id="roleSelect" class="form-select">
+                        <option value="">Select a role...</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" onclick="resetForm()">Clear</button>
+                <button class="btn btn-primary" onclick="submitTimer()" id="submitBtn">➕ Add Timer</button>
+            </div>
+        </div>
+
+        <!-- Timers List Section -->
+        <div class="card timers-list-section">
+            <h2>⏰ Active Timers</h2>
+            <div class="list-controls">
+                <div class="form-group">
+                    <label for="roleFilter">Filter by Role</label>
+                    <select id="roleFilter" class="form-select" onchange="filterTimers()">
+                        <option value="">All Roles</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="statusFilter">Filter by Status</label>
+                    <select id="statusFilter" class="form-select" onchange="filterTimers()">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="paused">Paused</option>
+                        <option value="expired">Expired</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="searchInput">Search User</label>
+                    <input 
+                        type="text" 
+                        id="searchInput" 
+                        class="form-input" 
+                        placeholder="Username or ID..."
+                        onkeyup="filterTimers()"
+                    >
+                </div>
+            </div>
+            <div id="timersContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIG & INITIALIZATION
+        // ============================================
+        
+        const STATE = {
+            guildId: null,
+            selectedUserId: null,
+            selectedUserData: null,
+            debounceTimer: null,
+            allTimers: [],
+            filteredTimers: []
+        };
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('[Dashboard2] Initializing...');
+            await initializeDashboard();
+        });
+
+        // ============================================
+        // INITIALIZATION FUNCTIONS
+        // ============================================
+
+        async function initializeDashboard() {
+            try {
+                // Check authentication
+                const authCheck = await fetch('/auth/user', { credentials: 'include' });
+                if (!authCheck.ok) {
+                    window.location.href = '/login.html';
+                    return;
+                }
+
+                // Get guild ID from URL
+                const params = new URLSearchParams(window.location.search);
+                STATE.guildId = params.get('guild') || sessionStorage.getItem('guildId');
+                
+                if (!STATE.guildId) {
+                    showAlert('Guild ID not found. Please select a guild.', 'error');
+                    return;
+                }
+
+                sessionStorage.setItem('guildId', STATE.guildId);
+
+                // Load version
+                await loadVersion();
+
+                // Load data
+                await loadGuildInfo();
+                await loadChannels();
+                await loadRoles();
+                await loadTimers();
+
+                console.log('[Dashboard2] Initialization complete');
+            } catch (err) {
+                console.error('[Dashboard2] Initialization failed:', err);
+                showAlert('Failed to initialize dashboard', 'error');
+            }
+        }
+
+        // ============================================
+        // API CALLS
+        // ============================================
+
+        async function loadVersion() {
+            try {
+                const res = await fetch('/api/version');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('versionLabel').textContent = data.version;
+                }
+            } catch (err) {
+                console.error('[loadVersion] Error:', err);
+            }
+        }
+
+        async function loadGuildInfo() {
+            try {
+                const res = await fetch(`/api/guild?guildId=${STATE.guildId}`, {
+                    credentials: 'include'
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('guildName').textContent = data.name;
+                }
+            } catch (err) {
+                console.error('[loadGuildInfo] Error:', err);
+            }
+        }
+
+        async function loadChannels() {
+            try {
+                const res = await fetch(`/api/channels?guildId=${STATE.guildId}`, {
+                    credentials: 'include'
+                });
+                if (res.ok) {
+                    const channels = await res.json();
+                    const select = document.getElementById('warningChannel');
+                    channels.forEach(ch => {
+                        const option = document.createElement('option');
+                        option.value = ch.id;
+                        option.textContent = `#${ch.name}`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (err) {
+                console.error('[loadChannels] Error:', err);
+            }
+        }
+
+        async function loadRoles() {
+            try {
+                const res = await fetch(`/api/roles?guildId=${STATE.guildId}`, {
+                    credentials: 'include'
+                });
+                if (res.ok) {
+                    const roles = await res.json();
+                    const selects = [document.getElementById('roleSelect'), document.getElementById('roleFilter')];
+                    selects.forEach(select => {
+                        roles.forEach(role => {
+                            const option = document.createElement('option');
+                            option.value = role.id;
+                            option.textContent = role.name;
+                            select.appendChild(option);
+                        });
+                    });
+                }
+            } catch (err) {
+                console.error('[loadRoles] Error:', err);
+            }
+        }
+
+        async function loadTimers() {
+            try {
+                const res = await fetch(`/api/timers?guildId=${STATE.guildId}`, {
+                    credentials: 'include'
+                });
+                if (res.ok) {
+                    STATE.allTimers = await res.json();
+                    renderTimersTable();
+                }
+            } catch (err) {
+                console.error('[loadTimers] Error:', err);
+            }
+        }
+
+        async function searchUser(userId) {
+            try {
+                console.log('[searchUser] Searching for:', userId);
+                const res = await fetch(`/api/search-user?userId=${userId}&guildId=${STATE.guildId}`, {
+                    credentials: 'include'
+                });
+
+                if (!res.ok) {
+                    if (res.status === 404) {
+                        hideUserCard();
+                        return null;
+                    }
+                    throw new Error(`API Error: ${res.status}`);
+                }
+
+                const userData = await res.json();
+                console.log('[searchUser] Found user:', userData);
+                return userData;
+            } catch (err) {
+                console.error('[searchUser] Error:', err);
+                hideUserCard();
+                return null;
+            }
+        }
+
+        // ============================================
+        // USER LOOKUP HANDLERS
+        // ============================================
+
+        document.getElementById('userIdInput').addEventListener('input', (e) => {
+            const value = e.target.value.trim();
+            
+            if (!value) {
+                hideUserCard();
+                return;
+            }
+
+            // Validate format
+            if (!/^\d{18,20}$/.test(value)) {
+                hideUserCard();
+                return;
+            }
+
+            // Debounce search
+            clearTimeout(STATE.debounceTimer);
+            STATE.debounceTimer = setTimeout(() => {
+                performUserSearch(value);
+            }, 500);
+        });
+
+        async function performUserSearch(userId) {
+            const userData = await searchUser(userId);
+            if (userData) {
+                displayUserCard(userData);
+            }
+        }
+
+        function displayUserCard(userData) {
+            STATE.selectedUserData = userData;
+            document.getElementById('userAvatar').src = `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png?size=128`;
+            document.getElementById('userName').textContent = userData.displayName || userData.username;
+            document.getElementById('userDiscriminator').textContent = userData.id;
+            document.getElementById('userCardContainer').classList.add('visible');
+        }
+
+        function hideUserCard() {
+            STATE.selectedUserData = null;
+            document.getElementById('userCardContainer').classList.remove('visible');
+        }
+
+        function selectUser() {
+            if (!STATE.selectedUserData) return;
+            STATE.selectedUserId = STATE.selectedUserData.id;
+            document.getElementById('selectedUserId').value = STATE.selectedUserData.displayName || STATE.selectedUserData.username;
+            showAlert(`✓ ${STATE.selectedUserData.displayName || STATE.selectedUserData.username} selected!`, 'success');
+            hideUserCard();
+        }
+
+        // ============================================
+        // FORM HANDLERS
+        // ============================================
+
+        async function submitTimer() {
+            const minutes = parseInt(document.getElementById('timerMinutes').value);
+            const roleId = document.getElementById('roleSelect').value;
+            const channelId = document.getElementById('warningChannel').value || null;
+
+            // Validation
+            if (!STATE.selectedUserId) {
+                showAlert('Please select a user first', 'error');
+                return;
+            }
+
+            if (!minutes || minutes < 1) {
+                showAlert('Please enter a valid number of minutes', 'error');
+                return;
+            }
+
+            if (!roleId) {
+                showAlert('Please select a role', 'error');
+                return;
+            }
+
+            try {
+                document.getElementById('submitBtn').disabled = true;
+                const res = await fetch(`/api/timer/add?guildId=${STATE.guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        userId: STATE.selectedUserId,
+                        minutes: minutes,
+                        roleId: roleId,
+                        channelId: channelId
+                    })
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Failed to add timer');
+                }
+
+                showAlert('✓ Timer added successfully!', 'success');
+                resetForm();
+                await loadTimers();
+            } catch (err) {
+                console.error('[submitTimer] Error:', err);
+                showAlert(`Error: ${err.message}`, 'error');
+            } finally {
+                document.getElementById('submitBtn').disabled = false;
+            }
+        }
+
+        function resetForm() {
+            STATE.selectedUserId = null;
+            STATE.selectedUserData = null;
+            document.getElementById('userIdInput').value = '';
+            document.getElementById('selectedUserId').value = '';
+            document.getElementById('timerMinutes').value = '';
+            document.getElementById('warningChannel').value = '';
+            document.getElementById('roleSelect').value = '';
+            hideUserCard();
+        }
+
+        // ============================================
+        // TIMERS TABLE RENDERING
+        // ============================================
+
+        function renderTimersTable() {
+            const container = document.getElementById('timersContainer');
+            
+            if (STATE.allTimers.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">⏱️</div><p>No timers yet</p></div>';
+                return;
+            }
+
+            let html = '<table class="timers-table"><thead><tr>';
+            html += '<th>User</th>';
+            html += '<th>Role</th>';
+            html += '<th>Time Remaining</th>';
+            html += '<th>Status</th>';
+            html += '<th>Actions</th>';
+            html += '</tr></thead><tbody>';
+
+            STATE.allTimers.forEach(timer => {
+                const timeRemaining = calculateTimeRemaining(timer.expiresAt);
+                const timeBadgeClass = getTimeBadgeClass(timer.expiresAt);
+                const statusBadge = getStatusBadge(timer.isPaused, timer.expiresAt);
+
+                html += '<tr>';
+                html += `<td><div class="user-row"><img src="${timer.userAvatar}" class="user-avatar-sm" alt="Avatar">${timer.userName}</div></td>`;
+                html += `<td>${timer.roleName}</td>`;
+                html += `<td><span class="time-badge ${timeBadgeClass}">${timeRemaining}</span></td>`;
+                html += `<td><span class="status-badge ${statusBadge.class}">${statusBadge.text}</span></td>`;
+                html += '<td><div class="action-buttons">';
+                if (!timer.isPaused) {
+                    html += `<button class="btn-action btn-pause" onclick="pauseTimer('${timer.id}')">Pause</button>`;
+                } else {
+                    html += `<button class="btn-action btn-resume" onclick="resumeTimer('${timer.id}')">Resume</button>`;
+                }
+                html += `<button class="btn-action btn-delete" onclick="deleteTimer('${timer.id}')">Delete</button>`;
+                html += '</div></td>';
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function calculateTimeRemaining(expiresAt) {
+            const now = Date.now();
+            const expires = new Date(expiresAt).getTime();
+            const diff = expires - now;
+
+            if (diff < 0) return 'Expired';
+
+            const hours = Math.floor(diff / 3600000);
+            const minutes = Math.floor((diff % 3600000) / 60000);
+
+            if (hours > 0) return `${hours}h ${minutes}m`;
+            return `${minutes}m`;
+        }
+
+        function getTimeBadgeClass(expiresAt) {
+            const now = Date.now();
+            const expires = new Date(expiresAt).getTime();
+            const diff = expires - now;
+            const minutesRemaining = diff / 60000;
+
+            if (minutesRemaining < 10) return 'critical';
+            if (minutesRemaining < 60) return 'warning';
+            return 'ok';
+        }
+
+        function getStatusBadge(isPaused, expiresAt) {
+            if (isPaused) return { class: 'paused', text: '⏸️ Paused' };
+            const expires = new Date(expiresAt).getTime();
+            if (expires < Date.now()) return { class: 'expired', text: '⏹️ Expired' };
+            return { class: 'active', text: '▶️ Active' };
+        }
+
+        function filterTimers() {
+            // TODO: Implement filtering logic
+            renderTimersTable();
+        }
+
+        // ============================================
+        // TIMER ACTIONS
+        // ============================================
+
+        async function pauseTimer(timerId) {
+            try {
+                const res = await fetch(`/api/timer/pause?guildId=${STATE.guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timerId })
+                });
+
+                if (res.ok) {
+                    showAlert('✓ Timer paused', 'success');
+                    await loadTimers();
+                }
+            } catch (err) {
+                console.error('[pauseTimer] Error:', err);
+                showAlert('Failed to pause timer', 'error');
+            }
+        }
+
+        async function resumeTimer(timerId) {
+            try {
+                const res = await fetch(`/api/timer/resume?guildId=${STATE.guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timerId })
+                });
+
+                if (res.ok) {
+                    showAlert('✓ Timer resumed', 'success');
+                    await loadTimers();
+                }
+            } catch (err) {
+                console.error('[resumeTimer] Error:', err);
+                showAlert('Failed to resume timer', 'error');
+            }
+        }
+
+        async function deleteTimer(timerId) {
+            if (!confirm('Are you sure you want to delete this timer?')) return;
+
+            try {
+                const res = await fetch(`/api/timer/delete?guildId=${STATE.guildId}`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ timerId })
+                });
+
+                if (res.ok) {
+                    showAlert('✓ Timer deleted', 'success');
+                    await loadTimers();
+                }
+            } catch (err) {
+                console.error('[deleteTimer] Error:', err);
+                showAlert('Failed to delete timer', 'error');
+            }
+        }
+
+        // ============================================
+        // UI UTILITIES
+        // ============================================
+
+        function showAlert(message, type = 'info') {
+            const container = document.getElementById('alertsContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert ${type}`;
+            alert.innerHTML = `
+                ${message}
+                <button class="alert-close" onclick="this.parentElement.remove()">✕</button>
+            `;
+            container.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        function logout() {
+            const confirmed = confirm('Are you sure you want to logout?');
+            if (confirmed) {
+                window.location.href = '/logout';
+            }
+        }
+    </script>
+</body>
+</html>
