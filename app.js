@@ -25,7 +25,6 @@ const indexRouter = require("./routes/index");
 const authRouter = require("./routes/auth");
 const dashboardRouter = require("./routes/dashboard");
 const db = require("./db");
-const guildMemberSync = require("./guild-member-sync");
 
 // Services
 const streakService = require("./services/streak");
@@ -54,11 +53,6 @@ if (GUILD_ID) {
   console.log("[MULTI-SERVER] GUILD_ID not set: bot will work on ALL servers (global commands)");
 }
 
-// Initialize in-memory member cache for fast dashboard lookups
-global.memberCache = {};
-console.log("[Member Cache] Initialized for fast dashboard performance");
-
-
 //----------------------------------------
 // Discord Client
 //----------------------------------------
@@ -81,9 +75,6 @@ client.once("ready", async () => {
 
   // Initialize database
   await db.initDatabase();
-
-  // Start guild member sync service
-  guildMemberSync.startBackgroundSync(client);
 
   // Backfill guild_id for timers that don't have it yet
   try {
