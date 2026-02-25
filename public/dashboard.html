@@ -1505,14 +1505,17 @@
                                 <div class="form-group">
                                     <label for="newUserSearchTab">User *</label>
                                     <div class="dropdown-wrapper">
-                                        <input type="text" id="newUserSearchTab" class="dropdown-search-input" placeholder="Paste Discord User ID (18-20 digits)..." autocomplete="off" onkeypress="if(event.key==='Enter') lookupUserTab()">
+                                        <input type="text" id="newUserSearchTab" class="dropdown-search-input" placeholder="Paste User ID (searches this guild)..." autocomplete="off" oninput="onUserIdInput(this.value)">
                                         <div id="userCardDisplayTab" style="margin-top: 10px; display: none;">
-                                            <div style="display: flex; align-items: center; gap: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onclick="selectUserTab()" onmouseover="this.style.background='#e8e8e8'" onmouseout="this.style.background='#f5f5f5'">
-                                                <img id="userAvatarImgTab" src="" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
-                                                <div>
-                                                    <div id="userNameDisplayTab" style="font-weight: bold; color: #333;"></div>
-                                                    <div id="userIdDisplayTab" style="font-size: 12px; color: #999;"></div>
+                                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; background: #f5f5f5; border-radius: 8px; cursor: pointer; transition: background 0.2s;" onclick="selectUserTab()" onmouseover="this.style.background='#e8e8e8'" onmouseout="this.style.background='#f5f5f5'">
+                                                <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                                                    <img id="userAvatarImgTab" src="" alt="Avatar" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
+                                                    <div>
+                                                        <div id="userNameDisplayTab" style="font-weight: bold; color: #333;"></div>
+                                                        <div id="userIdDisplayTab" style="font-size: 12px; color: #999;"></div>
+                                                    </div>
                                                 </div>
+                                                <div id="userAddButtonTab" style="display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: #667eea; color: white; border-radius: 50%; font-size: 18px; font-weight: bold; flex-shrink: 0;">➕</div>
                                             </div>
                                         </div>
                                         <input type="hidden" id="newUserTab" required>
@@ -2109,6 +2112,9 @@
             }
         }
 
+        // Debounce timer for auto-lookup
+        let lookupTimerTab = null;
+
         // Get guild from URL query parameter
         function getGuildId() {
             // First try URL parameter
@@ -2212,39 +2218,66 @@
             }
         }
 
-        async function lookupUserTab() {
-            const userId = document.getElementById('newUserSearchTab').value.trim();
+        function onUserIdInput(value) {
+            // Clear existing timeout
+            if (lookupTimerTab) {
+                clearTimeout(lookupTimerTab);
+            }
+
+            // Hide card if input is empty
+            if (!value.trim()) {
+                document.getElementById('userCardDisplayTab').style.display = 'none';
+                return;
+            }
+
+            // Debounce API call by 500ms
+            lookupTimerTab = setTimeout(() => {
+                lookupUserTab(value.trim());
+            }, 500);
+        }
+
+        async function lookupUserTab(userId) {
+            console.log('[lookupUserTab] Starting lookup for:', userId);
             
             if (!userId) {
-                showAlert('Please enter a Discord ID', 'error');
+                console.warn('[lookupUserTab] Empty user ID');
                 return;
             }
 
             // Validate Discord ID format (18-20 digits)
             if (!/^\d{18,20}$/.test(userId)) {
-                showAlert('Invalid Discord ID format. Must be 18-20 digits.', 'error');
+                console.warn('[lookupUserTab] Invalid format:', userId);
                 return;
             }
 
             try {
-                const response = await fetch(`/api/search-user?userId=${userId}`, {
+                const guildId = getGuildId();
+                if (!guildId) {
+                    console.error('[lookupUserTab] No guild ID available');
+                    return;
+                }
+
+                console.log('[lookupUserTab] Searching for user in guild:', guildId);
+                const response = await fetch(`/api/search-user?userId=${userId}&guildId=${guildId}`, {
                     credentials: 'include'
                 });
 
+                console.log('[lookupUserTab] API response status:', response.status);
+
                 if (!response.ok) {
                     if (response.status === 404) {
-                        showAlert('User not found', 'error');
+                        console.warn('[lookupUserTab] User not found');
                     } else {
-                        throw new Error(`Error: ${response.status}`);
+                        throw new Error(`API Error: ${response.status}`);
                     }
                     return;
                 }
 
                 const userData = await response.json();
+                console.log('[lookupUserTab] User found:', userData);
                 displayUserCardTab(userData);
             } catch (err) {
-                console.error('Error looking up user:', err);
-                showAlert(`Error: ${err.message}`, 'error');
+                console.error('[lookupUserTab] Error:', err);
             }
         }
 
@@ -2254,6 +2287,7 @@
             const nameDisplay = document.getElementById('userNameDisplayTab');
             const idDisplay = document.getElementById('userIdDisplayTab');
             const hiddenInput = document.getElementById('newUserTab');
+            const addButton = document.getElementById('userAddButtonTab');
 
             // Build avatar URL from Discord CDN
             let avatarUrl = `https://cdn.discordapp.com/avatars/${userData.id}/${userData.avatar}.png`;
@@ -2268,13 +2302,19 @@
             idDisplay.textContent = userData.id;
             hiddenInput.value = userData.id;
 
+            // Update add button
+            if (addButton) {
+                addButton.style.display = 'flex';
+            }
+
             cardContainer.style.display = 'block';
         }
 
         function selectUserTab() {
             const userId = document.getElementById('newUserTab').value;
             if (userId) {
-                showAlert('User selected!', 'success');
+                // Focus next field (minutes) to continue form flow
+                document.getElementById('newMinutesTab').focus();
             }
         }
 
