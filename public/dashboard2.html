@@ -722,7 +722,6 @@
         // ============================================
         
         const STATE = {
-            user: null,
             guildId: null,
             selectedUserId: null,
             selectedUserData: null,
@@ -743,96 +742,34 @@
 
         async function initializeDashboard() {
             try {
-                // Step 1: Check authentication
-                const user = await getAuthenticatedUser();
-                if (!user) {
-                    console.log('[Dashboard2] Not authenticated, redirecting to login');
-                    window.location.href = '/login.html';
+                // Step 1: Check if user is authenticated
+                const authRes = await fetch('/auth/user', { credentials: 'include' });
+                if (!authRes.ok) {
+                    console.log('[Dashboard2] Not authenticated, redirecting to login2.html');
+                    window.location.href = '/login2.html';
                     return;
                 }
 
-                STATE.user = user;
-                console.log('[Dashboard2] User authenticated:', user.userId);
-                console.log('[Dashboard2] User guilds:', user.guilds?.map(g => g.id));
+                // Step 2: Check if guild is selected
+                STATE.guildId = sessionStorage.getItem('guildId');
+                if (!STATE.guildId) {
+                    console.log('[Dashboard2] No guild selected, redirecting to login2.html');
+                    window.location.href = '/login2.html';
+                    return;
+                }
 
-                // Step 2: Get or select guild
-                await selectGuild();
+                console.log('[Dashboard2] Guild ID:', STATE.guildId);
 
                 // Step 3: Load dashboard data
-                if (STATE.guildId) {
-                    await loadVersion();
-                    await loadGuildInfo();
-                    await loadChannelsAndRoles();
-                    await loadTimers();
-                    console.log('[Dashboard2] Initialization complete');
-                }
+                await loadVersion();
+                await loadGuildInfo();
+                await loadChannelsAndRoles();
+                await loadTimers();
+
+                console.log('[Dashboard2] Initialization complete');
             } catch (err) {
                 console.error('[Dashboard2] Initialization failed:', err);
                 showAlert('Failed to initialize dashboard', 'error');
-            }
-        }
-
-        async function getAuthenticatedUser() {
-            try {
-                const res = await fetch('/auth/user', { credentials: 'include' });
-                if (!res.ok) return null;
-                return await res.json();
-            } catch (err) {
-                console.error('[getAuthenticatedUser] Error:', err);
-                return null;
-            }
-        }
-
-        async function selectGuild() {
-            if (!STATE.user || !STATE.user.guilds || STATE.user.guilds.length === 0) {
-                showAlert('No guilds found in your account', 'error');
-                return;
-            }
-
-            // If only 1 guild, auto-select it
-            if (STATE.user.guilds.length === 1) {
-                STATE.guildId = STATE.user.guilds[0].id;
-                document.getElementById('guildName').textContent = STATE.user.guilds[0].name;
-                return;
-            }
-
-            // If multiple guilds, show selector
-            displayGuildSelector();
-        }
-
-        function displayGuildSelector() {
-            const container = document.getElementById('timersContainer').parentElement;
-            container.innerHTML = `
-                <div style="text-align: center; padding: 40px; background: white; border-radius: 12px;">
-                    <h2 style="color: #667eea; margin-bottom: 20px;">Select a Guild</h2>
-                    <p style="color: #999; margin-bottom: 30px;">You have access to multiple guilds. Choose one:</p>
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
-                        ${STATE.user.guilds.map(guild => `
-                            <button onclick="loadGuildData('${guild.id}', '${guild.name}')" 
-                                    style="padding: 16px; border: 2px solid #e0e0e0; border-radius: 8px; background: white; cursor: pointer; transition: all 0.2s; font-size: 14px; font-weight: 600;">
-                                ${guild.name}
-                            </button>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        }
-
-        async function loadGuildData(guildId, guildName) {
-            STATE.guildId = guildId;
-            document.getElementById('guildName').textContent = guildName;
-            
-            const container = document.getElementById('timersContainer').parentElement;
-            container.innerHTML = '<div style="text-align: center; padding: 20px;"><div class="loading"></div> Loading guild data...</div>';
-
-            try {
-                await loadVersion();
-                await loadChannelsAndRoles();
-                await loadTimers();
-                location.reload(); // Reload to show full dashboard
-            } catch (err) {
-                console.error('[loadGuildData] Error:', err);
-                showAlert('Failed to load guild data', 'error');
             }
         }
 
