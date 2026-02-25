@@ -51,7 +51,8 @@ function friendlyDiscordError(err) {
 
 function parseDuration(input) {
   // Parse flexible duration formats
-  // Accepts: 1440, 1440m, 24h, 1d, 1d 12h, etc.
+  // Accepts: 1440, 1440m, 24h, 1d, 1d 12h, 5d, 299h, etc.
+  // Examples: 1d, 24h, 1440m, 1440, 1d 12h 30m, 5d 2h, etc.
   if (!input || input.trim() === "") return null;
 
   let totalMinutes = 0;
@@ -73,8 +74,8 @@ function parseDuration(input) {
     }
   }
 
-  // Validate range: 1 minute to 1440 minutes (24 hours)
-  if (totalMinutes < 1 || totalMinutes > 1440) return null;
+  // Validate range: 1 minute to 43200 minutes (30 days)
+  if (totalMinutes < 1 || totalMinutes > 43200) return null;
   
   return Math.floor(totalMinutes);
 }
