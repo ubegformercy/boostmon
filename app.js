@@ -333,14 +333,12 @@ client.on("interactionCreate", async (interaction) => {
             return;
           }
 
-          // TODO: Query boost servers from DB once implemented
-          // For now, respond with empty list (no servers created yet)
           const focusedValue = (focusedOption.value || "").toLowerCase();
-          const servers = []; // Will be: await db.getBoostServers(guild.id)
+          const servers = await db.getBoostServers(guild.id);
           const filtered = servers
-            .filter((s) => s.name.toLowerCase().includes(focusedValue))
+            .filter((s) => s.server_name.toLowerCase().includes(focusedValue) || `server-${s.server_number}`.includes(focusedValue))
             .slice(0, 25)
-            .map((s) => ({ name: s.name, value: s.id }));
+            .map((s) => ({ name: `#${s.server_number} — ${s.server_name}`, value: String(s.id) }));
 
           await interaction.respond(filtered);
           return;

@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 5,
-  "patch": 0,
-  "version": "2.5.0",
+  "patch": 1,
+  "version": "2.5.1",
   "lastUpdated": "2026-02-28T00:00:00.000Z",
-  "description": "Added /setup boostserver command group (structure only)"
+  "description": "Implemented /setup boostserver create logic"
 }

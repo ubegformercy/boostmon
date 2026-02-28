@@ -336,6 +336,33 @@ async function initDatabase() {
       }
     }
 
+    // Boost servers table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS boost_servers (
+        id SERIAL PRIMARY KEY,
+        guild_id VARCHAR(255) NOT NULL,
+        server_number INTEGER NOT NULL,
+        server_name VARCHAR(255) NOT NULL,
+        owner_id VARCHAR(255) NOT NULL,
+        game_name VARCHAR(255),
+        category_id VARCHAR(255) NOT NULL,
+        main_channel_id VARCHAR(255) NOT NULL,
+        proofs_channel_id VARCHAR(255) NOT NULL,
+        chat_channel_id VARCHAR(255) NOT NULL,
+        owner_role_id VARCHAR(255) NOT NULL,
+        mod_role_id VARCHAR(255) NOT NULL,
+        booster_role_id VARCHAR(255) NOT NULL,
+        boost_rate NUMERIC(5,2) DEFAULT 1.5,
+        duration_minutes INTEGER DEFAULT 60,
+        max_players INTEGER DEFAULT 24,
+        status VARCHAR(50) DEFAULT 'active',
+        ps_link TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(guild_id, server_number)
+      );
+    `);
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -359,6 +386,9 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_user_registrations_discord_id ON user_registrations(guild_id, discord_id)',
       'CREATE INDEX IF NOT EXISTS idx_streak_roles_guild ON streak_roles(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_user_streaks_guild_user ON user_streaks(guild_id, user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild ON boost_servers(guild_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild_number ON boost_servers(guild_id, server_number)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_servers_owner ON boost_servers(guild_id, owner_id)',
     ];
 
       for (const indexQuery of indexes) {
@@ -1885,6 +1915,124 @@ async function getAllQueueNotifyGuilds() {
   }
 }
 
+// ===== BOOST SERVER OPERATIONS =====
+
+async function getNextBoostServerNumber(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT COALESCE(MAX(server_number), 0) + 1 AS next_number FROM boost_servers WHERE guild_id = $1",
+      [guildId]
+    );
+    return result.rows[0].next_number;
+  } catch (err) {
+    console.error("getNextBoostServerNumber error:", err);
+    return 1;
+  }
+}
+
+async function createBoostServer(data) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO boost_servers (
+        guild_id, server_number, server_name, owner_id, game_name,
+        category_id, main_channel_id, proofs_channel_id, chat_channel_id,
+        owner_role_id, mod_role_id, booster_role_id,
+        boost_rate, duration_minutes, max_players, status, ps_link
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      RETURNING *`,
+      [
+        data.guild_id, data.server_number, data.server_name, data.owner_id, data.game_name || null,
+        data.category_id, data.main_channel_id, data.proofs_channel_id, data.chat_channel_id,
+        data.owner_role_id, data.mod_role_id, data.booster_role_id,
+        data.boost_rate ?? 1.5, data.duration_minutes ?? 60, data.max_players ?? 24,
+        data.status || 'active', data.ps_link || null
+      ]
+    );
+    return result.rows[0];
+  } catch (err) {
+    console.error("createBoostServer error:", err);
+    return null;
+  }
+}
+
+async function getBoostServer(guildId, serverNumber) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_servers WHERE guild_id = $1 AND server_number = $2",
+      [guildId, serverNumber]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getBoostServer error:", err);
+    return null;
+  }
+}
+
+async function getBoostServerById(serverId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_servers WHERE id = $1",
+      [serverId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getBoostServerById error:", err);
+    return null;
+  }
+}
+
+async function getBoostServers(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_servers WHERE guild_id = $1 ORDER BY server_number ASC",
+      [guildId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getBoostServers error:", err);
+    return [];
+  }
+}
+
+async function updateBoostServer(serverId, updates) {
+  try {
+    const setClauses = [];
+    const values = [];
+    let paramIndex = 1;
+
+    for (const [key, value] of Object.entries(updates)) {
+      setClauses.push(`${key} = $${paramIndex}`);
+      values.push(value);
+      paramIndex++;
+    }
+
+    setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
+    values.push(serverId);
+
+    const result = await pool.query(
+      `UPDATE boost_servers SET ${setClauses.join(", ")} WHERE id = $${paramIndex} RETURNING *`,
+      values
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("updateBoostServer error:", err);
+    return null;
+  }
+}
+
+async function deleteBoostServer(serverId) {
+  try {
+    const result = await pool.query(
+      "DELETE FROM boost_servers WHERE id = $1 RETURNING *",
+      [serverId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("deleteBoostServer error:", err);
+    return null;
+  }
+}
+
 // Generic query function for direct database access
 async function query(text, params) {
   return pool.query(text, params);
@@ -2000,6 +2148,15 @@ module.exports = {
   getServerUrl,
   getUserServerUrls,
   deleteServerUrl,
+
+  // Boost Servers
+  getNextBoostServerNumber,
+  createBoostServer,
+  getBoostServer,
+  getBoostServerById,
+  getBoostServers,
+  updateBoostServer,
+  deleteBoostServer,
   
   closePool,
 };

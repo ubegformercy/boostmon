@@ -323,8 +323,23 @@ function getCommands() {
             s
               .setName("create")
               .setDescription("Create a new boost server")
+              .addUserOption((o) =>
+                o.setName("owner").setDescription("User who will own this boost server").setRequired(true)
+              )
               .addStringOption((o) =>
-                o.setName("name").setDescription("Name for the boost server").setRequired(true)
+                o.setName("name").setDescription("Server name (auto-increments if not provided)").setRequired(false)
+              )
+              .addStringOption((o) =>
+                o.setName("game_name").setDescription("Game name for this server").setRequired(false)
+              )
+              .addIntegerOption((o) =>
+                o.setName("max_players").setDescription("Max player slots (default: 24)").setRequired(false).setMinValue(1).setMaxValue(100)
+              )
+              .addNumberOption((o) =>
+                o.setName("boost_rate").setDescription("Boost rate multiplier (default: 1.5)").setRequired(false).setMinValue(0.1).setMaxValue(100)
+              )
+              .addIntegerOption((o) =>
+                o.setName("duration_minutes").setDescription("Boost duration in minutes (default: 60)").setRequired(false).setMinValue(1).setMaxValue(10080)
               )
           )
           .addSubcommand((s) =>
