@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.3 — 2026-02-28
+- Centralized permission model for all `/setup boostserver` subcommands
+- `create`: Admin or Guild Owner only
+- All other subcommands: Admin, Guild Owner, OR that boost server's owner
+- PS Mod role holders cannot execute setup commands
+- Server lookup and permission check run once before routing to handlers
+
 ## v2.5.2 — 2026-02-28
 - Implemented `/setup boostserver link-set`, `link-view`, `link-clear`
 - All link responses are ephemeral — ps_link is never posted publicly

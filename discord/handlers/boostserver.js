@@ -24,25 +24,39 @@ module.exports = async function handleBoostServer(interaction) {
   const subcommand = interaction.options.getSubcommand();
   const guild = interaction.guild;
 
-  // Permission check: Admin or guild owner
-  // (Boost server owner check will be added for per-server commands later)
-  if (
-    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) &&
-    guild.ownerId !== interaction.user.id
-  ) {
-    return interaction.editReply({
-      content: "⛔ Only **Server Owner** or users with **Administrator** permission can use this command.",
-    });
+  const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+
+  // ── CREATE — Admin / Guild Owner only (no boost server exists yet) ──
+  if (subcommand === "create") {
+    if (!isAdmin && !isGuildOwner) {
+      return interaction.editReply({
+        content: "⛔ Only **Server Owner** or users with **Administrator** permission can create a boost server.",
+      });
+    }
+    return handleCreate(interaction, guild);
   }
 
-  // ── CREATE ──
-  if (subcommand === "create") {
-    return handleCreate(interaction, guild);
+  // All other subcommands require a server selection — resolve it and
+  // enforce: Admin OR Guild Owner OR that boost server's owner.
+  const serverId = interaction.options.getString("server", true);
+  const server = await db.getBoostServerById(serverId);
+
+  if (!server || server.guild_id !== guild.id) {
+    return interaction.editReply({ content: "❌ Boost server not found." });
+  }
+
+  const isServerOwner = server.owner_id === interaction.user.id;
+
+  if (!isAdmin && !isGuildOwner && !isServerOwner) {
+    return interaction.editReply({
+      content: "⛔ Only **Admins** or the **Boost Server Owner** can manage this boost server.",
+    });
   }
 
   // ── LINK SET / VIEW / CLEAR ──
   if (subcommand === "link-set" || subcommand === "link-view" || subcommand === "link-clear") {
-    return handleLink(interaction, guild, subcommand);
+    return handleLink(interaction, guild, server, subcommand);
   }
 
   // All other subcommands — stub
@@ -231,26 +245,7 @@ async function handleCreate(interaction, guild) {
 }
 
 // ── LINK SET / VIEW / CLEAR ──
-async function handleLink(interaction, guild, subcommand) {
-  const serverId = interaction.options.getString("server", true);
-
-  // Fetch the boost server record
-  const server = await db.getBoostServerById(serverId);
-  if (!server || server.guild_id !== guild.id) {
-    return interaction.editReply({ content: "❌ Boost server not found." });
-  }
-
-  // Permission: Admin, guild owner, OR the boost server's owner
-  const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
-  const isGuildOwner = guild.ownerId === interaction.user.id;
-  const isServerOwner = server.owner_id === interaction.user.id;
-
-  if (!isAdmin && !isGuildOwner && !isServerOwner) {
-    return interaction.editReply({
-      content: "⛔ Only **Admins** or the **Boost Server Owner** can manage the private server link.",
-    });
-  }
-
+async function handleLink(interaction, guild, server, subcommand) {
   // ── link-set ──
   if (subcommand === "link-set") {
     const link = interaction.options.getString("link", true);

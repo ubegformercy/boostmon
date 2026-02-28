@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 5,
-  "patch": 2,
-  "version": "2.5.2",
+  "patch": 3,
+  "version": "2.5.3",
   "lastUpdated": "2026-02-28T00:00:00.000Z",
-  "description": "Implemented boostserver link-set, link-view, link-clear (ephemeral)"
+  "description": "Centralized boostserver permission model (Admin/Owner only)"
 }
