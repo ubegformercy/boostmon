@@ -14,8 +14,10 @@ module.exports = async function handleSetup(interaction) {
 
   // Route boostserver subcommand group to its own handler
   if (subcommandGroup === "boostserver") {
-    // Defer first, then hand off — boostserver handler uses editReply
-    await interaction.deferReply().catch(() => null);
+    const sub = interaction.options.getSubcommand();
+    // Link commands must always be ephemeral — never leak ps_link
+    const ephemeral = sub.startsWith("link-");
+    await interaction.deferReply({ ephemeral }).catch(() => null);
     return handleBoostServer(interaction);
   }
 

@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 5,
-  "patch": 1,
-  "version": "2.5.1",
+  "patch": 2,
+  "version": "2.5.2",
   "lastUpdated": "2026-02-28T00:00:00.000Z",
-  "description": "Implemented /setup boostserver create logic"
+  "description": "Implemented boostserver link-set, link-view, link-clear (ephemeral)"
 }

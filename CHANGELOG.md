@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.2 — 2026-02-28
+- Implemented `/setup boostserver link-set`, `link-view`, `link-clear`
+- All link responses are ephemeral — ps_link is never posted publicly
+- Validates link contains `privateServerLinkCode=` before saving
+- Permission: Admins or the specific boost server's owner only
+- No console logging of link values
+
 ## v2.5.1 — 2026-02-28
 - Implemented `/setup boostserver create` with full logic
 - Creates category, 3 channels (🔥 main, 👀 proofs, 💬 chat), and 3 roles (Owner, Mod, Booster)

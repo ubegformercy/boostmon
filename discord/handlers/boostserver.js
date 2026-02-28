@@ -40,6 +40,11 @@ module.exports = async function handleBoostServer(interaction) {
     return handleCreate(interaction, guild);
   }
 
+  // ── LINK SET / VIEW / CLEAR ──
+  if (subcommand === "link-set" || subcommand === "link-view" || subcommand === "link-clear") {
+    return handleLink(interaction, guild, subcommand);
+  }
+
   // All other subcommands — stub
   const label = SUBCOMMAND_LABELS[subcommand] || subcommand;
   return interaction.editReply({
@@ -221,6 +226,80 @@ async function handleCreate(interaction, guild) {
     console.error("[BOOSTSERVER] Create error:", err);
     return interaction.editReply({
       content: `❌ Failed to create boost server: ${err.message}`,
+    });
+  }
+}
+
+// ── LINK SET / VIEW / CLEAR ──
+async function handleLink(interaction, guild, subcommand) {
+  const serverId = interaction.options.getString("server", true);
+
+  // Fetch the boost server record
+  const server = await db.getBoostServerById(serverId);
+  if (!server || server.guild_id !== guild.id) {
+    return interaction.editReply({ content: "❌ Boost server not found." });
+  }
+
+  // Permission: Admin, guild owner, OR the boost server's owner
+  const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+  const isServerOwner = server.owner_id === interaction.user.id;
+
+  if (!isAdmin && !isGuildOwner && !isServerOwner) {
+    return interaction.editReply({
+      content: "⛔ Only **Admins** or the **Boost Server Owner** can manage the private server link.",
+    });
+  }
+
+  // ── link-set ──
+  if (subcommand === "link-set") {
+    const link = interaction.options.getString("link", true);
+
+    // Validate link contains the required parameter
+    if (!link.includes("privateServerLinkCode=")) {
+      return interaction.editReply({
+        content: "❌ Invalid link. The URL must contain `privateServerLinkCode=`.\nExample: `https://www.roblox.com/games/123456?privateServerLinkCode=abc123`",
+      });
+    }
+
+    const updated = await db.updateBoostServer(server.id, { ps_link: link });
+    if (!updated) {
+      return interaction.editReply({ content: "❌ Failed to save the link. Please try again." });
+    }
+
+    return interaction.editReply({
+      content: `✅ Private server link for **${server.server_name}** (#${server.server_number}) has been saved.`,
+    });
+  }
+
+  // ── link-view ──
+  if (subcommand === "link-view") {
+    if (!server.ps_link) {
+      return interaction.editReply({
+        content: `ℹ️ No private server link is set for **${server.server_name}** (#${server.server_number}).`,
+      });
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0x3498DB)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`🔗 Private Server Link — ${server.server_name}`)
+      .setDescription(server.ps_link)
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • This message is only visible to you" });
+
+    return interaction.editReply({ embeds: [embed] });
+  }
+
+  // ── link-clear ──
+  if (subcommand === "link-clear") {
+    const updated = await db.updateBoostServer(server.id, { ps_link: null });
+    if (!updated) {
+      return interaction.editReply({ content: "❌ Failed to clear the link. Please try again." });
+    }
+
+    return interaction.editReply({
+      content: `✅ Private server link for **${server.server_name}** (#${server.server_number}) has been cleared.`,
     });
   }
 }
