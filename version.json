@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 5,
-  "patch": 5,
-  "version": "2.5.5",
+  "patch": 6,
+  "version": "2.5.6",
   "lastUpdated": "2026-02-28T00:00:00.000Z",
-  "description": "Boostserver audit fixes: SQL whitelist, create rollback, autocomplete status tags"
+  "description": "Fix bot startup: error handling for command registration"
 }

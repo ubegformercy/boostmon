@@ -8,7 +8,14 @@ async function registerCommands({ TOKEN, CLIENT_ID, GUILD_ID }) {
     return;
   }
 
-  const commands = getCommands().map((c) => c.toJSON());
+  let commands;
+  try {
+    commands = getCommands().map((c) => c.toJSON());
+  } catch (err) {
+    console.error("❌ Failed to build slash commands:", err);
+    return;
+  }
+
   console.log("Registering command names:", commands.map((c) => c.name).join(", "));
 
   try {

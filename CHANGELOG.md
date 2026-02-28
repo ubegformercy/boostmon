@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.5.6 — 2026-02-28
+- **Fix**: Wrapped `getCommands().map(c => c.toJSON())` in try/catch in register.js — previously outside error handling, causing silent crashes
+- **Fix**: Wrapped `registerCommands()` call in app.js ready handler with try/catch to prevent unhandled rejections
+- **Logging**: Added `[STARTUP] Calling client.login()...` log before Discord login for better deploy diagnostics
+- **Logging**: Login success now logs `Discord login() resolved successfully.` to confirm gateway connection
+
 ## v2.5.5 — 2026-02-28
 - **Security**: `updateBoostServer` now whitelists allowed column names to prevent SQL injection
 - **Rollback**: `create` now rolls back channels and roles if DB save fails

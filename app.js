@@ -264,7 +264,11 @@ client.once("ready", async () => {
   cleanupService.start(client, GUILD_ID);
 
   // Register slash commands
-  await registerCommands({ TOKEN, CLIENT_ID, GUILD_ID });
+  try {
+    await registerCommands({ TOKEN, CLIENT_ID, GUILD_ID });
+  } catch (err) {
+    console.error("[STARTUP] Failed to register slash commands:", err);
+  }
 });
 
 
@@ -477,8 +481,9 @@ process.on("SIGINT", async () => {
 if (!TOKEN) {
   console.error("DISCORD_TOKEN is missing. Bot cannot log in.");
 } else {
+  console.log("[STARTUP] Calling client.login()...");
   client.login(TOKEN).then(() => {
-    console.log("Discord login() called.");
+    console.log("Discord login() resolved successfully.");
   }).catch((err) => {
     console.error("Discord login failed:", err);
   });
