@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.6.1 — 2026-02-28
+- Implemented `/boostserver create` as self-service — any server member can create their own boost server
+- Restrictions: one boost server per owner, case-insensitive unique names, name required
+- Creates category `#{index} — {Name}` with 6 channels: 📢 announcements, 🎁 giveaways, 🎉 events, 📸 images, 💬 chat, 🔒 owner-notes (private)
+- Creates 3 roles: PS Owner, PS Mod, PS Member
+- Creator automatically receives PS Owner role
+- Posts structured header embed in announcements channel and pins it
+- All command responses are ephemeral
+- DB schema: added `announcements_channel_id`, `giveaways_channel_id`, `events_channel_id`, `images_channel_id`, `owner_notes_channel_id`, `member_role_id` columns with auto-migration
+- Added `getBoostServerByOwner()` and `getBoostServerByName()` DB helpers
+- Full rollback on failure (channels, category, roles)
+
 ## v2.6.0 — 2026-02-28
 - **Breaking**: Replaced `/setup boostserver` subcommand group with new public `/boostserver` top-level command
 - Subcommands: create, delete, info, link-set, link-view, link-clear, config-set, mods-list, mods-add, mods-remove, owner-set, owner-view, status-set

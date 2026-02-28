@@ -29,20 +29,14 @@ module.exports = async function handleBoostServer(interaction) {
   const subcommand = interaction.options.getSubcommand();
   const guild = interaction.guild;
 
-  // Link commands must always be ephemeral — never leak ps_link
-  const ephemeral = subcommand.startsWith("link-");
-  await interaction.deferReply({ ephemeral }).catch(() => null);
+  // All responses are ephemeral
+  await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
   const isGuildOwner = guild.ownerId === interaction.user.id;
 
-  // ── CREATE — Admin / Guild Owner only (no boost server exists yet) ──
+  // ── CREATE — Anyone may run this (self-service) ──
   if (subcommand === "create") {
-    if (!isAdmin && !isGuildOwner) {
-      return interaction.editReply({
-        content: "⛔ Only **Server Owner** or users with **Administrator** permission can create a boost server.",
-      });
-    }
     return handleCreate(interaction, guild);
   }
 
@@ -86,22 +80,40 @@ module.exports = async function handleBoostServer(interaction) {
 };
 
 async function handleCreate(interaction, guild) {
-  const owner = interaction.options.getUser("owner", true);
-  const customName = interaction.options.getString("name");
-  const gameName = interaction.options.getString("game_name");
-  const maxPlayers = interaction.options.getInteger("max_players") ?? 24;
-  const boostRate = interaction.options.getNumber("boost_rate") ?? 1.5;
-  const durationMinutes = interaction.options.getInteger("duration_minutes") ?? 60;
+  const name = interaction.options.getString("name", true).trim();
+  const ownerId = interaction.user.id;
 
-  // Get the next server number for this guild
-  const serverNumber = await db.getNextBoostServerNumber(guild.id);
-  const serverLabel = customName || `Server ${serverNumber}`;
-  const serverSlug = `server-${serverNumber}`;
+  // Validate name not blank
+  if (!name) {
+    return interaction.editReply({ content: "❌ Server name cannot be blank." });
+  }
+
+  // Restriction: member may only own ONE boost server
+  const existingOwned = await db.getBoostServerByOwner(guild.id, ownerId);
+  if (existingOwned) {
+    return interaction.editReply({
+      content: `❌ You already own a boost server: **${existingOwned.server_name}** (#${existingOwned.server_number}). Each member may only own one.`,
+    });
+  }
+
+  // Restriction: duplicate server names (case-insensitive)
+  const existingName = await db.getBoostServerByName(guild.id, name);
+  if (existingName) {
+    return interaction.editReply({
+      content: `❌ A boost server named **${existingName.server_name}** already exists. Please choose a different name.`,
+    });
+  }
+
+  // Get the next server index
+  const serverIndex = await db.getNextBoostServerNumber(guild.id);
+
+  // Track created resources for rollback
+  const created = { channels: [], roles: [], category: null };
 
   try {
-    // 1. Create category
+    // 1. Create category: #{index} — {Name}
     const category = await guild.channels.create({
-      name: `BOOST SERVER ${serverNumber}`,
+      name: `#${serverIndex} — ${name}`,
       type: ChannelType.GuildCategory,
       permissionOverwrites: [
         {
@@ -119,27 +131,31 @@ async function handleCreate(interaction, guild) {
         },
       ],
     });
+    created.category = category;
 
     // 2. Create roles
     const ownerRole = await guild.roles.create({
-      name: `PS Owner • ${serverSlug}`,
+      name: `PS Owner • ${name}`,
       mentionable: false,
-      reason: `Boost server ${serverNumber} setup`,
+      reason: `Boost server #${serverIndex} — ${name}`,
     });
+    created.roles.push(ownerRole);
 
     const modRole = await guild.roles.create({
-      name: `PS Mod • ${serverSlug}`,
+      name: `PS Mod • ${name}`,
       mentionable: false,
-      reason: `Boost server ${serverNumber} setup`,
+      reason: `Boost server #${serverIndex} — ${name}`,
     });
+    created.roles.push(modRole);
 
-    const boosterRole = await guild.roles.create({
-      name: `PS Booster • ${serverSlug}`,
+    const memberRole = await guild.roles.create({
+      name: `PS Member • ${name}`,
       mentionable: false,
-      reason: `Boost server ${serverNumber} setup`,
+      reason: `Boost server #${serverIndex} — ${name}`,
     });
+    created.roles.push(memberRole);
 
-    // Common channel permission overwrites
+    // Common channel permission overwrites (visible to owner, mod, member + bot)
     const channelOverwrites = [
       {
         id: guild.id,
@@ -169,7 +185,7 @@ async function handleCreate(interaction, guild) {
         ],
       },
       {
-        id: boosterRole.id,
+        id: memberRole.id,
         allow: [
           PermissionsBitField.Flags.ViewChannel,
           PermissionsBitField.Flags.SendMessages,
@@ -177,96 +193,171 @@ async function handleCreate(interaction, guild) {
       },
     ];
 
-    // 3. Create channels under category
-    const mainChannel = await guild.channels.create({
-      name: `🔥 ${serverSlug}`,
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: channelOverwrites,
-    });
+    // Owner-notes: private to owner + admins only
+    const ownerNotesOverwrites = [
+      {
+        id: guild.id,
+        deny: [PermissionsBitField.Flags.ViewChannel],
+      },
+      {
+        id: interaction.client.user.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ManageMessages,
+        ],
+      },
+      {
+        id: ownerRole.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ManageMessages,
+        ],
+      },
+    ];
 
-    const proofsChannel = await guild.channels.create({
-      name: `👀 ${serverSlug}-proofs`,
+    // 3. Create 6 channels under category
+    const announcementsChannel = await guild.channels.create({
+      name: "【📢】・announcements",
       type: ChannelType.GuildText,
       parent: category.id,
       permissionOverwrites: channelOverwrites,
     });
+    created.channels.push(announcementsChannel);
+
+    const giveawaysChannel = await guild.channels.create({
+      name: "【🎁】・giveaways",
+      type: ChannelType.GuildText,
+      parent: category.id,
+      permissionOverwrites: channelOverwrites,
+    });
+    created.channels.push(giveawaysChannel);
+
+    const eventsChannel = await guild.channels.create({
+      name: "【🎉】・events",
+      type: ChannelType.GuildText,
+      parent: category.id,
+      permissionOverwrites: channelOverwrites,
+    });
+    created.channels.push(eventsChannel);
+
+    const imagesChannel = await guild.channels.create({
+      name: "【📸】・images",
+      type: ChannelType.GuildText,
+      parent: category.id,
+      permissionOverwrites: channelOverwrites,
+    });
+    created.channels.push(imagesChannel);
 
     const chatChannel = await guild.channels.create({
-      name: `💬 ${serverSlug}-chat`,
+      name: "【💬】・chat",
       type: ChannelType.GuildText,
       parent: category.id,
       permissionOverwrites: channelOverwrites,
     });
+    created.channels.push(chatChannel);
 
-    // 4. Assign owner role to the specified owner
-    const ownerMember = await guild.members.fetch(owner.id).catch(() => null);
+    const ownerNotesChannel = await guild.channels.create({
+      name: "【🔒】・owner-notes",
+      type: ChannelType.GuildText,
+      parent: category.id,
+      permissionOverwrites: ownerNotesOverwrites,
+    });
+    created.channels.push(ownerNotesChannel);
+
+    // 4. Assign PS Owner role to the creator
+    const ownerMember = await guild.members.fetch(ownerId).catch(() => null);
     if (ownerMember) {
-      await ownerMember.roles.add(ownerRole, `Boost server ${serverNumber} owner`).catch((err) => {
+      await ownerMember.roles.add(ownerRole, `Boost server #${serverIndex} owner`).catch((err) => {
         console.error(`[BOOSTSERVER] Failed to assign owner role: ${err.message}`);
       });
     }
 
-    // 5. Store in database
+    // 5. Store metadata in database
     const serverRecord = await db.createBoostServer({
       guild_id: guild.id,
-      server_number: serverNumber,
-      server_name: serverLabel,
-      owner_id: owner.id,
-      game_name: gameName,
+      server_number: serverIndex,
+      server_name: name,
+      owner_id: ownerId,
       category_id: category.id,
-      main_channel_id: mainChannel.id,
-      proofs_channel_id: proofsChannel.id,
+      announcements_channel_id: announcementsChannel.id,
+      giveaways_channel_id: giveawaysChannel.id,
+      events_channel_id: eventsChannel.id,
+      images_channel_id: imagesChannel.id,
       chat_channel_id: chatChannel.id,
+      owner_notes_channel_id: ownerNotesChannel.id,
       owner_role_id: ownerRole.id,
       mod_role_id: modRole.id,
-      booster_role_id: boosterRole.id,
-      boost_rate: boostRate,
-      duration_minutes: durationMinutes,
-      max_players: maxPlayers,
+      booster_role_id: memberRole.id,   // legacy column maps to member role
+      member_role_id: memberRole.id,
       status: "active",
       ps_link: null,
     });
 
     if (!serverRecord) {
-      // Attempt rollback: delete created channels and roles
+      // Rollback: delete all created resources
       console.error("[BOOSTSERVER] DB save failed, attempting rollback...");
-      await mainChannel.delete("Rollback: DB save failed").catch(() => null);
-      await proofsChannel.delete("Rollback: DB save failed").catch(() => null);
-      await chatChannel.delete("Rollback: DB save failed").catch(() => null);
-      await category.delete("Rollback: DB save failed").catch(() => null);
-      await ownerRole.delete("Rollback: DB save failed").catch(() => null);
-      await modRole.delete("Rollback: DB save failed").catch(() => null);
-      await boosterRole.delete("Rollback: DB save failed").catch(() => null);
+      for (const ch of created.channels) await ch.delete("Rollback: DB save failed").catch(() => null);
+      if (created.category) await created.category.delete("Rollback: DB save failed").catch(() => null);
+      for (const r of created.roles) await r.delete("Rollback: DB save failed").catch(() => null);
 
       return interaction.editReply({
         content: "❌ Failed to save boost server to the database. Created channels and roles have been rolled back.",
       });
     }
 
-    // 6. Build confirmation embed
-    const embed = new EmbedBuilder()
-      .setColor(0x2ECC71)
+    // 6. Post structured header in announcements channel and pin it
+    const headerEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`✅ Boost Server ${serverNumber} Created`)
-      .setDescription(`**${serverLabel}** has been set up and is ready to use.`)
-      .addFields(
-        { name: "Owner", value: `<@${owner.id}>`, inline: true },
-        { name: "Status", value: "Active", inline: true },
-        { name: "Max Players", value: `${maxPlayers}`, inline: true },
-        { name: "Boost Rate", value: `${boostRate}x`, inline: true },
-        { name: "Duration", value: `${durationMinutes} min`, inline: true },
-        { name: "Game", value: gameName || "Not set", inline: true },
-        { name: "Category", value: `${category.name}`, inline: false },
-        { name: "Channels", value: `${mainChannel}\n${proofsChannel}\n${chatChannel}`, inline: false },
-        { name: "Roles", value: `${ownerRole}\n${modRole}\n${boosterRole}`, inline: false },
+      .setTitle(`${name}`)
+      .setDescription(
+        `Welcome to **${name}** — Boost Server #${serverIndex}\n\n` +
+        `**Owner:** <@${ownerId}>\n` +
+        `**Status:** Active\n\n` +
+        `📢 <#${announcementsChannel.id}> — Server announcements\n` +
+        `🎁 <#${giveawaysChannel.id}> — Giveaways\n` +
+        `🎉 <#${eventsChannel.id}> — Events\n` +
+        `📸 <#${imagesChannel.id}> — Images & screenshots\n` +
+        `💬 <#${chatChannel.id}> — General chat\n` +
+        `🔒 <#${ownerNotesChannel.id}> — Owner notes (private)`
       )
       .setTimestamp(new Date())
       .setFooter({ text: "BoostMon • Boost Server" });
 
-    return interaction.editReply({ embeds: [embed] });
+    try {
+      const headerMsg = await announcementsChannel.send({ embeds: [headerEmbed] });
+      await headerMsg.pin().catch(() => null);
+    } catch (err) {
+      console.error(`[BOOSTSERVER] Failed to post/pin header: ${err.message}`);
+    }
+
+    // 7. Ephemeral confirmation to the user
+    const confirmEmbed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`✅ Boost Server Created`)
+      .setDescription(`**${name}** (Server #${serverIndex}) has been set up and is ready to use.`)
+      .addFields(
+        { name: "Owner", value: `<@${ownerId}>`, inline: true },
+        { name: "Status", value: "Active", inline: true },
+        { name: "Category", value: `${category.name}`, inline: false },
+        { name: "Channels", value:
+          `${announcementsChannel}\n${giveawaysChannel}\n${eventsChannel}\n${imagesChannel}\n${chatChannel}\n${ownerNotesChannel}`,
+          inline: false },
+        { name: "Roles", value: `${ownerRole}\n${modRole}\n${memberRole}`, inline: false },
+      )
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Boost Server" });
+
+    return interaction.editReply({ embeds: [confirmEmbed] });
   } catch (err) {
     console.error("[BOOSTSERVER] Create error:", err);
+    // Rollback on any error
+    for (const ch of created.channels) await ch.delete("Rollback: error").catch(() => null);
+    if (created.category) await created.category.delete("Rollback: error").catch(() => null);
+    for (const r of created.roles) await r.delete("Rollback: error").catch(() => null);
     return interaction.editReply({
       content: `❌ Failed to create boost server: ${err.message}`,
     });

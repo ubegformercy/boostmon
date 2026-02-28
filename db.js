@@ -346,12 +346,18 @@ async function initDatabase() {
         owner_id VARCHAR(255) NOT NULL,
         game_name VARCHAR(255),
         category_id VARCHAR(255) NOT NULL,
-        main_channel_id VARCHAR(255) NOT NULL,
-        proofs_channel_id VARCHAR(255) NOT NULL,
-        chat_channel_id VARCHAR(255) NOT NULL,
+        main_channel_id VARCHAR(255),
+        proofs_channel_id VARCHAR(255),
+        chat_channel_id VARCHAR(255),
+        announcements_channel_id VARCHAR(255),
+        giveaways_channel_id VARCHAR(255),
+        events_channel_id VARCHAR(255),
+        images_channel_id VARCHAR(255),
+        owner_notes_channel_id VARCHAR(255),
         owner_role_id VARCHAR(255) NOT NULL,
         mod_role_id VARCHAR(255) NOT NULL,
         booster_role_id VARCHAR(255) NOT NULL,
+        member_role_id VARCHAR(255),
         boost_rate NUMERIC(5,2) DEFAULT 1.5,
         duration_minutes INTEGER DEFAULT 60,
         max_players INTEGER DEFAULT 24,
@@ -362,6 +368,23 @@ async function initDatabase() {
         UNIQUE(guild_id, server_number)
       );
     `);
+
+    // Migrate boost_servers: add new channel columns if missing
+    const newBoostServerCols = [
+      { name: 'announcements_channel_id', type: 'VARCHAR(255)' },
+      { name: 'giveaways_channel_id', type: 'VARCHAR(255)' },
+      { name: 'events_channel_id', type: 'VARCHAR(255)' },
+      { name: 'images_channel_id', type: 'VARCHAR(255)' },
+      { name: 'owner_notes_channel_id', type: 'VARCHAR(255)' },
+      { name: 'member_role_id', type: 'VARCHAR(255)' },
+    ];
+    for (const col of newBoostServerCols) {
+      try {
+        await client.query(`ALTER TABLE boost_servers ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
+      } catch (err) {
+        console.warn(`Migration warning for ${col.name}:`, err.message);
+      }
+    }
 
     console.log("✓ Database schema initialized");
 
@@ -1935,15 +1958,21 @@ async function createBoostServer(data) {
     const result = await pool.query(
       `INSERT INTO boost_servers (
         guild_id, server_number, server_name, owner_id, game_name,
-        category_id, main_channel_id, proofs_channel_id, chat_channel_id,
-        owner_role_id, mod_role_id, booster_role_id,
+        category_id, announcements_channel_id, giveaways_channel_id,
+        events_channel_id, images_channel_id, chat_channel_id, owner_notes_channel_id,
+        main_channel_id, proofs_channel_id,
+        owner_role_id, mod_role_id, booster_role_id, member_role_id,
         boost_rate, duration_minutes, max_players, status, ps_link
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
       RETURNING *`,
       [
         data.guild_id, data.server_number, data.server_name, data.owner_id, data.game_name || null,
-        data.category_id, data.main_channel_id, data.proofs_channel_id, data.chat_channel_id,
-        data.owner_role_id, data.mod_role_id, data.booster_role_id,
+        data.category_id,
+        data.announcements_channel_id || null, data.giveaways_channel_id || null,
+        data.events_channel_id || null, data.images_channel_id || null,
+        data.chat_channel_id || null, data.owner_notes_channel_id || null,
+        data.main_channel_id || null, data.proofs_channel_id || null,
+        data.owner_role_id, data.mod_role_id, data.booster_role_id, data.member_role_id || null,
         data.boost_rate ?? 1.5, data.duration_minutes ?? 60, data.max_players ?? 24,
         data.status || 'active', data.ps_link || null
       ]
@@ -1951,6 +1980,32 @@ async function createBoostServer(data) {
     return result.rows[0];
   } catch (err) {
     console.error("createBoostServer error:", err);
+    return null;
+  }
+}
+
+async function getBoostServerByOwner(guildId, ownerId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_servers WHERE guild_id = $1 AND owner_id = $2 AND status != 'deleted' LIMIT 1",
+      [guildId, ownerId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getBoostServerByOwner error:", err);
+    return null;
+  }
+}
+
+async function getBoostServerByName(guildId, name) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_servers WHERE guild_id = $1 AND LOWER(server_name) = LOWER($2) AND status != 'deleted' LIMIT 1",
+      [guildId, name]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getBoostServerByName error:", err);
     return null;
   }
 }
@@ -1998,7 +2053,9 @@ const BOOST_SERVER_UPDATABLE_COLUMNS = new Set([
   'server_name', 'owner_id', 'game_name', 'boost_rate',
   'duration_minutes', 'max_players', 'status', 'ps_link',
   'category_id', 'main_channel_id', 'proofs_channel_id', 'chat_channel_id',
-  'owner_role_id', 'mod_role_id', 'booster_role_id',
+  'announcements_channel_id', 'giveaways_channel_id', 'events_channel_id',
+  'images_channel_id', 'owner_notes_channel_id',
+  'owner_role_id', 'mod_role_id', 'booster_role_id', 'member_role_id',
 ]);
 
 async function updateBoostServer(serverId, updates) {
@@ -2167,6 +2224,8 @@ module.exports = {
   createBoostServer,
   getBoostServer,
   getBoostServerById,
+  getBoostServerByOwner,
+  getBoostServerByName,
   getBoostServers,
   updateBoostServer,
   deleteBoostServer,

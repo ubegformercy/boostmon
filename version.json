@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 6,
-  "patch": 0,
-  "version": "2.6.0",
+  "patch": 1,
+  "version": "2.6.1",
   "lastUpdated": "2026-02-28T00:00:00.000Z",
-  "description": "New public /boostserver command group replacing /setup boostserver"
+  "description": "Public /boostserver create with self-service logic"
 }
