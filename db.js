@@ -386,6 +386,15 @@ async function initDatabase() {
       }
     }
 
+    // Drop NOT NULL on legacy columns that may have been created with NOT NULL in older schemas
+    for (const legacyCol of ['main_channel_id', 'proofs_channel_id']) {
+      try {
+        await client.query(`ALTER TABLE boost_servers ALTER COLUMN ${legacyCol} DROP NOT NULL`);
+      } catch (err) {
+        // Ignore if already nullable
+      }
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
