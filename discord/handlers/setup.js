@@ -1,12 +1,22 @@
-// discord/handlers/setup.js — /setup command handler (reports, streak-roles, streak-leaderboard-size)
+// discord/handlers/setup.js — /setup command handler (reports, streak-roles, streak-leaderboard-size, boostserver)
 const { EmbedBuilder, PermissionFlagsBits } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
+const handleBoostServer = require("./boostserver");
 
 module.exports = async function handleSetup(interaction) {
   if (!interaction.guild) {
     await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
     return;
+  }
+
+  const subcommandGroup = interaction.options.getSubcommandGroup(false);
+
+  // Route boostserver subcommand group to its own handler
+  if (subcommandGroup === "boostserver") {
+    // Defer first, then hand off — boostserver handler uses editReply
+    await interaction.deferReply().catch(() => null);
+    return handleBoostServer(interaction);
   }
 
   // Only owner or admins can use this command

@@ -323,6 +323,33 @@ client.on("interactionCreate", async (interaction) => {
           return;
         }
       }
+
+      // Handle autocomplete for "server" option in /setup boostserver subcommands
+      if (commandName === "setup" && focusedOption.name === "server") {
+        try {
+          const guild = interaction.guild;
+          if (!guild) {
+            await interaction.respond([]);
+            return;
+          }
+
+          // TODO: Query boost servers from DB once implemented
+          // For now, respond with empty list (no servers created yet)
+          const focusedValue = (focusedOption.value || "").toLowerCase();
+          const servers = []; // Will be: await db.getBoostServers(guild.id)
+          const filtered = servers
+            .filter((s) => s.name.toLowerCase().includes(focusedValue))
+            .slice(0, 25)
+            .map((s) => ({ name: s.name, value: s.id }));
+
+          await interaction.respond(filtered);
+          return;
+        } catch (err) {
+          console.error("[AUTOCOMPLETE] Boostserver handler error:", err.message);
+          await interaction.respond([]).catch(() => null);
+          return;
+        }
+      }
       
       // If we reach here, respond with empty array to avoid "Loading options failed"
       await interaction.respond([]);

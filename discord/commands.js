@@ -313,7 +313,167 @@ function getCommands() {
           );
         }
         return cmd;
-      }),
+      })
+      // ── boostserver subcommand group ──
+      .addSubcommandGroup((g) =>
+        g
+          .setName("boostserver")
+          .setDescription("Manage Roblox Boost Servers")
+          .addSubcommand((s) =>
+            s
+              .setName("create")
+              .setDescription("Create a new boost server")
+              .addStringOption((o) =>
+                o.setName("name").setDescription("Name for the boost server").setRequired(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("info")
+              .setDescription("View details about a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("owner-set")
+              .setDescription("Set the owner of a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addUserOption((o) =>
+                o.setName("user").setDescription("User to set as owner").setRequired(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("owner-view")
+              .setDescription("View the owner of a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("mods-add")
+              .setDescription("Add a moderator to a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addUserOption((o) =>
+                o.setName("user").setDescription("User to add as moderator").setRequired(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("mods-remove")
+              .setDescription("Remove a moderator from a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addUserOption((o) =>
+                o.setName("user").setDescription("Moderator to remove").setRequired(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("mods-list")
+              .setDescription("List all moderators of a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("link-set")
+              .setDescription("Set the Roblox link for a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addStringOption((o) =>
+                o.setName("link").setDescription("Roblox server link or URL").setRequired(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("link-view")
+              .setDescription("View the link for a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("link-clear")
+              .setDescription("Clear the link for a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("status-set")
+              .setDescription("Set the status of a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addStringOption((o) =>
+                o
+                  .setName("status")
+                  .setDescription("New status for the server")
+                  .setRequired(true)
+                  .addChoices(
+                    { name: "Active", value: "active" },
+                    { name: "Inactive", value: "inactive" },
+                    { name: "Maintenance", value: "maintenance" },
+                    { name: "Full", value: "full" }
+                  )
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("config-set")
+              .setDescription("Set a configuration value for a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addStringOption((o) =>
+                o
+                  .setName("key")
+                  .setDescription("Configuration key to set")
+                  .setRequired(true)
+                  .addChoices(
+                    { name: "Max Slots", value: "max_slots" },
+                    { name: "Description", value: "description" },
+                    { name: "Game ID", value: "game_id" },
+                    { name: "Auto Restart", value: "auto_restart" }
+                  )
+              )
+              .addStringOption((o) =>
+                o.setName("value").setDescription("Value to set for the config key").setRequired(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("archive")
+              .setDescription("Archive a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+          )
+          .addSubcommand((s) =>
+            s
+              .setName("delete")
+              .setDescription("Permanently delete a boost server")
+              .addStringOption((o) =>
+                o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+              )
+              .addBooleanOption((o) =>
+                o.setName("confirm").setDescription("Confirm deletion (must be true)").setRequired(true)
+              )
+          )
+      ),
 
     // ── /streak (status, leaderboard, admin grant-save/remove-save/set — list-size moved to /setup) ──
     new SlashCommandBuilder()
