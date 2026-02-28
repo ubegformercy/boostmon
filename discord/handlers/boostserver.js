@@ -59,6 +59,16 @@ module.exports = async function handleBoostServer(interaction) {
     return handleLink(interaction, guild, server, subcommand);
   }
 
+  // ── ARCHIVE ──
+  if (subcommand === "archive") {
+    return handleArchive(interaction, guild, server);
+  }
+
+  // ── DELETE ──
+  if (subcommand === "delete") {
+    return handleDelete(interaction, guild, server);
+  }
+
   // All other subcommands — stub
   const label = SUBCOMMAND_LABELS[subcommand] || subcommand;
   return interaction.editReply({
@@ -296,5 +306,179 @@ async function handleLink(interaction, guild, server, subcommand) {
     return interaction.editReply({
       content: `✅ Private server link for **${server.server_name}** (#${server.server_number}) has been cleared.`,
     });
+  }
+}
+
+// ── ARCHIVE ──
+async function handleArchive(interaction, guild, server) {
+  if (server.status === "archived") {
+    return interaction.editReply({ content: "ℹ️ This boost server is already archived." });
+  }
+
+  const errors = [];
+
+  try {
+    // 1. Find or create the "ARCHIVED BOOST SERVERS" category
+    let archiveCategory = guild.channels.cache.find(
+      (c) => c.type === ChannelType.GuildCategory && c.name.toUpperCase() === "ARCHIVED BOOST SERVERS"
+    );
+
+    if (!archiveCategory) {
+      archiveCategory = await guild.channels.create({
+        name: "ARCHIVED BOOST SERVERS",
+        type: ChannelType.GuildCategory,
+        permissionOverwrites: [
+          {
+            id: guild.id,
+            deny: [PermissionsBitField.Flags.SendMessages],
+          },
+          {
+            id: interaction.client.user.id,
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.ManageChannels,
+              PermissionsBitField.Flags.ManageRoles,
+              PermissionsBitField.Flags.SendMessages,
+            ],
+          },
+        ],
+      });
+    }
+
+    // 2. Lock and move channels under the archive category
+    const channelIds = [server.main_channel_id, server.proofs_channel_id, server.chat_channel_id];
+
+    for (const channelId of channelIds) {
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (channel) {
+        // Lock: deny SendMessages for @everyone
+        await channel.permissionOverwrites.edit(guild.id, {
+          SendMessages: false,
+        }).catch((e) => errors.push(`Lock ${channel.name}: ${e.message}`));
+
+        // Move under archive category
+        await channel.setParent(archiveCategory.id, { lockPermissions: false })
+          .catch((e) => errors.push(`Move ${channel.name}: ${e.message}`));
+      }
+    }
+
+    // 3. Delete the original (now empty) category
+    const oldCategory = await guild.channels.fetch(server.category_id).catch(() => null);
+    if (oldCategory) {
+      await oldCategory.delete(`Boost server ${server.server_number} archived`)
+        .catch((e) => errors.push(`Delete category: ${e.message}`));
+    }
+
+    // 4. Delete roles
+    const roleIds = [server.owner_role_id, server.mod_role_id, server.booster_role_id];
+    for (const roleId of roleIds) {
+      const role = guild.roles.cache.get(roleId);
+      if (role) {
+        await role.delete(`Boost server ${server.server_number} archived`)
+          .catch((e) => errors.push(`Delete role ${role.name}: ${e.message}`));
+      }
+    }
+
+    // 5. Update DB: mark as archived
+    await db.updateBoostServer(server.id, { status: "archived" });
+
+    const embed = new EmbedBuilder()
+      .setColor(0xF39C12)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`📦 Boost Server ${server.server_number} Archived`)
+      .setDescription(`**${server.server_name}** has been archived.`)
+      .addFields(
+        { name: "Channels", value: "Locked and moved to **ARCHIVED BOOST SERVERS**", inline: false },
+        { name: "Roles", value: "Deleted (PS Owner, PS Mod, PS Booster)", inline: false },
+        { name: "Status", value: "Archived", inline: true },
+      )
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Boost Server" });
+
+    if (errors.length > 0) {
+      embed.addFields({ name: "⚠️ Warnings", value: errors.join("\n"), inline: false });
+    }
+
+    return interaction.editReply({ embeds: [embed] });
+  } catch (err) {
+    console.error("[BOOSTSERVER] Archive error:", err);
+    return interaction.editReply({ content: `❌ Failed to archive boost server: ${err.message}` });
+  }
+}
+
+// ── DELETE ──
+async function handleDelete(interaction, guild, server) {
+  const confirmText = interaction.options.getString("confirm", true);
+  const expectedText = `DELETE server-${server.server_number}`;
+
+  if (confirmText !== expectedText) {
+    return interaction.editReply({
+      content: `❌ Confirmation failed. You must type exactly:\n\`${expectedText}\``,
+    });
+  }
+
+  const errors = [];
+
+  try {
+    // 1. Delete child channels
+    const channelIds = [server.main_channel_id, server.proofs_channel_id, server.chat_channel_id];
+    for (const channelId of channelIds) {
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (channel) {
+        await channel.delete(`Boost server ${server.server_number} deleted`)
+          .catch((e) => errors.push(`Delete channel ${channel.name}: ${e.message}`));
+      }
+    }
+
+    // 2. Delete category
+    const category = await guild.channels.fetch(server.category_id).catch(() => null);
+    if (category) {
+      // If category still has other children (shouldn't, but be safe), move them out first
+      if (category.children?.cache?.size > 0) {
+        for (const [, child] of category.children.cache) {
+          await child.setParent(null).catch(() => null);
+        }
+      }
+      await category.delete(`Boost server ${server.server_number} deleted`)
+        .catch((e) => errors.push(`Delete category: ${e.message}`));
+    }
+
+    // 3. Delete roles
+    const roleIds = [server.owner_role_id, server.mod_role_id, server.booster_role_id];
+    for (const roleId of roleIds) {
+      const role = guild.roles.cache.get(roleId);
+      if (role) {
+        await role.delete(`Boost server ${server.server_number} deleted`)
+          .catch((e) => errors.push(`Delete role ${role.name}: ${e.message}`));
+      }
+    }
+
+    // 4. Remove from DB
+    const deleted = await db.deleteBoostServer(server.id);
+    if (!deleted) {
+      errors.push("Failed to remove record from database");
+    }
+
+    const embed = new EmbedBuilder()
+      .setColor(0xE74C3C)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`🗑️ Boost Server ${server.server_number} Deleted`)
+      .setDescription(`**${server.server_name}** has been permanently deleted.`)
+      .addFields(
+        { name: "Channels", value: "Deleted", inline: true },
+        { name: "Roles", value: "Deleted", inline: true },
+        { name: "Database", value: deleted ? "Removed" : "⚠️ Failed", inline: true },
+      )
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Boost Server" });
+
+    if (errors.length > 0) {
+      embed.addFields({ name: "⚠️ Warnings", value: errors.join("\n"), inline: false });
+    }
+
+    return interaction.editReply({ embeds: [embed] });
+  } catch (err) {
+    console.error("[BOOSTSERVER] Delete error:", err);
+    return interaction.editReply({ content: `❌ Failed to delete boost server: ${err.message}` });
   }
 }

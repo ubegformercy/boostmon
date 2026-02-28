@@ -484,8 +484,8 @@ function getCommands() {
               .addStringOption((o) =>
                 o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
               )
-              .addBooleanOption((o) =>
-                o.setName("confirm").setDescription("Confirm deletion (must be true)").setRequired(true)
+              .addStringOption((o) =>
+                o.setName("confirm").setDescription("Type DELETE server-X to confirm").setRequired(true)
               )
           )
       ),

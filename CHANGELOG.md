@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.5.4 — 2026-02-28
+- Implemented `/setup boostserver archive`: locks channels, moves to ARCHIVED BOOST SERVERS category, deletes roles, marks DB status archived
+- Implemented `/setup boostserver delete`: requires `DELETE server-X` confirmation text, deletes channels, category, roles, and DB record
+- Changed delete `confirm` option from boolean to string for safety
+- Both commands handle partial failures gracefully with warning fields
+
 ## v2.5.3 — 2026-02-28
 - Centralized permission model for all `/setup boostserver` subcommands
 - `create`: Admin or Guild Owner only
