@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.6.4 — 2026-02-28
+- Added `/boostserver member-add` — approve a user by granting PS Member role (management only)
+- Added `/boostserver member-remove` — revoke PS Member role (management only)
+- Both commands validate: user exists in server, role exists, idempotent (no error if already has/doesn't have role)
+- Membership grants access to boost server channels and `link-view`
+- `link-view` already checks for PS Member/Mod/Owner role (v2.6.2 matrix)
+- Updated `delete` handler: now cleans up all 6 channel types + `member_role_id` (deduplicated)
+- Updated `archive` handler: now locks/moves all 6 channel types + deletes `member_role_id`
+- No member tracking table needed — membership is role-based only
+
 ## v2.6.3 — 2026-02-28
 - **Security audit**: Verified all `ps_link` handling is secure
 - All `link-set`, `link-view`, `link-clear` responses confirmed ephemeral (via top-level `deferReply({ ephemeral: true })`)

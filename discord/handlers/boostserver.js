@@ -11,6 +11,8 @@ const SUBCOMMAND_LABELS = {
   "mods-add": "Add Moderator",
   "mods-remove": "Remove Moderator",
   "mods-list": "List Moderators",
+  "member-add": "Add Member",
+  "member-remove": "Remove Member",
   "link-set": "Set Link",
   "link-view": "View Link",
   "link-clear": "Clear Link",
@@ -59,7 +61,8 @@ module.exports = async function handleBoostServer(interaction) {
   // Subcommands requiring management permission (PS Owner / Discord Owner / Admin)
   const MANAGE_SUBS = new Set([
     "delete", "link-set", "link-clear", "config-set",
-    "mods-add", "mods-remove", "owner-set", "status-set",
+    "mods-add", "mods-remove", "member-add", "member-remove",
+    "owner-set", "status-set",
   ]);
 
   if (ANYONE_SUBS.has(subcommand)) {
@@ -103,6 +106,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── DELETE ──
   if (subcommand === "delete") {
     return handleDelete(interaction, guild, server);
+  }
+
+  // ── MEMBER ADD / REMOVE ──
+  if (subcommand === "member-add" || subcommand === "member-remove") {
+    return handleMember(interaction, guild, server, subcommand);
   }
 
   // All other subcommands — stub
@@ -495,9 +503,15 @@ async function handleArchive(interaction, guild, server) {
     }
 
     // 2. Lock and move channels under the archive category
-    const channelIds = [server.main_channel_id, server.proofs_channel_id, server.chat_channel_id];
+    const channelIds = [
+      server.announcements_channel_id, server.giveaways_channel_id,
+      server.events_channel_id, server.images_channel_id,
+      server.chat_channel_id, server.owner_notes_channel_id,
+      server.main_channel_id, server.proofs_channel_id,
+    ].filter(Boolean);
+    const uniqueChannelIds = [...new Set(channelIds)];
 
-    for (const channelId of channelIds) {
+    for (const channelId of uniqueChannelIds) {
       const channel = await guild.channels.fetch(channelId).catch(() => null);
       if (channel) {
         // Lock: deny SendMessages for @everyone
@@ -518,9 +532,13 @@ async function handleArchive(interaction, guild, server) {
         .catch((e) => errors.push(`Delete category: ${e.message}`));
     }
 
-    // 4. Delete roles
-    const roleIds = [server.owner_role_id, server.mod_role_id, server.booster_role_id];
-    for (const roleId of roleIds) {
+    // 4. Delete roles (owner, mod, member)
+    const roleIds = [
+      server.owner_role_id, server.mod_role_id,
+      server.booster_role_id, server.member_role_id,
+    ].filter(Boolean);
+    const uniqueRoleIds = [...new Set(roleIds)];
+    for (const roleId of uniqueRoleIds) {
       const role = guild.roles.cache.get(roleId);
       if (role) {
         await role.delete(`Boost server ${server.server_number} archived`)
@@ -555,6 +573,62 @@ async function handleArchive(interaction, guild, server) {
   }
 }
 
+// ── MEMBER ADD / REMOVE ──
+async function handleMember(interaction, guild, server, subcommand) {
+  const targetUser = interaction.options.getUser("user", true);
+  const memberRoleId = server.member_role_id || server.booster_role_id;
+
+  if (!memberRoleId) {
+    return interaction.editReply({
+      content: "❌ No PS Member role found for this boost server. The server may need to be recreated.",
+    });
+  }
+
+  const role = guild.roles.cache.get(memberRoleId);
+  if (!role) {
+    return interaction.editReply({
+      content: "❌ The PS Member role no longer exists in this server. It may have been manually deleted.",
+    });
+  }
+
+  const targetMember = await guild.members.fetch(targetUser.id).catch(() => null);
+  if (!targetMember) {
+    return interaction.editReply({
+      content: "❌ That user is not in this Discord server.",
+    });
+  }
+
+  if (subcommand === "member-add") {
+    if (targetMember.roles.cache.has(memberRoleId)) {
+      return interaction.editReply({
+        content: `ℹ️ **${targetUser.username}** already has the **${role.name}** role.`,
+      });
+    }
+
+    await targetMember.roles.add(role, `Approved for boost server #${server.server_number}`);
+
+    return interaction.editReply({
+      content: `✅ **${targetUser.username}** has been approved and given the **${role.name}** role.\nThey can now access boost server channels and view the private server link.`,
+    });
+  }
+
+  if (subcommand === "member-remove") {
+    if (!targetMember.roles.cache.has(memberRoleId)) {
+      return interaction.editReply({
+        content: `ℹ️ **${targetUser.username}** does not have the **${role.name}** role.`,
+      });
+    }
+
+    await targetMember.roles.remove(role, `Removed from boost server #${server.server_number}`);
+
+    return interaction.editReply({
+      content: `✅ **${targetUser.username}** has been removed from **${server.server_name}** and the **${role.name}** role has been revoked.\nThey will no longer see boost server channels or the private server link.`,
+    });
+  }
+
+  return interaction.editReply({ content: "❌ Unknown member subcommand." });
+}
+
 // ── DELETE ──
 async function handleDelete(interaction, guild, server) {
   const confirmText = interaction.options.getString("confirm", true);
@@ -569,9 +643,16 @@ async function handleDelete(interaction, guild, server) {
   const errors = [];
 
   try {
-    // 1. Delete child channels
-    const channelIds = [server.main_channel_id, server.proofs_channel_id, server.chat_channel_id];
-    for (const channelId of channelIds) {
+    // 1. Delete child channels (all 6 new channels + legacy)
+    const channelIds = [
+      server.announcements_channel_id, server.giveaways_channel_id,
+      server.events_channel_id, server.images_channel_id,
+      server.chat_channel_id, server.owner_notes_channel_id,
+      server.main_channel_id, server.proofs_channel_id,
+    ].filter(Boolean);
+    // Deduplicate in case legacy and new IDs overlap
+    const uniqueChannelIds = [...new Set(channelIds)];
+    for (const channelId of uniqueChannelIds) {
       const channel = await guild.channels.fetch(channelId).catch(() => null);
       if (channel) {
         await channel.delete(`Boost server ${server.server_number} deleted`)
@@ -592,9 +673,13 @@ async function handleDelete(interaction, guild, server) {
         .catch((e) => errors.push(`Delete category: ${e.message}`));
     }
 
-    // 3. Delete roles
-    const roleIds = [server.owner_role_id, server.mod_role_id, server.booster_role_id];
-    for (const roleId of roleIds) {
+    // 3. Delete roles (owner, mod, booster/member)
+    const roleIds = [
+      server.owner_role_id, server.mod_role_id,
+      server.booster_role_id, server.member_role_id,
+    ].filter(Boolean);
+    const uniqueRoleIds = [...new Set(roleIds)];
+    for (const roleId of uniqueRoleIds) {
       const role = guild.roles.cache.get(roleId);
       if (role) {
         await role.delete(`Boost server ${server.server_number} deleted`)

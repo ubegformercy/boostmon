@@ -428,6 +428,28 @@ function getCommands() {
       )
       .addSubcommand((s) =>
         s
+          .setName("member-add")
+          .setDescription("Approve a member to join a boost server (grants PS Member role)")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+          .addUserOption((o) =>
+            o.setName("user").setDescription("User to add as a member").setRequired(true)
+          )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("member-remove")
+          .setDescription("Remove a member from a boost server (revokes PS Member role)")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+          .addUserOption((o) =>
+            o.setName("user").setDescription("Member to remove").setRequired(true)
+          )
+      )
+      .addSubcommand((s) =>
+        s
           .setName("owner-set")
           .setDescription("Set the owner of a boost server")
           .addStringOption((o) =>
