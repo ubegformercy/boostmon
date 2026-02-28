@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.6.5 — 2026-02-28
+- Hardened `/boostserver delete` — safe teardown with no orphaned resources
+- Confirmation now requires `DELETE {Server Name}` (was `DELETE server-X`)
+- Orphan channel sweep: any untracked children under the category are deleted before the category itself
+- Roles fetched from API (not just cache) to ensure nothing is missed
+- Embed now shows exact count of channels/roles removed
+- Warnings list uses bullet formatting for readability
+- All responses remain ephemeral
+
 ## v2.6.4 — 2026-02-28
 - Added `/boostserver member-add` — approve a user by granting PS Member role (management only)
 - Added `/boostserver member-remove` — revoke PS Member role (management only)

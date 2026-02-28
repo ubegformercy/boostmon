@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 6,
-  "patch": 4,
-  "version": "2.6.4",
+  "patch": 5,
+  "version": "2.6.5",
   "lastUpdated": "2026-02-28T00:00:00.000Z",
   "description": "Role membership management for boost servers"
 }

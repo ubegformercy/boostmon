@@ -632,7 +632,7 @@ async function handleMember(interaction, guild, server, subcommand) {
 // ── DELETE ──
 async function handleDelete(interaction, guild, server) {
   const confirmText = interaction.options.getString("confirm", true);
-  const expectedText = `DELETE server-${server.server_number}`;
+  const expectedText = `DELETE ${server.server_name}`;
 
   if (confirmText !== expectedText) {
     return interaction.editReply({
@@ -641,73 +641,81 @@ async function handleDelete(interaction, guild, server) {
   }
 
   const errors = [];
+  let channelsDeleted = 0;
+  let rolesDeleted = 0;
 
   try {
-    // 1. Delete child channels (all 6 new channels + legacy)
+    // 1. Delete tracked child channels (all 6 new channels + legacy)
     const channelIds = [
       server.announcements_channel_id, server.giveaways_channel_id,
       server.events_channel_id, server.images_channel_id,
       server.chat_channel_id, server.owner_notes_channel_id,
       server.main_channel_id, server.proofs_channel_id,
     ].filter(Boolean);
-    // Deduplicate in case legacy and new IDs overlap
-    const uniqueChannelIds = [...new Set(channelIds)];
+    const uniqueChannelIds = new Set(channelIds);
     for (const channelId of uniqueChannelIds) {
       const channel = await guild.channels.fetch(channelId).catch(() => null);
       if (channel) {
-        await channel.delete(`Boost server ${server.server_number} deleted`)
-          .catch((e) => errors.push(`Delete channel ${channel.name}: ${e.message}`));
+        await channel.delete(`Boost server #${server.server_number} deleted`)
+          .then(() => channelsDeleted++)
+          .catch((e) => errors.push(`Channel ${channel.name}: ${e.message}`));
       }
     }
 
-    // 2. Delete category
+    // 2. Sweep any orphan channels still parented to the category
     const category = await guild.channels.fetch(server.category_id).catch(() => null);
     if (category) {
-      // If category still has other children (shouldn't, but be safe), move them out first
-      if (category.children?.cache?.size > 0) {
-        for (const [, child] of category.children.cache) {
-          await child.setParent(null).catch(() => null);
+      const remainingChildren = category.children?.cache;
+      if (remainingChildren?.size > 0) {
+        for (const [, child] of remainingChildren) {
+          if (!uniqueChannelIds.has(child.id)) {
+            await child.delete(`Orphan cleanup — boost server #${server.server_number} deleted`)
+              .then(() => channelsDeleted++)
+              .catch((e) => errors.push(`Orphan channel ${child.name}: ${e.message}`));
+          }
         }
       }
-      await category.delete(`Boost server ${server.server_number} deleted`)
-        .catch((e) => errors.push(`Delete category: ${e.message}`));
+      // 3. Delete the category itself
+      await category.delete(`Boost server #${server.server_number} deleted`)
+        .catch((e) => errors.push(`Category: ${e.message}`));
     }
 
-    // 3. Delete roles (owner, mod, booster/member)
+    // 4. Delete roles — owner, mod, booster, member (no orphaned roles)
     const roleIds = [
       server.owner_role_id, server.mod_role_id,
       server.booster_role_id, server.member_role_id,
     ].filter(Boolean);
     const uniqueRoleIds = [...new Set(roleIds)];
     for (const roleId of uniqueRoleIds) {
-      const role = guild.roles.cache.get(roleId);
+      const role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId).catch(() => null);
       if (role) {
-        await role.delete(`Boost server ${server.server_number} deleted`)
-          .catch((e) => errors.push(`Delete role ${role.name}: ${e.message}`));
+        await role.delete(`Boost server #${server.server_number} deleted`)
+          .then(() => rolesDeleted++)
+          .catch((e) => errors.push(`Role ${role.name}: ${e.message}`));
       }
     }
 
-    // 4. Remove from DB
-    const deleted = await db.deleteBoostServer(server.id);
-    if (!deleted) {
+    // 5. Remove from DB
+    const dbRemoved = await db.deleteBoostServer(server.id);
+    if (!dbRemoved) {
       errors.push("Failed to remove record from database");
     }
 
     const embed = new EmbedBuilder()
       .setColor(0xE74C3C)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`🗑️ Boost Server ${server.server_number} Deleted`)
+      .setTitle(`🗑️ Boost Server #${server.server_number} Deleted`)
       .setDescription(`**${server.server_name}** has been permanently deleted.`)
       .addFields(
-        { name: "Channels", value: "Deleted", inline: true },
-        { name: "Roles", value: "Deleted", inline: true },
-        { name: "Database", value: deleted ? "Removed" : "⚠️ Failed", inline: true },
+        { name: "Channels", value: `${channelsDeleted} removed`, inline: true },
+        { name: "Roles", value: `${rolesDeleted} removed`, inline: true },
+        { name: "Database", value: dbRemoved ? "Removed" : "⚠️ Failed", inline: true },
       )
       .setTimestamp(new Date())
       .setFooter({ text: "BoostMon • Boost Server" });
 
     if (errors.length > 0) {
-      embed.addFields({ name: "⚠️ Warnings", value: errors.join("\n"), inline: false });
+      embed.addFields({ name: "⚠️ Warnings", value: errors.map((e) => `• ${e}`).join("\n"), inline: false });
     }
 
     return interaction.editReply({ embeds: [embed] });

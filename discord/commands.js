@@ -335,7 +335,7 @@ function getCommands() {
             o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
           )
           .addStringOption((o) =>
-            o.setName("confirm").setDescription("Type DELETE server-X to confirm").setRequired(true)
+            o.setName("confirm").setDescription("Type DELETE {Server Name} to confirm").setRequired(true)
           )
       )
       .addSubcommand((s) =>
