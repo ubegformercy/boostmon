@@ -165,8 +165,6 @@ async function handleCreate(interaction, guild) {
           id: interaction.client.user.id,
           allow: [
             PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.ManageChannels,
-            PermissionsBitField.Flags.ManageRoles,
             PermissionsBitField.Flags.SendMessages,
           ],
         },
