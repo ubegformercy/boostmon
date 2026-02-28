@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.6.0 — 2026-02-28
+- **Breaking**: Replaced `/setup boostserver` subcommand group with new public `/boostserver` top-level command
+- Subcommands: create, delete, info, link-set, link-view, link-clear, config-set, mods-list, mods-add, mods-remove, owner-set, owner-view, status-set
+- Removed `archive` subcommand (dropped from spec)
+- Handler now self-defers (link commands ephemeral, all others standard)
+- Autocomplete for server selection fields wired to `/boostserver` command
+- `/setup` retains: reports, streak-roles, streak-leaderboard-size, timer-roles
+- No logic changes — structure only
+
 ## v2.5.6 — 2026-02-28
 - **Fix**: Wrapped `getCommands().map(c => c.toJSON())` in try/catch in register.js — previously outside error handling, causing silent crashes
 - **Fix**: Wrapped `registerCommands()` call in app.js ready handler with try/catch to prevent unhandled rejections

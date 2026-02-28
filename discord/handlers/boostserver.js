@@ -1,4 +1,4 @@
-// discord/handlers/boostserver.js — /setup boostserver subcommand group handler
+// discord/handlers/boostserver.js — /boostserver command handler
 const { PermissionFlagsBits, EmbedBuilder, ChannelType, PermissionsBitField } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
@@ -21,8 +21,17 @@ const SUBCOMMAND_LABELS = {
 };
 
 module.exports = async function handleBoostServer(interaction) {
+  if (!interaction.guild) {
+    await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
+    return;
+  }
+
   const subcommand = interaction.options.getSubcommand();
   const guild = interaction.guild;
+
+  // Link commands must always be ephemeral — never leak ps_link
+  const ephemeral = subcommand.startsWith("link-");
+  await interaction.deferReply({ ephemeral }).catch(() => null);
 
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
   const isGuildOwner = guild.ownerId === interaction.user.id;

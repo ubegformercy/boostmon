@@ -328,8 +328,8 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
 
-      // Handle autocomplete for "server" option in /setup boostserver subcommands
-      if (commandName === "setup" && focusedOption.name === "server") {
+      // Handle autocomplete for "server" option in /boostserver subcommands
+      if (commandName === "boostserver" && focusedOption.name === "server") {
         try {
           const guild = interaction.guild;
           if (!guild) {
