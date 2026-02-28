@@ -16,7 +16,6 @@ const SUBCOMMAND_LABELS = {
   "link-clear": "Clear Link",
   "status-set": "Set Status",
   "config-set": "Set Config",
-  "archive": "Archive Server",
   "delete": "Delete Server",
 };
 
@@ -40,8 +39,7 @@ module.exports = async function handleBoostServer(interaction) {
     return handleCreate(interaction, guild);
   }
 
-  // All other subcommands require a server selection — resolve it and
-  // enforce: Admin OR Guild Owner OR that boost server's owner.
+  // All other subcommands require a server selection
   const serverId = interaction.options.getString("server", true);
   const server = await db.getBoostServerById(serverId);
 
@@ -49,12 +47,47 @@ module.exports = async function handleBoostServer(interaction) {
     return interaction.editReply({ content: "❌ Boost server not found." });
   }
 
+  // ── Permission matrix ──
+  // Resolve caller's relationship to this boost server
+  const member = interaction.member;
   const isServerOwner = server.owner_id === interaction.user.id;
+  const hasManage = isAdmin || isGuildOwner || isServerOwner;
 
-  if (!isAdmin && !isGuildOwner && !isServerOwner) {
-    return interaction.editReply({
-      content: "⛔ Only **Admins** or the **Boost Server Owner** can manage this boost server.",
-    });
+  // Subcommands open to anyone (no extra permission)
+  const ANYONE_SUBS = new Set(["info", "mods-list", "owner-view"]);
+
+  // Subcommands requiring management permission (PS Owner / Discord Owner / Admin)
+  const MANAGE_SUBS = new Set([
+    "delete", "link-set", "link-clear", "config-set",
+    "mods-add", "mods-remove", "owner-set", "status-set",
+  ]);
+
+  if (ANYONE_SUBS.has(subcommand)) {
+    // No extra check needed
+  } else if (subcommand === "link-view") {
+    // Only members with PS Member, PS Mod, or PS Owner role — plus Admins
+    const hasServerRole = member.roles?.cache?.has(server.owner_role_id)
+      || member.roles?.cache?.has(server.mod_role_id)
+      || member.roles?.cache?.has(server.booster_role_id)
+      || (server.member_role_id && member.roles?.cache?.has(server.member_role_id));
+    if (!isAdmin && !hasServerRole) {
+      return interaction.editReply({
+        content: "⛔ You must be a **member of this boost server** (PS Member, PS Mod, or PS Owner role) to view its link.",
+      });
+    }
+  } else if (MANAGE_SUBS.has(subcommand)) {
+    if (!hasManage) {
+      return interaction.editReply({
+        content: "⛔ Only the **PS Owner**, **Discord Server Owner**, or **Administrators** can use this command.",
+      });
+    }
+  } else {
+    // Unknown subcommand — require manage as a safe default
+    if (!hasManage) {
+      return interaction.editReply({
+        content: "⛔ You do not have permission to use this command.",
+      });
+    }
   }
 
   // ── LINK SET / VIEW / CLEAR ──

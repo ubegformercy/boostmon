@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.6.2 — 2026-02-28
+- Implemented strict permission enforcement matrix for all `/boostserver` subcommands
+- **Anyone**: `create`, `info`, `mods-list`, `owner-view`
+- **Server members** (PS Member/Mod/Owner role + Admins): `link-view`
+- **Management** (PS Owner + Discord Server Owner + Admins): `delete`, `link-set`, `link-clear`, `config-set`, `mods-add`, `mods-remove`, `owner-set`, `status-set`
+- All permission denials are ephemeral with clear role-based messaging
+- No hardcoded user IDs — uses Discord permission flags and role cache checks
+- Removed stale `archive` label from SUBCOMMAND_LABELS
+
 ## v2.6.1 — 2026-02-28
 - Implemented `/boostserver create` as self-service — any server member can create their own boost server
 - Restrictions: one boost server per owner, case-insensitive unique names, name required
