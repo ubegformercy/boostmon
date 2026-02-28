@@ -338,7 +338,10 @@ client.on("interactionCreate", async (interaction) => {
           const filtered = servers
             .filter((s) => s.server_name.toLowerCase().includes(focusedValue) || `server-${s.server_number}`.includes(focusedValue))
             .slice(0, 25)
-            .map((s) => ({ name: `#${s.server_number} — ${s.server_name}`, value: String(s.id) }));
+            .map((s) => {
+              const statusTag = s.status !== "active" ? ` [${s.status}]` : "";
+              return { name: `#${s.server_number} — ${s.server_name}${statusTag}`, value: String(s.id) };
+            });
 
           await interaction.respond(filtered);
           return;

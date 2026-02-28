@@ -220,8 +220,18 @@ async function handleCreate(interaction, guild) {
     });
 
     if (!serverRecord) {
+      // Attempt rollback: delete created channels and roles
+      console.error("[BOOSTSERVER] DB save failed, attempting rollback...");
+      await mainChannel.delete("Rollback: DB save failed").catch(() => null);
+      await proofsChannel.delete("Rollback: DB save failed").catch(() => null);
+      await chatChannel.delete("Rollback: DB save failed").catch(() => null);
+      await category.delete("Rollback: DB save failed").catch(() => null);
+      await ownerRole.delete("Rollback: DB save failed").catch(() => null);
+      await modRole.delete("Rollback: DB save failed").catch(() => null);
+      await boosterRole.delete("Rollback: DB save failed").catch(() => null);
+
       return interaction.editReply({
-        content: "❌ Failed to save boost server to the database. The channels and roles were created but may need manual cleanup.",
+        content: "❌ Failed to save boost server to the database. Created channels and roles have been rolled back.",
       });
     }
 
@@ -307,6 +317,9 @@ async function handleLink(interaction, guild, server, subcommand) {
       content: `✅ Private server link for **${server.server_name}** (#${server.server_number}) has been cleared.`,
     });
   }
+
+  // Fallback — should not be reached
+  return interaction.editReply({ content: "❌ Unknown link subcommand." });
 }
 
 // ── ARCHIVE ──

@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.5.5 — 2026-02-28
+- **Security**: `updateBoostServer` now whitelists allowed column names to prevent SQL injection
+- **Rollback**: `create` now rolls back channels and roles if DB save fails
+- **Autocomplete**: archived servers show `[archived]` status tag in picker
+- **Defensive**: `handleLink` now has a fallback return for unreachable code paths
+
 ## v2.5.4 — 2026-02-28
 - Implemented `/setup boostserver archive`: locks channels, moves to ARCHIVED BOOST SERVERS category, deletes roles, marks DB status archived
 - Implemented `/setup boostserver delete`: requires `DELETE server-X` confirmation text, deletes channels, category, roles, and DB record

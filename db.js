@@ -1994,6 +1994,13 @@ async function getBoostServers(guildId) {
   }
 }
 
+const BOOST_SERVER_UPDATABLE_COLUMNS = new Set([
+  'server_name', 'owner_id', 'game_name', 'boost_rate',
+  'duration_minutes', 'max_players', 'status', 'ps_link',
+  'category_id', 'main_channel_id', 'proofs_channel_id', 'chat_channel_id',
+  'owner_role_id', 'mod_role_id', 'booster_role_id',
+]);
+
 async function updateBoostServer(serverId, updates) {
   try {
     const setClauses = [];
@@ -2001,10 +2008,16 @@ async function updateBoostServer(serverId, updates) {
     let paramIndex = 1;
 
     for (const [key, value] of Object.entries(updates)) {
+      if (!BOOST_SERVER_UPDATABLE_COLUMNS.has(key)) {
+        console.warn(`updateBoostServer: skipping disallowed column "${key}"`);
+        continue;
+      }
       setClauses.push(`${key} = $${paramIndex}`);
       values.push(value);
       paramIndex++;
     }
+
+    if (setClauses.length === 0) return null;
 
     setClauses.push(`updated_at = CURRENT_TIMESTAMP`);
     values.push(serverId);
