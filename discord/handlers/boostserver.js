@@ -398,6 +398,9 @@ async function handleCreate(interaction, guild) {
 }
 
 // ── LINK SET / VIEW / CLEAR ──
+// SECURITY: ps_link must NEVER be posted publicly, logged to console, or included in audit logs.
+// All link responses are ephemeral (enforced by the top-level deferReply({ ephemeral: true })).
+// Permission: link-set/link-clear = Management; link-view = Server role holders + Admins (enforced above).
 async function handleLink(interaction, guild, server, subcommand) {
   // ── link-set ──
   if (subcommand === "link-set") {

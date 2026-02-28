@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.6.3 — 2026-02-28
+- **Security audit**: Verified all `ps_link` handling is secure
+- All `link-set`, `link-view`, `link-clear` responses confirmed ephemeral (via top-level `deferReply({ ephemeral: true })`)
+- `link-set` validates `privateServerLinkCode=` before storing
+- `link-view` gated to PS Member/Mod/Owner role holders + Admins (v2.6.2 matrix)
+- `link-clear` removes link from DB completely
+- No `console.log` of `ps_link` values anywhere in codebase
+- Autocomplete never exposes `ps_link` (only uses name/number/status/id)
+- Added security invariant comment block to `handleLink` function
+
 ## v2.6.2 — 2026-02-28
 - Implemented strict permission enforcement matrix for all `/boostserver` subcommands
 - **Anyone**: `create`, `info`, `mods-list`, `owner-view`
