@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.7.0 — 2026-03-01
+- **Schema restructure**: Renamed all `boost_servers` columns to consistent naming convention
+  - `server_number` → `server_index`, `server_name` → `display_name`
+  - Channel columns: `announcements_channel_id` → `channel_announcements_id`, etc.
+  - Role columns: `owner_role_id` → `role_owner_id`, etc.
+- Added `slug` column with `UNIQUE(guild_id, slug)` constraint
+- Added `UNIQUE(guild_id, owner_id)` and `UNIQUE(guild_id, LOWER(display_name))` constraints
+- Added `tickets_category_id`, `channel_ticket_panel_id`, `ticket_counter` columns
+- Dropped legacy columns: `game_name`, `main_channel_id`, `proofs_channel_id`, `booster_role_id`, `boost_rate`, `duration_minutes`, `max_players`
+- Created `boost_server_ticket_config` table (1:1 FK, categories TEXT[], ping_mode, notifications)
+- Created `boost_server_tickets` table (FK, ticket_number per server, channel_id, status, timestamps)
+- Added CRUD functions: `getTicketConfig`, `upsertTicketConfig`, `incrementTicketCounter`, `createTicket`, `getTicketByChannel`, `getTickets`, `updateTicketStatus`
+- Idempotent migration: column renames, adds, drops, slug backfill all run safely on every boot
+- Renamed `owner-notes` channel to `mod-chat` (visible to owner + mod roles)
+- Updated all handler references (create, link, archive, member, delete)
+- Delete handler now cleans up `tickets_category_id` and children on teardown
+
 ## v2.6.5 — 2026-02-28
 - Hardened `/boostserver delete` — safe teardown with no orphaned resources
 - Confirmation now requires `DELETE {Server Name}` (was `DELETE server-X`)

@@ -69,10 +69,9 @@ module.exports = async function handleBoostServer(interaction) {
     // No extra check needed
   } else if (subcommand === "link-view") {
     // Only members with PS Member, PS Mod, or PS Owner role — plus Admins
-    const hasServerRole = member.roles?.cache?.has(server.owner_role_id)
-      || member.roles?.cache?.has(server.mod_role_id)
-      || member.roles?.cache?.has(server.booster_role_id)
-      || (server.member_role_id && member.roles?.cache?.has(server.member_role_id));
+    const hasServerRole = member.roles?.cache?.has(server.role_owner_id)
+      || member.roles?.cache?.has(server.role_mod_id)
+      || member.roles?.cache?.has(server.role_member_id);
     if (!isAdmin && !hasServerRole) {
       return interaction.editReply({
         content: "⛔ You must be a **member of this boost server** (PS Member, PS Mod, or PS Owner role) to view its link.",
@@ -133,7 +132,7 @@ async function handleCreate(interaction, guild) {
   const existingOwned = await db.getBoostServerByOwner(guild.id, ownerId);
   if (existingOwned) {
     return interaction.editReply({
-      content: `❌ You already own a boost server: **${existingOwned.server_name}** (#${existingOwned.server_number}). Each member may only own one.`,
+      content: `❌ You already own a boost server: **${existingOwned.display_name}** (#${existingOwned.server_index}). Each member may only own one.`,
     });
   }
 
@@ -141,12 +140,12 @@ async function handleCreate(interaction, guild) {
   const existingName = await db.getBoostServerByName(guild.id, name);
   if (existingName) {
     return interaction.editReply({
-      content: `❌ A boost server named **${existingName.server_name}** already exists. Please choose a different name.`,
+      content: `❌ A boost server named **${existingName.display_name}** already exists. Please choose a different name.`,
     });
   }
 
   // Get the next server index
-  const serverIndex = await db.getNextBoostServerNumber(guild.id);
+  const serverIndex = await db.getNextServerIndex(guild.id);
 
   // Track created resources for rollback
   const created = { channels: [], roles: [], category: null };
@@ -232,8 +231,8 @@ async function handleCreate(interaction, guild) {
       },
     ];
 
-    // Owner-notes: private to owner + admins only
-    const ownerNotesOverwrites = [
+    // Mod-chat: private to owner + mods + bot only
+    const modChatOverwrites = [
       {
         id: guild.id,
         deny: [PermissionsBitField.Flags.ViewChannel],
@@ -252,6 +251,13 @@ async function handleCreate(interaction, guild) {
           PermissionsBitField.Flags.ViewChannel,
           PermissionsBitField.Flags.SendMessages,
           PermissionsBitField.Flags.ManageMessages,
+        ],
+      },
+      {
+        id: modRole.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
         ],
       },
     ];
@@ -297,13 +303,13 @@ async function handleCreate(interaction, guild) {
     });
     created.channels.push(chatChannel);
 
-    const ownerNotesChannel = await guild.channels.create({
-      name: "【🔒】・owner-notes",
+    const modChatChannel = await guild.channels.create({
+      name: "【🔒】・mod-chat",
       type: ChannelType.GuildText,
       parent: category.id,
-      permissionOverwrites: ownerNotesOverwrites,
+      permissionOverwrites: modChatOverwrites,
     });
-    created.channels.push(ownerNotesChannel);
+    created.channels.push(modChatChannel);
 
     // 4. Assign PS Owner role to the creator
     const ownerMember = await guild.members.fetch(ownerId).catch(() => null);
@@ -314,22 +320,25 @@ async function handleCreate(interaction, guild) {
     }
 
     // 5. Store metadata in database
+    // Generate slug from name
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
     const serverRecord = await db.createBoostServer({
       guild_id: guild.id,
-      server_number: serverIndex,
-      server_name: name,
+      server_index: serverIndex,
+      display_name: name,
+      slug,
       owner_id: ownerId,
       category_id: category.id,
-      announcements_channel_id: announcementsChannel.id,
-      giveaways_channel_id: giveawaysChannel.id,
-      events_channel_id: eventsChannel.id,
-      images_channel_id: imagesChannel.id,
-      chat_channel_id: chatChannel.id,
-      owner_notes_channel_id: ownerNotesChannel.id,
-      owner_role_id: ownerRole.id,
-      mod_role_id: modRole.id,
-      booster_role_id: memberRole.id,   // legacy column maps to member role
-      member_role_id: memberRole.id,
+      channel_announcements_id: announcementsChannel.id,
+      channel_giveaways_id: giveawaysChannel.id,
+      channel_events_id: eventsChannel.id,
+      channel_images_id: imagesChannel.id,
+      channel_chat_id: chatChannel.id,
+      channel_mod_chat_id: modChatChannel.id,
+      role_owner_id: ownerRole.id,
+      role_mod_id: modRole.id,
+      role_member_id: memberRole.id,
       status: "active",
       ps_link: null,
     });
@@ -360,7 +369,7 @@ async function handleCreate(interaction, guild) {
         `🎉 <#${eventsChannel.id}> — Events\n` +
         `📸 <#${imagesChannel.id}> — Images & screenshots\n` +
         `💬 <#${chatChannel.id}> — General chat\n` +
-        `🔒 <#${ownerNotesChannel.id}> — Owner notes (private)`
+        `🔒 <#${modChatChannel.id}> — Mod chat (private)`
       )
       .setTimestamp(new Date())
       .setFooter({ text: "BoostMon • Boost Server" });
@@ -383,7 +392,7 @@ async function handleCreate(interaction, guild) {
         { name: "Status", value: "Active", inline: true },
         { name: "Category", value: `${category.name}`, inline: false },
         { name: "Channels", value:
-          `${announcementsChannel}\n${giveawaysChannel}\n${eventsChannel}\n${imagesChannel}\n${chatChannel}\n${ownerNotesChannel}`,
+          `${announcementsChannel}\n${giveawaysChannel}\n${eventsChannel}\n${imagesChannel}\n${chatChannel}\n${modChatChannel}`,
           inline: false },
         { name: "Roles", value: `${ownerRole}\n${modRole}\n${memberRole}`, inline: false },
       )
@@ -425,7 +434,7 @@ async function handleLink(interaction, guild, server, subcommand) {
     }
 
     return interaction.editReply({
-      content: `✅ Private server link for **${server.server_name}** (#${server.server_number}) has been saved.`,
+      content: `✅ Private server link for **${server.display_name}** (#${server.server_index}) has been saved.`,
     });
   }
 
@@ -433,14 +442,14 @@ async function handleLink(interaction, guild, server, subcommand) {
   if (subcommand === "link-view") {
     if (!server.ps_link) {
       return interaction.editReply({
-        content: `ℹ️ No private server link is set for **${server.server_name}** (#${server.server_number}).`,
+        content: `ℹ️ No private server link is set for **${server.display_name}** (#${server.server_index}).`,
       });
     }
 
     const embed = new EmbedBuilder()
       .setColor(0x3498DB)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`🔗 Private Server Link — ${server.server_name}`)
+      .setTitle(`🔗 Private Server Link — ${server.display_name}`)
       .setDescription(server.ps_link)
       .setTimestamp(new Date())
       .setFooter({ text: "BoostMon • This message is only visible to you" });
@@ -456,7 +465,7 @@ async function handleLink(interaction, guild, server, subcommand) {
     }
 
     return interaction.editReply({
-      content: `✅ Private server link for **${server.server_name}** (#${server.server_number}) has been cleared.`,
+      content: `✅ Private server link for **${server.display_name}** (#${server.server_index}) has been cleared.`,
     });
   }
 
@@ -502,10 +511,9 @@ async function handleArchive(interaction, guild, server) {
 
     // 2. Lock and move channels under the archive category
     const channelIds = [
-      server.announcements_channel_id, server.giveaways_channel_id,
-      server.events_channel_id, server.images_channel_id,
-      server.chat_channel_id, server.owner_notes_channel_id,
-      server.main_channel_id, server.proofs_channel_id,
+      server.channel_announcements_id, server.channel_giveaways_id,
+      server.channel_events_id, server.channel_images_id,
+      server.channel_chat_id, server.channel_mod_chat_id,
     ].filter(Boolean);
     const uniqueChannelIds = [...new Set(channelIds)];
 
@@ -526,20 +534,19 @@ async function handleArchive(interaction, guild, server) {
     // 3. Delete the original (now empty) category
     const oldCategory = await guild.channels.fetch(server.category_id).catch(() => null);
     if (oldCategory) {
-      await oldCategory.delete(`Boost server ${server.server_number} archived`)
+      await oldCategory.delete(`Boost server #${server.server_index} archived`)
         .catch((e) => errors.push(`Delete category: ${e.message}`));
     }
 
-    // 4. Delete roles (owner, mod, member)
+    // 4. Delete roles
     const roleIds = [
-      server.owner_role_id, server.mod_role_id,
-      server.booster_role_id, server.member_role_id,
+      server.role_owner_id, server.role_mod_id, server.role_member_id,
     ].filter(Boolean);
     const uniqueRoleIds = [...new Set(roleIds)];
     for (const roleId of uniqueRoleIds) {
       const role = guild.roles.cache.get(roleId);
       if (role) {
-        await role.delete(`Boost server ${server.server_number} archived`)
+        await role.delete(`Boost server #${server.server_index} archived`)
           .catch((e) => errors.push(`Delete role ${role.name}: ${e.message}`));
       }
     }
@@ -550,11 +557,11 @@ async function handleArchive(interaction, guild, server) {
     const embed = new EmbedBuilder()
       .setColor(0xF39C12)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`📦 Boost Server ${server.server_number} Archived`)
-      .setDescription(`**${server.server_name}** has been archived.`)
+      .setTitle(`📦 Boost Server #${server.server_index} Archived`)
+      .setDescription(`**${server.display_name}** has been archived.`)
       .addFields(
         { name: "Channels", value: "Locked and moved to **ARCHIVED BOOST SERVERS**", inline: false },
-        { name: "Roles", value: "Deleted (PS Owner, PS Mod, PS Booster)", inline: false },
+        { name: "Roles", value: "Deleted (PS Owner, PS Mod, PS Member)", inline: false },
         { name: "Status", value: "Archived", inline: true },
       )
       .setTimestamp(new Date())
@@ -574,7 +581,7 @@ async function handleArchive(interaction, guild, server) {
 // ── MEMBER ADD / REMOVE ──
 async function handleMember(interaction, guild, server, subcommand) {
   const targetUser = interaction.options.getUser("user", true);
-  const memberRoleId = server.member_role_id || server.booster_role_id;
+  const memberRoleId = server.role_member_id;
 
   if (!memberRoleId) {
     return interaction.editReply({
@@ -603,7 +610,7 @@ async function handleMember(interaction, guild, server, subcommand) {
       });
     }
 
-    await targetMember.roles.add(role, `Approved for boost server #${server.server_number}`);
+    await targetMember.roles.add(role, `Approved for boost server #${server.server_index}`);
 
     return interaction.editReply({
       content: `✅ **${targetUser.username}** has been approved and given the **${role.name}** role.\nThey can now access boost server channels and view the private server link.`,
@@ -617,10 +624,10 @@ async function handleMember(interaction, guild, server, subcommand) {
       });
     }
 
-    await targetMember.roles.remove(role, `Removed from boost server #${server.server_number}`);
+    await targetMember.roles.remove(role, `Removed from boost server #${server.server_index}`);
 
     return interaction.editReply({
-      content: `✅ **${targetUser.username}** has been removed from **${server.server_name}** and the **${role.name}** role has been revoked.\nThey will no longer see boost server channels or the private server link.`,
+      content: `✅ **${targetUser.username}** has been removed from **${server.display_name}** and the **${role.name}** role has been revoked.\nThey will no longer see boost server channels or the private server link.`,
     });
   }
 
@@ -630,7 +637,7 @@ async function handleMember(interaction, guild, server, subcommand) {
 // ── DELETE ──
 async function handleDelete(interaction, guild, server) {
   const confirmText = interaction.options.getString("confirm", true);
-  const expectedText = `DELETE ${server.server_name}`;
+  const expectedText = `DELETE ${server.display_name}`;
 
   if (confirmText !== expectedText) {
     return interaction.editReply({
@@ -643,18 +650,18 @@ async function handleDelete(interaction, guild, server) {
   let rolesDeleted = 0;
 
   try {
-    // 1. Delete tracked child channels (all 6 new channels + legacy)
+    // 1. Delete tracked child channels
     const channelIds = [
-      server.announcements_channel_id, server.giveaways_channel_id,
-      server.events_channel_id, server.images_channel_id,
-      server.chat_channel_id, server.owner_notes_channel_id,
-      server.main_channel_id, server.proofs_channel_id,
+      server.channel_announcements_id, server.channel_giveaways_id,
+      server.channel_events_id, server.channel_images_id,
+      server.channel_chat_id, server.channel_mod_chat_id,
+      server.channel_ticket_panel_id,
     ].filter(Boolean);
     const uniqueChannelIds = new Set(channelIds);
     for (const channelId of uniqueChannelIds) {
       const channel = await guild.channels.fetch(channelId).catch(() => null);
       if (channel) {
-        await channel.delete(`Boost server #${server.server_number} deleted`)
+        await channel.delete(`Boost server #${server.server_index} deleted`)
           .then(() => channelsDeleted++)
           .catch((e) => errors.push(`Channel ${channel.name}: ${e.message}`));
       }
@@ -667,33 +674,49 @@ async function handleDelete(interaction, guild, server) {
       if (remainingChildren?.size > 0) {
         for (const [, child] of remainingChildren) {
           if (!uniqueChannelIds.has(child.id)) {
-            await child.delete(`Orphan cleanup — boost server #${server.server_number} deleted`)
+            await child.delete(`Orphan cleanup — boost server #${server.server_index} deleted`)
               .then(() => channelsDeleted++)
               .catch((e) => errors.push(`Orphan channel ${child.name}: ${e.message}`));
           }
         }
       }
       // 3. Delete the category itself
-      await category.delete(`Boost server #${server.server_number} deleted`)
+      await category.delete(`Boost server #${server.server_index} deleted`)
         .catch((e) => errors.push(`Category: ${e.message}`));
     }
 
-    // 4. Delete roles — owner, mod, booster, member (no orphaned roles)
+    // 3b. Delete tickets category if it exists
+    if (server.tickets_category_id) {
+      const ticketsCat = await guild.channels.fetch(server.tickets_category_id).catch(() => null);
+      if (ticketsCat) {
+        const ticketsChildren = ticketsCat.children?.cache;
+        if (ticketsChildren?.size > 0) {
+          for (const [, child] of ticketsChildren) {
+            await child.delete(`Boost server #${server.server_index} deleted`)
+              .then(() => channelsDeleted++)
+              .catch((e) => errors.push(`Ticket channel ${child.name}: ${e.message}`));
+          }
+        }
+        await ticketsCat.delete(`Boost server #${server.server_index} deleted`)
+          .catch((e) => errors.push(`Tickets category: ${e.message}`));
+      }
+    }
+
+    // 4. Delete roles — owner, mod, member (no orphaned roles)
     const roleIds = [
-      server.owner_role_id, server.mod_role_id,
-      server.booster_role_id, server.member_role_id,
+      server.role_owner_id, server.role_mod_id, server.role_member_id,
     ].filter(Boolean);
     const uniqueRoleIds = [...new Set(roleIds)];
     for (const roleId of uniqueRoleIds) {
       const role = guild.roles.cache.get(roleId) || await guild.roles.fetch(roleId).catch(() => null);
       if (role) {
-        await role.delete(`Boost server #${server.server_number} deleted`)
+        await role.delete(`Boost server #${server.server_index} deleted`)
           .then(() => rolesDeleted++)
           .catch((e) => errors.push(`Role ${role.name}: ${e.message}`));
       }
     }
 
-    // 5. Remove from DB
+    // 5. Remove from DB (CASCADE deletes ticket_config and tickets)
     const dbRemoved = await db.deleteBoostServer(server.id);
     if (!dbRemoved) {
       errors.push("Failed to remove record from database");
@@ -702,8 +725,8 @@ async function handleDelete(interaction, guild, server) {
     const embed = new EmbedBuilder()
       .setColor(0xE74C3C)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`🗑️ Boost Server #${server.server_number} Deleted`)
-      .setDescription(`**${server.server_name}** has been permanently deleted.`)
+      .setTitle(`🗑️ Boost Server #${server.server_index} Deleted`)
+      .setDescription(`**${server.display_name}** has been permanently deleted.`)
       .addFields(
         { name: "Channels", value: `${channelsDeleted} removed`, inline: true },
         { name: "Roles", value: `${rolesDeleted} removed`, inline: true },

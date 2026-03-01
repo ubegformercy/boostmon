@@ -340,11 +340,11 @@ client.on("interactionCreate", async (interaction) => {
           const focusedValue = (focusedOption.value || "").toLowerCase();
           const servers = await db.getBoostServers(guild.id);
           const filtered = servers
-            .filter((s) => s.server_name.toLowerCase().includes(focusedValue) || `server-${s.server_number}`.includes(focusedValue))
+            .filter((s) => s.display_name.toLowerCase().includes(focusedValue) || `#${s.server_index}`.includes(focusedValue))
             .slice(0, 25)
             .map((s) => {
               const statusTag = s.status !== "active" ? ` [${s.status}]` : "";
-              return { name: `#${s.server_number} — ${s.server_name}${statusTag}`, value: String(s.id) };
+              return { name: `#${s.server_index} — ${s.display_name}${statusTag}`, value: String(s.id) };
             });
 
           await interaction.respond(filtered);

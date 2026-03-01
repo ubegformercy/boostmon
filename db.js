@@ -341,59 +341,103 @@ async function initDatabase() {
       CREATE TABLE IF NOT EXISTS boost_servers (
         id SERIAL PRIMARY KEY,
         guild_id VARCHAR(255) NOT NULL,
-        server_number INTEGER NOT NULL,
-        server_name VARCHAR(255) NOT NULL,
+        server_index INTEGER NOT NULL,
+        display_name VARCHAR(255) NOT NULL,
+        slug VARCHAR(255),
         owner_id VARCHAR(255) NOT NULL,
-        game_name VARCHAR(255),
         category_id VARCHAR(255) NOT NULL,
-        main_channel_id VARCHAR(255),
-        proofs_channel_id VARCHAR(255),
-        chat_channel_id VARCHAR(255),
-        announcements_channel_id VARCHAR(255),
-        giveaways_channel_id VARCHAR(255),
-        events_channel_id VARCHAR(255),
-        images_channel_id VARCHAR(255),
-        owner_notes_channel_id VARCHAR(255),
-        owner_role_id VARCHAR(255) NOT NULL,
-        mod_role_id VARCHAR(255) NOT NULL,
-        booster_role_id VARCHAR(255) NOT NULL,
-        member_role_id VARCHAR(255),
-        boost_rate NUMERIC(5,2) DEFAULT 1.5,
-        duration_minutes INTEGER DEFAULT 60,
-        max_players INTEGER DEFAULT 24,
+        tickets_category_id VARCHAR(255),
+        channel_announcements_id VARCHAR(255),
+        channel_giveaways_id VARCHAR(255),
+        channel_events_id VARCHAR(255),
+        channel_images_id VARCHAR(255),
+        channel_chat_id VARCHAR(255),
+        channel_mod_chat_id VARCHAR(255),
+        channel_ticket_panel_id VARCHAR(255),
+        role_owner_id VARCHAR(255) NOT NULL,
+        role_mod_id VARCHAR(255) NOT NULL,
+        role_member_id VARCHAR(255),
         status VARCHAR(50) DEFAULT 'active',
         ps_link TEXT,
+        ticket_counter INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        UNIQUE(guild_id, server_number)
+        UNIQUE(guild_id, server_index),
+        UNIQUE(guild_id, slug),
+        UNIQUE(guild_id, owner_id)
       );
     `);
 
-    // Migrate boost_servers: add new channel columns if missing
-    const newBoostServerCols = [
-      { name: 'announcements_channel_id', type: 'VARCHAR(255)' },
-      { name: 'giveaways_channel_id', type: 'VARCHAR(255)' },
-      { name: 'events_channel_id', type: 'VARCHAR(255)' },
-      { name: 'images_channel_id', type: 'VARCHAR(255)' },
-      { name: 'owner_notes_channel_id', type: 'VARCHAR(255)' },
-      { name: 'member_role_id', type: 'VARCHAR(255)' },
+    // ── Migrate boost_servers from v2.6.x to v2.7.0 ──
+    const boostServerRenames = [
+      ['server_number', 'server_index'],
+      ['server_name', 'display_name'],
+      ['announcements_channel_id', 'channel_announcements_id'],
+      ['giveaways_channel_id', 'channel_giveaways_id'],
+      ['events_channel_id', 'channel_events_id'],
+      ['images_channel_id', 'channel_images_id'],
+      ['chat_channel_id', 'channel_chat_id'],
+      ['owner_notes_channel_id', 'channel_mod_chat_id'],
+      ['owner_role_id', 'role_owner_id'],
+      ['mod_role_id', 'role_mod_id'],
+      ['member_role_id', 'role_member_id'],
     ];
-    for (const col of newBoostServerCols) {
-      try {
-        await client.query(`ALTER TABLE boost_servers ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`);
-      } catch (err) {
-        console.warn(`Migration warning for ${col.name}:`, err.message);
-      }
+    for (const [oldCol, newCol] of boostServerRenames) {
+      try { await client.query(`ALTER TABLE boost_servers RENAME COLUMN ${oldCol} TO ${newCol}`); }
+      catch (err) { /* already renamed */ }
     }
+    for (const col of [
+      { name: 'slug', type: 'VARCHAR(255)' },
+      { name: 'tickets_category_id', type: 'VARCHAR(255)' },
+      { name: 'channel_ticket_panel_id', type: 'VARCHAR(255)' },
+      { name: 'ticket_counter', type: 'INTEGER DEFAULT 0' },
+    ]) {
+      try { await client.query(`ALTER TABLE boost_servers ADD COLUMN IF NOT EXISTS ${col.name} ${col.type}`); }
+      catch (err) { console.warn(`Migration: ${col.name}:`, err.message); }
+    }
+    for (const col of ['game_name', 'main_channel_id', 'proofs_channel_id', 'booster_role_id', 'boost_rate', 'duration_minutes', 'max_players']) {
+      try { await client.query(`ALTER TABLE boost_servers DROP COLUMN IF EXISTS ${col}`); }
+      catch (err) { /* ignore */ }
+    }
+    try { await client.query(`ALTER TABLE boost_servers ALTER COLUMN role_member_id DROP NOT NULL`); }
+    catch (err) { /* already nullable */ }
+    // Backfill slugs for existing rows
+    try {
+      await client.query(`
+        UPDATE boost_servers SET slug = LOWER(REGEXP_REPLACE(REGEXP_REPLACE(display_name, '[^a-zA-Z0-9]+', '-', 'g'), '^-|-$', '', 'g'))
+        WHERE slug IS NULL AND display_name IS NOT NULL
+      `);
+    } catch (err) { console.warn("Migration: backfill slugs:", err.message); }
 
-    // Drop NOT NULL on legacy columns that may have been created with NOT NULL in older schemas
-    for (const legacyCol of ['main_channel_id', 'proofs_channel_id']) {
-      try {
-        await client.query(`ALTER TABLE boost_servers ALTER COLUMN ${legacyCol} DROP NOT NULL`);
-      } catch (err) {
-        // Ignore if already nullable
-      }
-    }
+    // Ticket config table (1:1 with boost_servers)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS boost_server_ticket_config (
+        id SERIAL PRIMARY KEY,
+        boost_server_id INTEGER NOT NULL UNIQUE REFERENCES boost_servers(id) ON DELETE CASCADE,
+        title VARCHAR(255),
+        description TEXT,
+        categories TEXT[],
+        ping_mode VARCHAR(10) DEFAULT 'off' CHECK (ping_mode IN ('off', 'mod', 'owner', 'both')),
+        notifications_channel_id VARCHAR(255)
+      );
+    `);
+
+    // Tickets table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS boost_server_tickets (
+        id SERIAL PRIMARY KEY,
+        boost_server_id INTEGER NOT NULL REFERENCES boost_servers(id) ON DELETE CASCADE,
+        ticket_number INTEGER NOT NULL,
+        creator_id VARCHAR(255) NOT NULL,
+        category_label VARCHAR(255),
+        channel_id VARCHAR(255),
+        status VARCHAR(10) DEFAULT 'open' CHECK (status IN ('open', 'closed', 'locked')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        closed_at TIMESTAMP,
+        UNIQUE(boost_server_id, ticket_number),
+        UNIQUE(channel_id)
+      );
+    `);
 
     console.log("✓ Database schema initialized");
 
@@ -419,8 +463,13 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_streak_roles_guild ON streak_roles(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_user_streaks_guild_user ON user_streaks(guild_id, user_id)',
       'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild ON boost_servers(guild_id)',
-      'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild_number ON boost_servers(guild_id, server_number)',
-      'CREATE INDEX IF NOT EXISTS idx_boost_servers_owner ON boost_servers(guild_id, owner_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild_index ON boost_servers(guild_id, server_index)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_boost_servers_guild_slug ON boost_servers(guild_id, slug) WHERE slug IS NOT NULL',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_boost_servers_guild_owner ON boost_servers(guild_id, owner_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_boost_servers_guild_display_name ON boost_servers(guild_id, LOWER(display_name))',
+      'CREATE INDEX IF NOT EXISTS idx_boost_server_tickets_server ON boost_server_tickets(boost_server_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_server_tickets_channel ON boost_server_tickets(channel_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_server_tickets_status ON boost_server_tickets(boost_server_id, status)',
     ];
 
       for (const indexQuery of indexes) {
@@ -1949,15 +1998,15 @@ async function getAllQueueNotifyGuilds() {
 
 // ===== BOOST SERVER OPERATIONS =====
 
-async function getNextBoostServerNumber(guildId) {
+async function getNextServerIndex(guildId) {
   try {
     const result = await pool.query(
-      "SELECT COALESCE(MAX(server_number), 0) + 1 AS next_number FROM boost_servers WHERE guild_id = $1",
+      "SELECT COALESCE(MAX(server_index), 0) + 1 AS next_index FROM boost_servers WHERE guild_id = $1",
       [guildId]
     );
-    return result.rows[0].next_number;
+    return result.rows[0].next_index;
   } catch (err) {
-    console.error("getNextBoostServerNumber error:", err);
+    console.error("getNextServerIndex error:", err);
     return 1;
   }
 }
@@ -1966,23 +2015,20 @@ async function createBoostServer(data) {
   try {
     const result = await pool.query(
       `INSERT INTO boost_servers (
-        guild_id, server_number, server_name, owner_id, game_name,
-        category_id, announcements_channel_id, giveaways_channel_id,
-        events_channel_id, images_channel_id, chat_channel_id, owner_notes_channel_id,
-        main_channel_id, proofs_channel_id,
-        owner_role_id, mod_role_id, booster_role_id, member_role_id,
-        boost_rate, duration_minutes, max_players, status, ps_link
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+        guild_id, server_index, display_name, slug, owner_id,
+        category_id, channel_announcements_id, channel_giveaways_id,
+        channel_events_id, channel_images_id, channel_chat_id, channel_mod_chat_id,
+        role_owner_id, role_mod_id, role_member_id,
+        status, ps_link
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
       RETURNING *`,
       [
-        data.guild_id, data.server_number, data.server_name, data.owner_id, data.game_name || null,
+        data.guild_id, data.server_index, data.display_name, data.slug || null, data.owner_id,
         data.category_id,
-        data.announcements_channel_id || null, data.giveaways_channel_id || null,
-        data.events_channel_id || null, data.images_channel_id || null,
-        data.chat_channel_id || null, data.owner_notes_channel_id || null,
-        data.main_channel_id || null, data.proofs_channel_id || null,
-        data.owner_role_id, data.mod_role_id, data.booster_role_id, data.member_role_id || null,
-        data.boost_rate ?? 1.5, data.duration_minutes ?? 60, data.max_players ?? 24,
+        data.channel_announcements_id || null, data.channel_giveaways_id || null,
+        data.channel_events_id || null, data.channel_images_id || null,
+        data.channel_chat_id || null, data.channel_mod_chat_id || null,
+        data.role_owner_id, data.role_mod_id, data.role_member_id || null,
         data.status || 'active', data.ps_link || null
       ]
     );
@@ -2009,7 +2055,7 @@ async function getBoostServerByOwner(guildId, ownerId) {
 async function getBoostServerByName(guildId, name) {
   try {
     const result = await pool.query(
-      "SELECT * FROM boost_servers WHERE guild_id = $1 AND LOWER(server_name) = LOWER($2) AND status != 'deleted' LIMIT 1",
+      "SELECT * FROM boost_servers WHERE guild_id = $1 AND LOWER(display_name) = LOWER($2) AND status != 'deleted' LIMIT 1",
       [guildId, name]
     );
     return result.rows[0] || null;
@@ -2019,11 +2065,11 @@ async function getBoostServerByName(guildId, name) {
   }
 }
 
-async function getBoostServer(guildId, serverNumber) {
+async function getBoostServer(guildId, serverIndex) {
   try {
     const result = await pool.query(
-      "SELECT * FROM boost_servers WHERE guild_id = $1 AND server_number = $2",
-      [guildId, serverNumber]
+      "SELECT * FROM boost_servers WHERE guild_id = $1 AND server_index = $2",
+      [guildId, serverIndex]
     );
     return result.rows[0] || null;
   } catch (err) {
@@ -2048,7 +2094,7 @@ async function getBoostServerById(serverId) {
 async function getBoostServers(guildId) {
   try {
     const result = await pool.query(
-      "SELECT * FROM boost_servers WHERE guild_id = $1 ORDER BY server_number ASC",
+      "SELECT * FROM boost_servers WHERE guild_id = $1 ORDER BY server_index ASC",
       [guildId]
     );
     return result.rows;
@@ -2059,12 +2105,13 @@ async function getBoostServers(guildId) {
 }
 
 const BOOST_SERVER_UPDATABLE_COLUMNS = new Set([
-  'server_name', 'owner_id', 'game_name', 'boost_rate',
-  'duration_minutes', 'max_players', 'status', 'ps_link',
-  'category_id', 'main_channel_id', 'proofs_channel_id', 'chat_channel_id',
-  'announcements_channel_id', 'giveaways_channel_id', 'events_channel_id',
-  'images_channel_id', 'owner_notes_channel_id',
-  'owner_role_id', 'mod_role_id', 'booster_role_id', 'member_role_id',
+  'display_name', 'slug', 'owner_id', 'status', 'ps_link',
+  'category_id', 'tickets_category_id',
+  'channel_announcements_id', 'channel_giveaways_id', 'channel_events_id',
+  'channel_images_id', 'channel_chat_id', 'channel_mod_chat_id',
+  'channel_ticket_panel_id',
+  'role_owner_id', 'role_mod_id', 'role_member_id',
+  'ticket_counter',
 ]);
 
 async function updateBoostServer(serverId, updates) {
@@ -2108,6 +2155,123 @@ async function deleteBoostServer(serverId) {
     return result.rows[0] || null;
   } catch (err) {
     console.error("deleteBoostServer error:", err);
+    return null;
+  }
+}
+
+// ===== TICKET CONFIG OPERATIONS =====
+
+async function getTicketConfig(boostServerId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_server_ticket_config WHERE boost_server_id = $1",
+      [boostServerId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getTicketConfig error:", err);
+    return null;
+  }
+}
+
+async function upsertTicketConfig(boostServerId, data) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO boost_server_ticket_config (boost_server_id, title, description, categories, ping_mode, notifications_channel_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (boost_server_id) DO UPDATE SET
+         title = EXCLUDED.title,
+         description = EXCLUDED.description,
+         categories = EXCLUDED.categories,
+         ping_mode = EXCLUDED.ping_mode,
+         notifications_channel_id = EXCLUDED.notifications_channel_id
+       RETURNING *`,
+      [
+        boostServerId,
+        data.title || null,
+        data.description || null,
+        data.categories || null,
+        data.ping_mode || 'off',
+        data.notifications_channel_id || null,
+      ]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("upsertTicketConfig error:", err);
+    return null;
+  }
+}
+
+// ===== TICKET OPERATIONS =====
+
+async function incrementTicketCounter(boostServerId) {
+  try {
+    const result = await pool.query(
+      "UPDATE boost_servers SET ticket_counter = ticket_counter + 1 WHERE id = $1 RETURNING ticket_counter",
+      [boostServerId]
+    );
+    return result.rows[0]?.ticket_counter || null;
+  } catch (err) {
+    console.error("incrementTicketCounter error:", err);
+    return null;
+  }
+}
+
+async function createTicket(data) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO boost_server_tickets (boost_server_id, ticket_number, creator_id, category_label, channel_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [data.boost_server_id, data.ticket_number, data.creator_id, data.category_label || null, data.channel_id || null, data.status || 'open']
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("createTicket error:", err);
+    return null;
+  }
+}
+
+async function getTicketByChannel(channelId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_server_tickets WHERE channel_id = $1",
+      [channelId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getTicketByChannel error:", err);
+    return null;
+  }
+}
+
+async function getTickets(boostServerId, status) {
+  try {
+    let sql = "SELECT * FROM boost_server_tickets WHERE boost_server_id = $1";
+    const params = [boostServerId];
+    if (status) {
+      sql += " AND status = $2";
+      params.push(status);
+    }
+    sql += " ORDER BY ticket_number ASC";
+    const result = await pool.query(sql, params);
+    return result.rows;
+  } catch (err) {
+    console.error("getTickets error:", err);
+    return [];
+  }
+}
+
+async function updateTicketStatus(ticketId, status) {
+  try {
+    const closedAt = status === 'closed' ? 'CURRENT_TIMESTAMP' : 'NULL';
+    const result = await pool.query(
+      `UPDATE boost_server_tickets SET status = $1, closed_at = ${closedAt} WHERE id = $2 RETURNING *`,
+      [status, ticketId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("updateTicketStatus error:", err);
     return null;
   }
 }
@@ -2229,7 +2393,7 @@ module.exports = {
   deleteServerUrl,
 
   // Boost Servers
-  getNextBoostServerNumber,
+  getNextServerIndex,
   createBoostServer,
   getBoostServer,
   getBoostServerById,
@@ -2238,6 +2402,17 @@ module.exports = {
   getBoostServers,
   updateBoostServer,
   deleteBoostServer,
+
+  // Ticket Config
+  getTicketConfig,
+  upsertTicketConfig,
+
+  // Tickets
+  incrementTicketCounter,
+  createTicket,
+  getTicketByChannel,
+  getTickets,
+  updateTicketStatus,
   
   closePool,
 };
