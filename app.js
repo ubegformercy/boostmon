@@ -25,6 +25,7 @@ const indexRouter = require("./routes/index");
 const authRouter = require("./routes/auth");
 const dashboardRouter = require("./routes/dashboard");
 const db = require("./db");
+const { handleTicketCreate, handleTicketButton } = require("./discord/handlers/ticket");
 
 // Services
 const streakService = require("./services/streak");
@@ -376,6 +377,44 @@ client.on("interactionCreate", async (interaction) => {
           return interaction.followUp({ content: msg, ephemeral: true });
         }
         return interaction.reply({ content: msg, ephemeral: true });
+      } catch (e) {
+        console.error("Failed to send error to Discord:", e);
+      }
+    }
+  }
+
+  // Handle string select menus (dropdowns)
+  if (interaction.isStringSelectMenu()) {
+    try {
+      if (interaction.customId.startsWith("ticket_create:")) {
+        return handleTicketCreate(interaction);
+      }
+    } catch (err) {
+      console.error("[SELECT MENU] Error:", err);
+      try {
+        if (interaction.deferred || interaction.replied) {
+          return interaction.followUp({ content: "Error handling selection.", ephemeral: true });
+        }
+        return interaction.reply({ content: "Error handling selection.", ephemeral: true });
+      } catch (e) {
+        console.error("Failed to send error to Discord:", e);
+      }
+    }
+  }
+
+  // Handle button interactions
+  if (interaction.isButton()) {
+    try {
+      if (interaction.customId.startsWith("ticket_close:") || interaction.customId.startsWith("ticket_lock:") || interaction.customId.startsWith("ticket_delete:")) {
+        return handleTicketButton(interaction);
+      }
+    } catch (err) {
+      console.error("[BUTTON] Error:", err);
+      try {
+        if (interaction.deferred || interaction.replied) {
+          return interaction.followUp({ content: "Error handling button.", ephemeral: true });
+        }
+        return interaction.reply({ content: "Error handling button.", ephemeral: true });
       } catch (e) {
         console.error("Failed to send error to Discord:", e);
       }

@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.7.3 — 2026-03-01
+- Implemented dropdown ticket creation from the panel in `【🚀】・booster-tickets`
+- Verifies caller has PS Member/Mod/Owner role or Admin before creating
+- Atomic `ticket_counter` increment (no race conditions)
+- Creates `ticket-####-{slug}` channel inside `#X — {Name} Tickets` category
+- Channel permissions: @everyone denied, creator gets View+Send+History+Attach, PS Owner/Mod get View+Send+History, bot gets View+Send+Manage
+- Inserts ticket row into `boost_server_tickets` table
+- Posts header embed with ticket number + category + "blank tickets close in 10 minutes" notice
+- Adds 3 buttons: ❌ Close Ticket, 🔒 Close & Lock, 🗑️ Delete Ticket (handlers stubbed)
+- Ping logic: sends role pings to ticket channel + optional notifications channel based on `ping_mode` config
+- Created `discord/handlers/ticket.js` as dedicated interaction handler module
+- Wired `StringSelectMenu` and `Button` interaction routing in `app.js`
+
 ## v2.7.2 — 2026-03-01
 - Added `/boostserver ticket-setup` — configure ticket panel for a boost server
 - Options: title, description, categories (max 6, comma-separated), ping mode (off/mod/owner/both), notifications channel
