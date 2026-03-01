@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.7.5 — 2026-03-01
+- Anti-spam protections for ticket creation
+- 60-second per-user per-server cooldown (in-memory, resets on restart)
+- Global safety limit: block new tickets when a boost server has 25+ open/locked tickets
+- Membership role check blocks non-members from using the dropdown
+- Added `countOpenTickets()` DB helper
+
 ## v2.7.4 — 2026-03-01
 - Enforce one open ticket per user per boost server
 - Query for existing `open` or `locked` tickets before creation; block with ephemeral error + channel mention

@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 7,
-  "patch": 4,
-  "version": "2.7.4",
+  "patch": 5,
+  "version": "2.7.5",
   "lastUpdated": "2026-03-01T00:00:00.000Z",
   "description": "Dropdown ticket creation from panel"
 }

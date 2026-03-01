@@ -3,6 +3,11 @@ const { EmbedBuilder, ChannelType, PermissionsBitField, ActionRowBuilder, Button
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
+// In-memory cooldown map: "guildId:serverId:userId" → timestamp (ms)
+const ticketCooldowns = new Map();
+const COOLDOWN_MS = 60_000; // 60 seconds
+const MAX_OPEN_TICKETS = 25;
+
 /**
  * Handle ticket_create:{serverId} dropdown selection.
  * Called from interactionCreate when customId starts with "ticket_create:".
@@ -24,7 +29,7 @@ async function handleTicketCreate(interaction) {
     return interaction.editReply({ content: "❌ Boost server not found." });
   }
 
-  // 1. Verify user has PS Member, PS Mod, PS Owner, or Admin
+  // 1. Verify user has PS Member, PS Mod, PS Owner, or Admin (abuse protection)
   const member = interaction.member;
   const isAdmin = member.permissions?.has(PermissionsBitField.Flags.Administrator);
   const hasServerRole = member.roles?.cache?.has(server.role_owner_id)
@@ -33,9 +38,33 @@ async function handleTicketCreate(interaction) {
 
   if (!isAdmin && !hasServerRole) {
     return interaction.editReply({
-      content: "⛔ You must have the **PS Member**, **PS Mod**, or **PS Owner** role to open a ticket.",
+      content: "⛔ You must be a member of this boost server to create a ticket.",
     });
   }
+
+  // 2. Per-user cooldown (in-memory, resets on restart)
+  const cooldownKey = `${guild.id}:${server.id}:${interaction.user.id}`;
+  const lastAttempt = ticketCooldowns.get(cooldownKey);
+  if (lastAttempt) {
+    const elapsed = Date.now() - lastAttempt;
+    if (elapsed < COOLDOWN_MS) {
+      const remaining = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+      return interaction.editReply({
+        content: `⏳ Please wait **${remaining}** seconds before creating another ticket.`,
+      });
+    }
+  }
+
+  // 3. Global safety limit — max open/locked tickets per boost server
+  const openCount = await db.countOpenTickets(server.id);
+  if (openCount >= MAX_OPEN_TICKETS) {
+    return interaction.editReply({
+      content: "⚠️ This server has too many open tickets right now. Please wait or contact staff.",
+    });
+  }
+
+  // Set cooldown timestamp (set early so rapid clicks are blocked)
+  ticketCooldowns.set(cooldownKey, Date.now());
 
   // --- One-open-ticket-per-user enforcement ---
   const existingTicket = await db.getOpenTicketByUser(server.id, interaction.user.id);
