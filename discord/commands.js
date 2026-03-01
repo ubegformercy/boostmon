@@ -486,6 +486,38 @@ function getCommands() {
                 { name: "Full", value: "full" }
               )
           )
+      )
+      .addSubcommand((s) =>
+        s
+          .setName("ticket-setup")
+          .setDescription("Configure the ticket panel for a boost server")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+          .addStringOption((o) =>
+            o.setName("title").setDescription("Panel embed title").setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("description").setDescription("Panel embed description").setRequired(true)
+          )
+          .addStringOption((o) =>
+            o.setName("categories").setDescription("Comma-separated category labels (max 6)").setRequired(false)
+          )
+          .addStringOption((o) =>
+            o
+              .setName("ping")
+              .setDescription("Who to ping when a ticket is created")
+              .setRequired(false)
+              .addChoices(
+                { name: "Off", value: "off" },
+                { name: "PS Mod", value: "mod" },
+                { name: "PS Owner", value: "owner" },
+                { name: "Both", value: "both" }
+              )
+          )
+          .addChannelOption((o) =>
+            o.setName("notifications_channel").setDescription("Channel for ticket notifications").setRequired(false)
+          )
       ),
 
     // ── /streak (status, leaderboard, admin grant-save/remove-save/set — list-size moved to /setup) ──

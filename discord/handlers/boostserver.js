@@ -1,5 +1,5 @@
 // discord/handlers/boostserver.js — /boostserver command handler
-const { PermissionFlagsBits, EmbedBuilder, ChannelType, PermissionsBitField } = require("discord.js");
+const { PermissionFlagsBits, EmbedBuilder, ChannelType, PermissionsBitField, ActionRowBuilder, StringSelectMenuBuilder } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
@@ -18,6 +18,7 @@ const SUBCOMMAND_LABELS = {
   "link-clear": "Clear Link",
   "status-set": "Set Status",
   "config-set": "Set Config",
+  "ticket-setup": "Ticket Setup",
   "delete": "Delete Server",
 };
 
@@ -62,7 +63,7 @@ module.exports = async function handleBoostServer(interaction) {
   const MANAGE_SUBS = new Set([
     "delete", "link-set", "link-clear", "config-set",
     "mods-add", "mods-remove", "member-add", "member-remove",
-    "owner-set", "status-set",
+    "owner-set", "status-set", "ticket-setup",
   ]);
 
   if (ANYONE_SUBS.has(subcommand)) {
@@ -110,6 +111,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── MEMBER ADD / REMOVE ──
   if (subcommand === "member-add" || subcommand === "member-remove") {
     return handleMember(interaction, guild, server, subcommand);
+  }
+
+  // ── TICKET SETUP ──
+  if (subcommand === "ticket-setup") {
+    return handleTicketSetup(interaction, guild, server);
   }
 
   // All other subcommands — stub
@@ -805,5 +811,127 @@ async function handleDelete(interaction, guild, server) {
   } catch (err) {
     console.error("[BOOSTSERVER] Delete error:", err);
     return interaction.editReply({ content: `❌ Failed to delete boost server: ${err.message}` });
+  }
+}
+
+// ── TICKET SETUP ──
+async function handleTicketSetup(interaction, guild, server) {
+  const title = interaction.options.getString("title", true).trim();
+  const description = interaction.options.getString("description", true).trim();
+  const categoriesRaw = interaction.options.getString("categories") || "";
+  const pingMode = interaction.options.getString("ping") || "off";
+  const notificationsChannel = interaction.options.getChannel("notifications_channel");
+
+  // Parse categories (comma-separated, max 6)
+  const categories = categoriesRaw
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+  if (categoriesRaw && categories.length === 0) {
+    return interaction.editReply({ content: "❌ Categories must be comma-separated labels (e.g. `General, Refund, Issue`)." });
+  }
+
+  // Validate ticket panel channel exists
+  const panelChannelId = server.channel_ticket_panel_id;
+  if (!panelChannelId) {
+    return interaction.editReply({
+      content: "❌ No ticket panel channel found. This boost server may need to be recreated to include the tickets category.",
+    });
+  }
+
+  const panelChannel = await guild.channels.fetch(panelChannelId).catch(() => null);
+  if (!panelChannel) {
+    return interaction.editReply({
+      content: "❌ The ticket panel channel no longer exists. It may have been manually deleted.",
+    });
+  }
+
+  try {
+    // 1. Save config to DB
+    const config = await db.upsertTicketConfig(server.id, {
+      title,
+      description,
+      categories: categories.length > 0 ? categories : null,
+      ping_mode: pingMode,
+      notifications_channel_id: notificationsChannel?.id || null,
+    });
+
+    if (!config) {
+      return interaction.editReply({ content: "❌ Failed to save ticket configuration." });
+    }
+
+    // 2. Build embed
+    const panelEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(title)
+      .setDescription(description)
+      .setTimestamp(new Date())
+      .setFooter({ text: `${server.display_name} • Ticket Panel` });
+
+    // 3. Build dropdown if categories exist
+    const components = [];
+    if (categories.length > 0) {
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`ticket_create:${server.id}`)
+        .setPlaceholder("Select a category to open a ticket")
+        .addOptions(
+          categories.map((cat, i) => ({
+            label: cat,
+            value: `cat_${i}`,
+            description: `Open a ${cat} ticket`,
+          }))
+        );
+
+      components.push(new ActionRowBuilder().addComponents(selectMenu));
+    }
+
+    // 4. Find existing panel message and update, or send new
+    let panelUpdated = false;
+    try {
+      const messages = await panelChannel.messages.fetch({ limit: 20 });
+      const existingPanel = messages.find(
+        (m) => m.author.id === interaction.client.user.id && m.embeds.length > 0
+          && m.embeds[0].footer?.text?.includes("Ticket Panel")
+      );
+
+      if (existingPanel) {
+        await existingPanel.edit({ embeds: [panelEmbed], components });
+        panelUpdated = true;
+      }
+    } catch (err) {
+      console.warn("[BOOSTSERVER] Could not fetch/update existing panel:", err.message);
+    }
+
+    if (!panelUpdated) {
+      await panelChannel.send({ embeds: [panelEmbed], components });
+    }
+
+    // 5. Confirm
+    const confirmEmbed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle("✅ Ticket Panel Configured")
+      .setDescription(
+        `The ticket panel for **${server.display_name}** has been ${panelUpdated ? "updated" : "posted"} in <#${panelChannelId}>.`
+      )
+      .addFields(
+        { name: "Title", value: title, inline: true },
+        { name: "Ping Mode", value: pingMode, inline: true },
+        { name: "Categories", value: categories.length > 0 ? categories.join(", ") : "None (no dropdown)", inline: false },
+      )
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Boost Server" });
+
+    if (notificationsChannel) {
+      confirmEmbed.addFields({ name: "Notifications", value: `<#${notificationsChannel.id}>`, inline: true });
+    }
+
+    return interaction.editReply({ embeds: [confirmEmbed] });
+  } catch (err) {
+    console.error("[BOOSTSERVER] Ticket setup error:", err);
+    return interaction.editReply({ content: `❌ Failed to set up ticket panel: ${err.message}` });
   }
 }

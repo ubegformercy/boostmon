@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.2 — 2026-03-01
+- Added `/boostserver ticket-setup` — configure ticket panel for a boost server
+- Options: title, description, categories (max 6, comma-separated), ping mode (off/mod/owner/both), notifications channel
+- Posts embed + dropdown in `【🚀】・booster-tickets` channel; updates in-place if panel already exists
+- Saves config to `boost_server_ticket_config` table via upsert
+- Permission: PS Owner / Discord Owner / Admin only
+- Dropdown `customId` format: `ticket_create:{serverId}` (handler not yet wired)
+
 ## v2.7.1 — 2026-03-01
 - `/boostserver create` now creates a second category: `#X — {Name} Tickets`
 - Added `【🚀】・booster-tickets` panel channel inside tickets category (read-only for users, bot-only send)
