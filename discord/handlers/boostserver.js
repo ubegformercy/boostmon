@@ -822,19 +822,27 @@ async function handleTicketSetup(interaction, guild, server) {
   const pingMode = interaction.options.getString("ping") || "off";
   const notificationsChannel = interaction.options.getChannel("notifications_channel");
 
-  // Parse categories (comma-separated, max 6); default to Boost Request, Questions
-  let categories = categoriesRaw
+  // Parse categories (trimmed, deduped case-insensitive, max 6)
+  // Fallback defaults are strict and always ensure at least 2 dropdown options.
+  const defaultCategories = ["Boost Request", "Questions"];
+  const inputCategories = categoriesRaw
     .split(",")
     .map((c) => c.trim())
-    .filter(Boolean)
-    .slice(0, 6);
+    .filter(Boolean);
 
-  if (categoriesRaw && categories.length === 0) {
-    return interaction.editReply({ content: "❌ Categories must be comma-separated labels (e.g. `General, Refund, Issue`)." });
+  const seenCategoryKeys = new Set();
+  const dedupedCategories = [];
+  for (const category of inputCategories) {
+    const key = category.toLowerCase();
+    if (seenCategoryKeys.has(key)) continue;
+    seenCategoryKeys.add(key);
+    dedupedCategories.push(category);
+    if (dedupedCategories.length >= 6) break;
   }
 
-  if (categories.length === 0) {
-    categories = ["Boost Request", "Questions"];
+  let categories = dedupedCategories;
+  if (categories.length < 2) {
+    categories = defaultCategories;
   }
 
   // --- Resolve ticket panel channel (with auto-discovery + repair) ---
@@ -895,7 +903,7 @@ async function handleTicketSetup(interaction, guild, server) {
     const config = await db.upsertTicketConfig(server.id, {
       title,
       description,
-      categories: categories.length > 0 ? categories : null,
+      categories,
       ping_mode: pingMode,
       notifications_channel_id: notificationsChannel?.id || null,
     });

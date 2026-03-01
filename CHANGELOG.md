@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.9 — 2026-03-01
+- `/boostserver ticket-setup` now strictly resolves categories as: trimmed, case-insensitive deduplicated, max 6, and stored as final resolved array
+- Fallback defaults are always exactly: `Boost Request`, `Questions` when input is missing/blank/invalid or resolves to fewer than 2 categories
+- Ticket panel dropdown is guaranteed to render with at least 2 options (zero-category panels are blocked)
+
 ## v2.7.8 — 2026-03-01
 - **Bugfix**: `createBoostServer()` INSERT was missing `tickets_category_id` and `channel_ticket_panel_id` columns — both were silently discarded, causing `/boostserver ticket-setup` to always fail for newly created servers
 - **Bugfix**: `/boostserver ticket-setup` now auto-discovers the panel channel via 3-tier fallback (stored ID → tickets category children → category name pattern) and persists discovered IDs back to DB, repairing older servers automatically
