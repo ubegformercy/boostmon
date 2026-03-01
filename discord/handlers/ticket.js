@@ -472,12 +472,8 @@ function scheduleAutoClose(client, ticketId, channelId, paddedNumber, server) {
       const ticket = await db.getTicketById(ticketId);
       if (!ticket || ticket.status !== "open") return;
 
-      const guild = client.guilds.cache.find(g => g.channels.cache.has(channelId))
-        || await client.guilds.fetch().then(guilds => {
-          for (const [, g] of guilds) return client.guilds.cache.get(g.id);
-          return null;
-        }).catch(() => null);
-
+      const guild = client.guilds.cache.get(server.guild_id)
+        || await client.guilds.fetch(server.guild_id).catch(() => null);
       if (!guild) return;
 
       const channel = await guild.channels.fetch(channelId).catch(() => null);

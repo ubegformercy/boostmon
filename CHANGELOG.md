@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.7 — 2026-03-01
+- **Audit**: focused ticket system review — all checks passed
+- **Fix**: auto-close timer had broken guild resolution (searched channel cache + iterated all guilds); now uses `server.guild_id` directly
+- Verified: no Administrator required, no elevated permissions in overwrites, tickets are private, counter is atomic, panel updates instead of duplicates, permission matrix is correct, no unnecessary tables
+
 ## v2.7.6 — 2026-03-01
 - Implemented ticket button handlers: ❌ Close, 🔒 Close & Lock, 🗑️ Delete
 - **Close Ticket**: creator / PS Mod / PS Owner / Admin — removes creator perms, renames to `closed-ticket-####-<slug>`, posts closure embed
