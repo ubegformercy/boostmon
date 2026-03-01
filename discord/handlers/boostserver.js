@@ -499,7 +499,10 @@ async function handleCreate(interaction, guild) {
         panel_message_id: panelMessage?.id || null,
       });
     } catch (err) {
-      console.warn(`[BOOSTSERVER] Failed to auto-post ticket panel: ${err.message}`);
+      console.error(
+        `[BOOSTSERVER] Non-fatal: failed to auto-post ticket panel for server #${serverIndex} (${name}) in guild ${guild.id}: ${err.message}`,
+        err
+      );
     }
 
     // 7. Post structured header in announcements channel and pin it
@@ -1060,6 +1063,7 @@ async function handleTicketSetup(interaction, guild, server) {
     }
 
     if (!panelUpdated) {
+      console.warn(`[BOOSTSERVER] No existing ticket panel found for server #${server.server_index}; creating a new panel message.`);
       panelMessage = await panelChannel.send({ embeds: [panelEmbed], components });
     }
 

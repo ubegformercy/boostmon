@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.7.11 — 2026-03-01
+- Improved robustness for ticket panel creation in `/boostserver create`: panel-post failures are now clearly logged as **non-fatal** and do not fail server creation
+- `/boostserver ticket-setup` now explicitly auto-recreates the panel message when none is found in `【🚀】・booster-tickets`, then persists the new `panel_message_id`
+
 ## v2.7.10 — 2026-03-01
 - `/boostserver create` now auto-posts a default ticket panel embed + dropdown in `【🚀】・booster-tickets` after a safe non-blocking 2.5s delay
 - Prevents duplicate panels by reusing existing bot panel message (stored ID, pinned search, then recent search fallback)
