@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.1 — 2026-03-01
+- `/boostserver create` now creates a second category: `#X — {Name} Tickets`
+- Added `【🚀】・booster-tickets` panel channel inside tickets category (read-only for users, bot-only send)
+- `tickets_category_id` and `channel_ticket_panel_id` stored in DB on create
+- Rollback tracks both categories; no orphans on failure
+- Header embed and confirm embed now include ticket panel channel
+- No elevated permissions in any channel overwrites
+
 ## v2.7.0 — 2026-03-01
 - **Schema restructure**: Renamed all `boost_servers` columns to consistent naming convention
   - `server_number` → `server_index`, `server_name` → `display_name`

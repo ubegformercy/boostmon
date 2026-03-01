@@ -148,7 +148,7 @@ async function handleCreate(interaction, guild) {
   const serverIndex = await db.getNextServerIndex(guild.id);
 
   // Track created resources for rollback
-  const created = { channels: [], roles: [], category: null };
+  const created = { channels: [], roles: [], categories: [] };
 
   try {
     // 1. Create category: #{index} — {Name}
@@ -169,7 +169,27 @@ async function handleCreate(interaction, guild) {
         },
       ],
     });
-    created.category = category;
+    created.categories.push(category);
+
+    // 1b. Create tickets category: #X — {Name} Tickets
+    const ticketsCategory = await guild.channels.create({
+      name: `#${serverIndex} — ${name} Tickets`,
+      type: ChannelType.GuildCategory,
+      permissionOverwrites: [
+        {
+          id: guild.id,
+          deny: [PermissionsBitField.Flags.ViewChannel],
+        },
+        {
+          id: interaction.client.user.id,
+          allow: [
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.SendMessages,
+          ],
+        },
+      ],
+    });
+    created.categories.push(ticketsCategory);
 
     // 2. Create roles
     const ownerRole = await guild.roles.create({
@@ -311,6 +331,45 @@ async function handleCreate(interaction, guild) {
     });
     created.channels.push(modChatChannel);
 
+    // 3b. Create booster-tickets panel channel (read-only for users, bot sends)
+    const ticketPanelOverwrites = [
+      {
+        id: guild.id,
+        deny: [PermissionsBitField.Flags.ViewChannel],
+      },
+      {
+        id: interaction.client.user.id,
+        allow: [
+          PermissionsBitField.Flags.ViewChannel,
+          PermissionsBitField.Flags.SendMessages,
+          PermissionsBitField.Flags.ManageMessages,
+        ],
+      },
+      {
+        id: ownerRole.id,
+        allow: [PermissionsBitField.Flags.ViewChannel],
+        deny: [PermissionsBitField.Flags.SendMessages],
+      },
+      {
+        id: modRole.id,
+        allow: [PermissionsBitField.Flags.ViewChannel],
+        deny: [PermissionsBitField.Flags.SendMessages],
+      },
+      {
+        id: memberRole.id,
+        allow: [PermissionsBitField.Flags.ViewChannel],
+        deny: [PermissionsBitField.Flags.SendMessages],
+      },
+    ];
+
+    const ticketPanelChannel = await guild.channels.create({
+      name: "【🚀】・booster-tickets",
+      type: ChannelType.GuildText,
+      parent: ticketsCategory.id,
+      permissionOverwrites: ticketPanelOverwrites,
+    });
+    created.channels.push(ticketPanelChannel);
+
     // 4. Assign PS Owner role to the creator
     const ownerMember = await guild.members.fetch(ownerId).catch(() => null);
     if (ownerMember) {
@@ -330,12 +389,14 @@ async function handleCreate(interaction, guild) {
       slug,
       owner_id: ownerId,
       category_id: category.id,
+      tickets_category_id: ticketsCategory.id,
       channel_announcements_id: announcementsChannel.id,
       channel_giveaways_id: giveawaysChannel.id,
       channel_events_id: eventsChannel.id,
       channel_images_id: imagesChannel.id,
       channel_chat_id: chatChannel.id,
       channel_mod_chat_id: modChatChannel.id,
+      channel_ticket_panel_id: ticketPanelChannel.id,
       role_owner_id: ownerRole.id,
       role_mod_id: modRole.id,
       role_member_id: memberRole.id,
@@ -347,7 +408,7 @@ async function handleCreate(interaction, guild) {
       // Rollback: delete all created resources
       console.error("[BOOSTSERVER] DB save failed, attempting rollback...");
       for (const ch of created.channels) await ch.delete("Rollback: DB save failed").catch(() => null);
-      if (created.category) await created.category.delete("Rollback: DB save failed").catch(() => null);
+      for (const cat of created.categories) await cat.delete("Rollback: DB save failed").catch(() => null);
       for (const r of created.roles) await r.delete("Rollback: DB save failed").catch(() => null);
 
       return interaction.editReply({
@@ -369,7 +430,8 @@ async function handleCreate(interaction, guild) {
         `🎉 <#${eventsChannel.id}> — Events\n` +
         `📸 <#${imagesChannel.id}> — Images & screenshots\n` +
         `💬 <#${chatChannel.id}> — General chat\n` +
-        `🔒 <#${modChatChannel.id}> — Mod chat (private)`
+        `🔒 <#${modChatChannel.id}> — Mod chat (private)\n\n` +
+        `🚀 <#${ticketPanelChannel.id}> — Booster tickets`
       )
       .setTimestamp(new Date())
       .setFooter({ text: "BoostMon • Boost Server" });
@@ -392,7 +454,7 @@ async function handleCreate(interaction, guild) {
         { name: "Status", value: "Active", inline: true },
         { name: "Category", value: `${category.name}`, inline: false },
         { name: "Channels", value:
-          `${announcementsChannel}\n${giveawaysChannel}\n${eventsChannel}\n${imagesChannel}\n${chatChannel}\n${modChatChannel}`,
+          `${announcementsChannel}\n${giveawaysChannel}\n${eventsChannel}\n${imagesChannel}\n${chatChannel}\n${modChatChannel}\n${ticketPanelChannel}`,
           inline: false },
         { name: "Roles", value: `${ownerRole}\n${modRole}\n${memberRole}`, inline: false },
       )
@@ -404,7 +466,7 @@ async function handleCreate(interaction, guild) {
     console.error("[BOOSTSERVER] Create error:", err);
     // Rollback on any error
     for (const ch of created.channels) await ch.delete("Rollback: error").catch(() => null);
-    if (created.category) await created.category.delete("Rollback: error").catch(() => null);
+    for (const cat of created.categories) await cat.delete("Rollback: error").catch(() => null);
     for (const r of created.roles) await r.delete("Rollback: error").catch(() => null);
     return interaction.editReply({
       content: `❌ Failed to create boost server: ${err.message}`,

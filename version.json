@@ -1,8 +1,8 @@
 {
   "major": 2,
   "minor": 7,
-  "patch": 0,
-  "version": "2.7.0",
+  "patch": 1,
+  "version": "2.7.1",
   "lastUpdated": "2026-03-01T00:00:00.000Z",
-  "description": "Ticketing schema and boost_servers column restructure"
+  "description": "Tickets category and booster-tickets panel channel"
 }
