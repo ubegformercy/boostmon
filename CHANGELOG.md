@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.7.10 — 2026-03-01
+- `/boostserver create` now auto-posts a default ticket panel embed + dropdown in `【🚀】・booster-tickets` after a safe non-blocking 2.5s delay
+- Prevents duplicate panels by reusing existing bot panel message (stored ID, pinned search, then recent search fallback)
+- Stores ticket panel message ID in DB (`boost_server_ticket_config.panel_message_id`) and reuses it in `/boostserver ticket-setup`
+- Added migration support for `panel_message_id` in `boost_server_ticket_config`
+
 ## v2.7.9 — 2026-03-01
 - `/boostserver ticket-setup` now strictly resolves categories as: trimmed, case-insensitive deduplicated, max 6, and stored as final resolved array
 - Fallback defaults are always exactly: `Boost Request`, `Questions` when input is missing/blank/invalid or resolves to fewer than 2 categories

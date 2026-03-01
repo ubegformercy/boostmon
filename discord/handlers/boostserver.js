@@ -3,6 +3,15 @@ const { PermissionFlagsBits, EmbedBuilder, ChannelType, PermissionsBitField, Act
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
+const DEFAULT_TICKET_PANEL_TITLE = "Support & Boost Ticket System";
+const DEFAULT_TICKET_PANEL_DESCRIPTION =
+  "This channel is used to submit support requests for this Boost Server.\n\n" +
+  "Please select the appropriate option from the dropdown below and provide clear, detailed information about your request.\n" +
+  "If this is a boost request, include your Roblox Username and Display Name.\n" +
+  "If this is a question, explain your issue clearly so our team can assist you efficiently.\n\n" +
+  "All tickets are private and only visible to you and the server staff.";
+const DEFAULT_TICKET_CATEGORIES = ["Boost Request", "Questions"];
+
 const SUBCOMMAND_LABELS = {
   "create": "Create Boost Server",
   "info": "Boost Server Info",
@@ -422,7 +431,78 @@ async function handleCreate(interaction, guild) {
       });
     }
 
-    // 6. Post structured header in announcements channel and pin it
+    // 6. Auto-post ticket panel in booster-tickets (delay 2.5s after channel creation)
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 2500));
+
+      const panelEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle(DEFAULT_TICKET_PANEL_TITLE)
+        .setDescription(DEFAULT_TICKET_PANEL_DESCRIPTION)
+        .setTimestamp(new Date())
+        .setFooter({ text: `${name} • Ticket Panel` });
+
+      const selectMenu = new StringSelectMenuBuilder()
+        .setCustomId(`ticket_create:${serverRecord.id}`)
+        .setPlaceholder("Select a category to open a ticket")
+        .addOptions(
+          DEFAULT_TICKET_CATEGORIES.map((cat, i) => ({
+            label: cat,
+            value: `cat_${i}`,
+            description: `Open a ${cat} ticket`,
+          }))
+        );
+      const components = [new ActionRowBuilder().addComponents(selectMenu)];
+
+      const existingConfig = await db.getTicketConfig(serverRecord.id);
+      let panelMessage = null;
+
+      if (existingConfig?.panel_message_id) {
+        panelMessage = await ticketPanelChannel.messages.fetch(existingConfig.panel_message_id).catch(() => null);
+      }
+
+      if (!panelMessage) {
+        const pinnedMessages = await ticketPanelChannel.messages.fetchPinned().catch(() => null);
+        panelMessage = pinnedMessages?.find(
+          (m) => m.author.id === interaction.client.user.id
+            && m.embeds.length > 0
+            && m.embeds[0].footer?.text?.includes("Ticket Panel")
+        ) || null;
+      }
+
+      if (!panelMessage) {
+        const recentMessages = await ticketPanelChannel.messages.fetch({ limit: 20 }).catch(() => null);
+        panelMessage = recentMessages?.find(
+          (m) => m.author.id === interaction.client.user.id
+            && m.embeds.length > 0
+            && m.embeds[0].footer?.text?.includes("Ticket Panel")
+        ) || null;
+      }
+
+      if (panelMessage) {
+        panelMessage = await panelMessage.edit({ embeds: [panelEmbed], components });
+      } else {
+        panelMessage = await ticketPanelChannel.send({ embeds: [panelEmbed], components });
+      }
+
+      if (panelMessage && !panelMessage.pinned) {
+        await panelMessage.pin().catch(() => null);
+      }
+
+      await db.upsertTicketConfig(serverRecord.id, {
+        title: DEFAULT_TICKET_PANEL_TITLE,
+        description: DEFAULT_TICKET_PANEL_DESCRIPTION,
+        categories: DEFAULT_TICKET_CATEGORIES,
+        ping_mode: existingConfig?.ping_mode || "off",
+        notifications_channel_id: existingConfig?.notifications_channel_id || null,
+        panel_message_id: panelMessage?.id || null,
+      });
+    } catch (err) {
+      console.warn(`[BOOSTSERVER] Failed to auto-post ticket panel: ${err.message}`);
+    }
+
+    // 7. Post structured header in announcements channel and pin it
     const headerEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
@@ -449,7 +529,7 @@ async function handleCreate(interaction, guild) {
       console.error(`[BOOSTSERVER] Failed to post/pin header: ${err.message}`);
     }
 
-    // 7. Ephemeral confirmation to the user
+    // 8. Ephemeral confirmation to the user
     const confirmEmbed = new EmbedBuilder()
       .setColor(0x2ECC71)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
@@ -816,15 +896,15 @@ async function handleDelete(interaction, guild, server) {
 
 // ── TICKET SETUP ──
 async function handleTicketSetup(interaction, guild, server) {
-  const title = interaction.options.getString("title", true).trim();
-  const description = interaction.options.getString("description", true).trim();
+  const title = interaction.options.getString("title", true).trim() || DEFAULT_TICKET_PANEL_TITLE;
+  const description = interaction.options.getString("description", true).trim() || DEFAULT_TICKET_PANEL_DESCRIPTION;
   const categoriesRaw = interaction.options.getString("categories") || "";
   const pingMode = interaction.options.getString("ping") || "off";
   const notificationsChannel = interaction.options.getChannel("notifications_channel");
 
   // Parse categories (trimmed, deduped case-insensitive, max 6)
   // Fallback defaults are strict and always ensure at least 2 dropdown options.
-  const defaultCategories = ["Boost Request", "Questions"];
+  const defaultCategories = [...DEFAULT_TICKET_CATEGORIES];
   const inputCategories = categoriesRaw
     .split(",")
     .map((c) => c.trim())
@@ -899,6 +979,8 @@ async function handleTicketSetup(interaction, guild, server) {
   }
 
   try {
+    const existingConfig = await db.getTicketConfig(server.id);
+
     // 1. Save config to DB
     const config = await db.upsertTicketConfig(server.id, {
       title,
@@ -906,6 +988,7 @@ async function handleTicketSetup(interaction, guild, server) {
       categories,
       ping_mode: pingMode,
       notifications_channel_id: notificationsChannel?.id || null,
+      panel_message_id: existingConfig?.panel_message_id || null,
     });
 
     if (!config) {
@@ -938,16 +1021,39 @@ async function handleTicketSetup(interaction, guild, server) {
     // 4. Find existing panel message and update, or send new
     let panelUpdated = false;
     let panelMessage = null;
-    try {
-      const messages = await panelChannel.messages.fetch({ limit: 20 });
-      const existingPanel = messages.find(
-        (m) => m.author.id === interaction.client.user.id && m.embeds.length > 0
-          && m.embeds[0].footer?.text?.includes("Ticket Panel")
-      );
 
-      if (existingPanel) {
-        panelMessage = await existingPanel.edit({ embeds: [panelEmbed], components });
+    if (config?.panel_message_id) {
+      panelMessage = await panelChannel.messages.fetch(config.panel_message_id).catch(() => null);
+      if (panelMessage) {
+        panelMessage = await panelMessage.edit({ embeds: [panelEmbed], components });
         panelUpdated = true;
+      }
+    }
+
+    try {
+      if (!panelUpdated) {
+        const pinnedMessages = await panelChannel.messages.fetchPinned().catch(() => null);
+        const pinnedPanel = pinnedMessages?.find(
+          (m) => m.author.id === interaction.client.user.id && m.embeds.length > 0
+            && m.embeds[0].footer?.text?.includes("Ticket Panel")
+        );
+        if (pinnedPanel) {
+          panelMessage = await pinnedPanel.edit({ embeds: [panelEmbed], components });
+          panelUpdated = true;
+        }
+      }
+
+      if (!panelUpdated) {
+        const messages = await panelChannel.messages.fetch({ limit: 20 });
+        const existingPanel = messages.find(
+          (m) => m.author.id === interaction.client.user.id && m.embeds.length > 0
+            && m.embeds[0].footer?.text?.includes("Ticket Panel")
+        );
+
+        if (existingPanel) {
+          panelMessage = await existingPanel.edit({ embeds: [panelEmbed], components });
+          panelUpdated = true;
+        }
       }
     } catch (err) {
       console.warn("[BOOSTSERVER] Could not fetch/update existing panel:", err.message);
@@ -961,6 +1067,15 @@ async function handleTicketSetup(interaction, guild, server) {
     if (panelMessage && !panelMessage.pinned) {
       await panelMessage.pin().catch(() => null);
     }
+
+    await db.upsertTicketConfig(server.id, {
+      title,
+      description,
+      categories,
+      ping_mode: pingMode,
+      notifications_channel_id: notificationsChannel?.id || null,
+      panel_message_id: panelMessage?.id || null,
+    });
 
     // 5. Confirm
     const confirmEmbed = new EmbedBuilder()
