@@ -7,6 +7,10 @@ const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 const ticketCooldowns = new Map();
 const COOLDOWN_MS = 60_000; // 60 seconds
 const MAX_OPEN_TICKETS = 25;
+const AUTO_CLOSE_MS = 10 * 60_000; // 10 minutes
+
+// Track pending auto-close timers: ticketId → timeout handle
+const autoCloseTimers = new Map();
 
 /**
  * Handle ticket_create:{serverId} dropdown selection.
@@ -257,7 +261,10 @@ async function handleTicketCreate(interaction) {
       }
     }
 
-    // 9. Confirm to user
+    // 9. Schedule 10-minute auto-close for blank tickets
+    scheduleAutoClose(interaction.client, ticket.id, ticketChannel.id, paddedNumber, server);
+
+    // 10. Confirm to user
     return interaction.editReply({
       content: `✅ Ticket created: <#${ticketChannel.id}>`,
     });
@@ -284,11 +291,239 @@ async function handleTicketButton(interaction) {
     return interaction.editReply({ content: "❌ Invalid ticket." });
   }
 
-  // Placeholder — button handlers will be implemented in a future version
-  const actionLabel = action.replace("ticket_", "");
-  return interaction.editReply({
-    content: `🚧 **Ticket ${actionLabel}** — Button handler is not yet implemented.`,
-  });
+  const ticket = await db.getTicketById(ticketId);
+  if (!ticket) {
+    return interaction.editReply({ content: "❌ Ticket not found in database." });
+  }
+
+  const server = await db.getBoostServerById(ticket.boost_server_id);
+  if (!server) {
+    return interaction.editReply({ content: "❌ Boost server not found." });
+  }
+
+  // Permission checks
+  const member = interaction.member;
+  const isAdmin = member.permissions?.has(PermissionsBitField.Flags.Administrator);
+  const isOwner = member.roles?.cache?.has(server.role_owner_id);
+  const isMod = member.roles?.cache?.has(server.role_mod_id);
+  const isCreator = interaction.user.id === ticket.creator_id;
+  const isStaff = isAdmin || isOwner || isMod;
+
+  // --- ❌ Close Ticket ---
+  if (action === "ticket_close") {
+    if (!isCreator && !isStaff) {
+      return interaction.editReply({ content: "⛔ Only the ticket creator or staff can close this ticket." });
+    }
+    if (ticket.status === "closed") {
+      return interaction.editReply({ content: "This ticket is already closed." });
+    }
+    return closeTicket(interaction, ticket, server, guild, "User action");
+  }
+
+  // --- 🔒 Close & Lock ---
+  if (action === "ticket_lock") {
+    if (!isStaff) {
+      return interaction.editReply({ content: "⛔ Only staff (PS Mod / PS Owner / Admin) can lock tickets." });
+    }
+    if (ticket.status === "locked") {
+      return interaction.editReply({ content: "This ticket is already locked." });
+    }
+    return lockTicket(interaction, ticket, server, guild);
+  }
+
+  // --- 🗑️ Delete Ticket ---
+  if (action === "ticket_delete") {
+    if (!isStaff) {
+      return interaction.editReply({ content: "⛔ Only staff (PS Mod / PS Owner / Admin) can delete tickets." });
+    }
+    return deleteTicketAction(interaction, ticket, guild);
+  }
+
+  return interaction.editReply({ content: "❌ Unknown action." });
 }
 
-module.exports = { handleTicketCreate, handleTicketButton };
+/**
+ * Close a ticket: remove creator perms, rename channel, update DB.
+ */
+async function closeTicket(interaction, ticket, server, guild, reason) {
+  try {
+    // Cancel auto-close timer if pending
+    cancelAutoClose(ticket.id);
+
+    const channel = await guild.channels.fetch(ticket.channel_id).catch(() => null);
+    if (!channel) {
+      await db.updateTicketStatus(ticket.id, "closed");
+      return interaction.editReply({ content: "⚠️ Channel not found. Ticket marked as closed in DB." });
+    }
+
+    // Remove creator permissions
+    await channel.permissionOverwrites.delete(ticket.creator_id).catch(() => null);
+
+    // Rename channel
+    const paddedNumber = String(ticket.ticket_number).padStart(4, "0");
+    const slug = server.slug || "server";
+    await channel.setName(`closed-ticket-${paddedNumber}-${slug}`).catch(() => null);
+
+    // Update DB
+    await db.updateTicketStatus(ticket.id, "closed");
+
+    // Post closure notice in channel
+    const closeEmbed = new EmbedBuilder()
+      .setColor(0xED4245)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setDescription(`Ticket closed by ${interaction ? `<@${interaction.user.id}>` : "Auto-close"} — ${reason || "No reason"}`)
+      .setTimestamp(new Date());
+
+    await channel.send({ embeds: [closeEmbed] }).catch(() => null);
+
+    if (interaction) {
+      return interaction.editReply({ content: "✅ Ticket closed." });
+    }
+  } catch (err) {
+    console.error("[TICKET] Close error:", err);
+    if (interaction) {
+      return interaction.editReply({ content: `❌ Failed to close ticket: ${err.message}` });
+    }
+  }
+}
+
+/**
+ * Lock a ticket: remove creator perms, deny SendMessages for everyone, update DB.
+ */
+async function lockTicket(interaction, ticket, server, guild) {
+  try {
+    // Cancel auto-close timer if pending
+    cancelAutoClose(ticket.id);
+
+    const channel = await guild.channels.fetch(ticket.channel_id).catch(() => null);
+    if (!channel) {
+      await db.updateTicketStatus(ticket.id, "locked");
+      return interaction.editReply({ content: "⚠️ Channel not found. Ticket marked as locked in DB." });
+    }
+
+    // Remove creator permissions
+    await channel.permissionOverwrites.delete(ticket.creator_id).catch(() => null);
+
+    // Lock channel — deny SendMessages for @everyone
+    await channel.permissionOverwrites.edit(guild.id, {
+      SendMessages: false,
+      ViewChannel: false,
+    }).catch(() => null);
+
+    // Rename channel
+    const paddedNumber = String(ticket.ticket_number).padStart(4, "0");
+    const slug = server.slug || "server";
+    await channel.setName(`locked-ticket-${paddedNumber}-${slug}`).catch(() => null);
+
+    // Update DB
+    await db.updateTicketStatus(ticket.id, "locked");
+
+    // Post lock notice
+    const lockEmbed = new EmbedBuilder()
+      .setColor(0xF0B232)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setDescription(`Ticket locked by <@${interaction.user.id}>`)
+      .setTimestamp(new Date());
+
+    await channel.send({ embeds: [lockEmbed] }).catch(() => null);
+
+    return interaction.editReply({ content: "🔒 Ticket closed & locked." });
+  } catch (err) {
+    console.error("[TICKET] Lock error:", err);
+    return interaction.editReply({ content: `❌ Failed to lock ticket: ${err.message}` });
+  }
+}
+
+/**
+ * Delete a ticket: delete channel, remove DB record.
+ */
+async function deleteTicketAction(interaction, ticket, guild) {
+  try {
+    // Cancel auto-close timer if pending
+    cancelAutoClose(ticket.id);
+
+    const channel = await guild.channels.fetch(ticket.channel_id).catch(() => null);
+
+    // Delete DB record first
+    await db.deleteTicket(ticket.id);
+
+    // Delete channel
+    if (channel) {
+      await channel.delete("Ticket deleted by staff").catch(() => null);
+    }
+
+    return interaction.editReply({ content: "🗑️ Ticket deleted." });
+  } catch (err) {
+    console.error("[TICKET] Delete error:", err);
+    return interaction.editReply({ content: `❌ Failed to delete ticket: ${err.message}` });
+  }
+}
+
+/**
+ * Schedule auto-close: if no user messages within 10 minutes, close the ticket.
+ */
+function scheduleAutoClose(client, ticketId, channelId, paddedNumber, server) {
+  // Cancel any existing timer for this ticket
+  cancelAutoClose(ticketId);
+
+  const timer = setTimeout(async () => {
+    autoCloseTimers.delete(ticketId);
+    try {
+      const ticket = await db.getTicketById(ticketId);
+      if (!ticket || ticket.status !== "open") return;
+
+      const guild = client.guilds.cache.find(g => g.channels.cache.has(channelId))
+        || await client.guilds.fetch().then(guilds => {
+          for (const [, g] of guilds) return client.guilds.cache.get(g.id);
+          return null;
+        }).catch(() => null);
+
+      if (!guild) return;
+
+      const channel = await guild.channels.fetch(channelId).catch(() => null);
+      if (!channel) {
+        await db.updateTicketStatus(ticketId, "closed");
+        return;
+      }
+
+      // Fetch messages — check if any non-bot message exists beyond the initial header
+      const messages = await channel.messages.fetch({ limit: 20 }).catch(() => null);
+      if (!messages) return;
+
+      const hasUserMessage = messages.some(m => !m.author.bot);
+      if (hasUserMessage) return; // User posted something — don't auto-close
+
+      // Auto-close: remove creator perms, rename, update DB
+      await channel.permissionOverwrites.delete(ticket.creator_id).catch(() => null);
+
+      const slug = server.slug || "server";
+      await channel.setName(`closed-ticket-${paddedNumber}-${slug}`).catch(() => null);
+      await db.updateTicketStatus(ticketId, "closed");
+
+      const autoCloseEmbed = new EmbedBuilder()
+        .setColor(0xED4245)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setDescription("This ticket was automatically closed due to inactivity (no messages for 10 minutes).")
+        .setTimestamp(new Date());
+
+      await channel.send({ embeds: [autoCloseEmbed] }).catch(() => null);
+    } catch (err) {
+      console.error("[TICKET] Auto-close error:", err);
+    }
+  }, AUTO_CLOSE_MS);
+
+  autoCloseTimers.set(ticketId, timer);
+}
+
+/**
+ * Cancel a pending auto-close timer.
+ */
+function cancelAutoClose(ticketId) {
+  const existing = autoCloseTimers.get(ticketId);
+  if (existing) {
+    clearTimeout(existing);
+    autoCloseTimers.delete(ticketId);
+  }
+}
+
+module.exports = { handleTicketCreate, handleTicketButton, cancelAutoClose };

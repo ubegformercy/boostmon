@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.7.6 — 2026-03-01
+- Implemented ticket button handlers: ❌ Close, 🔒 Close & Lock, 🗑️ Delete
+- **Close Ticket**: creator / PS Mod / PS Owner / Admin — removes creator perms, renames to `closed-ticket-####-<slug>`, posts closure embed
+- **Close & Lock**: staff only — removes creator perms, denies SendMessages for @everyone, renames to `locked-ticket-####-<slug>`
+- **Delete Ticket**: staff only — deletes channel and removes DB record
+- **Auto-close**: blank tickets (no user messages) automatically close after 10 minutes
+- Auto-close timer is cancelled when a non-bot user sends a message in the ticket channel
+- Added `getTicketById()` and `deleteTicket()` DB helpers
+- Exported `cancelAutoClose` for use in messageCreate handler
+
 ## v2.7.5 — 2026-03-01
 - Anti-spam protections for ticket creation
 - 60-second per-user per-server cooldown (in-memory, resets on restart)

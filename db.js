@@ -2302,6 +2302,29 @@ async function updateTicketStatus(ticketId, status) {
   }
 }
 
+async function getTicketById(ticketId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_server_tickets WHERE id = $1",
+      [ticketId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getTicketById error:", err);
+    return null;
+  }
+}
+
+async function deleteTicket(ticketId) {
+  try {
+    await pool.query("DELETE FROM boost_server_tickets WHERE id = $1", [ticketId]);
+    return true;
+  } catch (err) {
+    console.error("deleteTicket error:", err);
+    return false;
+  }
+}
+
 // Generic query function for direct database access
 async function query(text, params) {
   return pool.query(text, params);
@@ -2441,6 +2464,8 @@ module.exports = {
   countOpenTickets,
   getTickets,
   updateTicketStatus,
+  getTicketById,
+  deleteTicket,
   
   closePool,
 };

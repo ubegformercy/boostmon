@@ -25,7 +25,7 @@ const indexRouter = require("./routes/index");
 const authRouter = require("./routes/auth");
 const dashboardRouter = require("./routes/dashboard");
 const db = require("./db");
-const { handleTicketCreate, handleTicketButton } = require("./discord/handlers/ticket");
+const { handleTicketCreate, handleTicketButton, cancelAutoClose } = require("./discord/handlers/ticket");
 
 // Services
 const streakService = require("./services/streak");
@@ -448,6 +448,14 @@ client.on("interactionCreate", async (interaction) => {
 // Handle prefix commands (b! prefix)
 console.log("[STARTUP] Registering messageCreate event handler...");
 client.on("messageCreate", async (message) => {
+  // Cancel auto-close timer if a non-bot user sends a message in a ticket channel
+  if (!message.author.bot && message.channel.name?.startsWith("ticket-")) {
+    const ticket = await db.getTicketByChannel(message.channel.id);
+    if (ticket && ticket.status === "open") {
+      cancelAutoClose(ticket.id);
+    }
+  }
+
   console.log("[PREFIX] messageCreate event fired for:", message.content?.substring(0, 50));
   try {
     await processPrefixCommand(message);
