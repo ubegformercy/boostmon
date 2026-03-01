@@ -822,8 +822,8 @@ async function handleTicketSetup(interaction, guild, server) {
   const pingMode = interaction.options.getString("ping") || "off";
   const notificationsChannel = interaction.options.getChannel("notifications_channel");
 
-  // Parse categories (comma-separated, max 6)
-  const categories = categoriesRaw
+  // Parse categories (comma-separated, max 6); default to Boost Request, Questions
+  let categories = categoriesRaw
     .split(",")
     .map((c) => c.trim())
     .filter(Boolean)
@@ -833,19 +833,61 @@ async function handleTicketSetup(interaction, guild, server) {
     return interaction.editReply({ content: "❌ Categories must be comma-separated labels (e.g. `General, Refund, Issue`)." });
   }
 
-  // Validate ticket panel channel exists
-  const panelChannelId = server.channel_ticket_panel_id;
-  if (!panelChannelId) {
+  if (categories.length === 0) {
+    categories = ["Boost Request", "Questions"];
+  }
+
+  // --- Resolve ticket panel channel (with auto-discovery + repair) ---
+  let panelChannel = null;
+  let ticketsCategoryId = server.tickets_category_id;
+  let panelChannelId = server.channel_ticket_panel_id;
+
+  // Attempt 1: use stored channel_ticket_panel_id
+  if (panelChannelId) {
+    panelChannel = await guild.channels.fetch(panelChannelId).catch(() => null);
+  }
+
+  // Attempt 2: find panel channel inside stored tickets_category_id
+  if (!panelChannel && ticketsCategoryId) {
+    const ticketsCategory = await guild.channels.fetch(ticketsCategoryId).catch(() => null);
+    if (ticketsCategory) {
+      const children = guild.channels.cache.filter(ch => ch.parentId === ticketsCategory.id);
+      panelChannel = children.find(ch => ch.name === "【🚀】・booster-tickets") || null;
+    }
+  }
+
+  // Attempt 3: find tickets category by name pattern, then find panel inside it
+  if (!panelChannel) {
+    const expectedCatName = `#${server.server_index} — ${server.display_name} Tickets`;
+    const ticketsCategory = guild.channels.cache.find(
+      ch => ch.type === ChannelType.GuildCategory && ch.name === expectedCatName
+    );
+    if (ticketsCategory) {
+      ticketsCategoryId = ticketsCategory.id;
+      const children = guild.channels.cache.filter(ch => ch.parentId === ticketsCategory.id);
+      panelChannel = children.find(ch => ch.name === "【🚀】・booster-tickets") || null;
+    }
+  }
+
+  if (!panelChannel) {
     return interaction.editReply({
-      content: "❌ No ticket panel channel found. This boost server may need to be recreated to include the tickets category.",
+      content: "❌ Could not find the **【🚀】・booster-tickets** channel. Make sure the Tickets category and panel channel exist.",
     });
   }
 
-  const panelChannel = await guild.channels.fetch(panelChannelId).catch(() => null);
-  if (!panelChannel) {
-    return interaction.editReply({
-      content: "❌ The ticket panel channel no longer exists. It may have been manually deleted.",
-    });
+  // Persist discovered IDs back to DB if they were missing
+  const updates = {};
+  if (ticketsCategoryId && ticketsCategoryId !== server.tickets_category_id) {
+    updates.tickets_category_id = ticketsCategoryId;
+  }
+  if (panelChannel.id !== server.channel_ticket_panel_id) {
+    updates.channel_ticket_panel_id = panelChannel.id;
+  }
+  if (Object.keys(updates).length > 0) {
+    const updated = await db.updateBoostServer(server.id, updates);
+    if (updated) {
+      server = updated; // use refreshed record going forward
+    }
   }
 
   try {
@@ -871,25 +913,23 @@ async function handleTicketSetup(interaction, guild, server) {
       .setTimestamp(new Date())
       .setFooter({ text: `${server.display_name} • Ticket Panel` });
 
-    // 3. Build dropdown if categories exist
-    const components = [];
-    if (categories.length > 0) {
-      const selectMenu = new StringSelectMenuBuilder()
-        .setCustomId(`ticket_create:${server.id}`)
-        .setPlaceholder("Select a category to open a ticket")
-        .addOptions(
-          categories.map((cat, i) => ({
-            label: cat,
-            value: `cat_${i}`,
-            description: `Open a ${cat} ticket`,
-          }))
-        );
+    // 3. Build dropdown with categories (always present — defaults applied above)
+    const selectMenu = new StringSelectMenuBuilder()
+      .setCustomId(`ticket_create:${server.id}`)
+      .setPlaceholder("Select a category to open a ticket")
+      .addOptions(
+        categories.map((cat, i) => ({
+          label: cat,
+          value: `cat_${i}`,
+          description: `Open a ${cat} ticket`,
+        }))
+      );
 
-      components.push(new ActionRowBuilder().addComponents(selectMenu));
-    }
+    const components = [new ActionRowBuilder().addComponents(selectMenu)];
 
     // 4. Find existing panel message and update, or send new
     let panelUpdated = false;
+    let panelMessage = null;
     try {
       const messages = await panelChannel.messages.fetch({ limit: 20 });
       const existingPanel = messages.find(
@@ -898,7 +938,7 @@ async function handleTicketSetup(interaction, guild, server) {
       );
 
       if (existingPanel) {
-        await existingPanel.edit({ embeds: [panelEmbed], components });
+        panelMessage = await existingPanel.edit({ embeds: [panelEmbed], components });
         panelUpdated = true;
       }
     } catch (err) {
@@ -906,7 +946,12 @@ async function handleTicketSetup(interaction, guild, server) {
     }
 
     if (!panelUpdated) {
-      await panelChannel.send({ embeds: [panelEmbed], components });
+      panelMessage = await panelChannel.send({ embeds: [panelEmbed], components });
+    }
+
+    // Pin the panel message if not already pinned
+    if (panelMessage && !panelMessage.pinned) {
+      await panelMessage.pin().catch(() => null);
     }
 
     // 5. Confirm
@@ -915,7 +960,7 @@ async function handleTicketSetup(interaction, guild, server) {
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
       .setTitle("✅ Ticket Panel Configured")
       .setDescription(
-        `The ticket panel for **${server.display_name}** has been ${panelUpdated ? "updated" : "posted"} in <#${panelChannelId}>.`
+        `The ticket panel for **${server.display_name}** has been ${panelUpdated ? "updated" : "posted"} in <#${panelChannel.id}>.`
       )
       .addFields(
         { name: "Title", value: title, inline: true },

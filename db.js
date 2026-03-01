@@ -2016,18 +2016,21 @@ async function createBoostServer(data) {
     const result = await pool.query(
       `INSERT INTO boost_servers (
         guild_id, server_index, display_name, slug, owner_id,
-        category_id, channel_announcements_id, channel_giveaways_id,
+        category_id, tickets_category_id,
+        channel_announcements_id, channel_giveaways_id,
         channel_events_id, channel_images_id, channel_chat_id, channel_mod_chat_id,
+        channel_ticket_panel_id,
         role_owner_id, role_mod_id, role_member_id,
         status, ps_link
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
       RETURNING *`,
       [
         data.guild_id, data.server_index, data.display_name, data.slug || null, data.owner_id,
-        data.category_id,
+        data.category_id, data.tickets_category_id || null,
         data.channel_announcements_id || null, data.channel_giveaways_id || null,
         data.channel_events_id || null, data.channel_images_id || null,
         data.channel_chat_id || null, data.channel_mod_chat_id || null,
+        data.channel_ticket_panel_id || null,
         data.role_owner_id, data.role_mod_id, data.role_member_id || null,
         data.status || 'active', data.ps_link || null
       ]

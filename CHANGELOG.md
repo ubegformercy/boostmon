@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.7.8 — 2026-03-01
+- **Bugfix**: `createBoostServer()` INSERT was missing `tickets_category_id` and `channel_ticket_panel_id` columns — both were silently discarded, causing `/boostserver ticket-setup` to always fail for newly created servers
+- **Bugfix**: `/boostserver ticket-setup` now auto-discovers the panel channel via 3-tier fallback (stored ID → tickets category children → category name pattern) and persists discovered IDs back to DB, repairing older servers automatically
+- **Feature**: default categories "Boost Request" and "Questions" when none are provided — dropdown is always present
+- Panel message is now pinned in the booster-tickets channel
+
 ## v2.7.7 — 2026-03-01
 - **Audit**: focused ticket system review — all checks passed
 - **Fix**: auto-close timer had broken guild resolution (searched channel cache + iterated all guilds); now uses `server.guild_id` directly
