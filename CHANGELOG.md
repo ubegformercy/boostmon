@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.7.4 — 2026-03-01
+- Enforce one open ticket per user per boost server
+- Query for existing `open` or `locked` tickets before creation; block with ephemeral error + channel mention
+- Edge case: if existing ticket channel was manually deleted, auto-close stale DB record and allow new creation
+- Added `getOpenTicketByUser()` DB helper
+
 ## v2.7.3 — 2026-03-01
 - Implemented dropdown ticket creation from the panel in `【🚀】・booster-tickets`
 - Verifies caller has PS Member/Mod/Owner role or Admin before creating

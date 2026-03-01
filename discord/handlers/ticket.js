@@ -37,6 +37,20 @@ async function handleTicketCreate(interaction) {
     });
   }
 
+  // --- One-open-ticket-per-user enforcement ---
+  const existingTicket = await db.getOpenTicketByUser(server.id, interaction.user.id);
+  if (existingTicket) {
+    // Edge case: channel was manually deleted — clean up stale record
+    const existingChannel = await guild.channels.fetch(existingTicket.channel_id).catch(() => null);
+    if (!existingChannel) {
+      await db.updateTicketStatus(existingTicket.id, "closed");
+    } else {
+      return interaction.editReply({
+        content: `⛔ You already have an open ticket: <#${existingTicket.channel_id}>. Please close it before creating a new one.`,
+      });
+    }
+  }
+
   // Get the selected category
   const selectedValue = interaction.values[0]; // e.g. "cat_0"
   const config = await db.getTicketConfig(server.id);

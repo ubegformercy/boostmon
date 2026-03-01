@@ -2262,6 +2262,19 @@ async function getTickets(boostServerId, status) {
   }
 }
 
+async function getOpenTicketByUser(boostServerId, creatorId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM boost_server_tickets WHERE boost_server_id = $1 AND creator_id = $2 AND status IN ('open','locked') LIMIT 1",
+      [boostServerId, creatorId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getOpenTicketByUser error:", err);
+    return null;
+  }
+}
+
 async function updateTicketStatus(ticketId, status) {
   try {
     const closedAt = status === 'closed' ? 'CURRENT_TIMESTAMP' : 'NULL';
@@ -2411,6 +2424,7 @@ module.exports = {
   incrementTicketCounter,
   createTicket,
   getTicketByChannel,
+  getOpenTicketByUser,
   getTickets,
   updateTicketStatus,
   
