@@ -323,9 +323,6 @@ function getCommands() {
         s
           .setName("create")
           .setDescription("Create your own boost server")
-          .addStringOption((o) =>
-            o.setName("name").setDescription("Display name for your boost server").setRequired(true)
-          )
       )
       .addSubcommand((s) =>
         s

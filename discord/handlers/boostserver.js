@@ -1,5 +1,17 @@
 // discord/handlers/boostserver.js — /boostserver command handler
-const { PermissionFlagsBits, EmbedBuilder, ChannelType, PermissionsBitField, ActionRowBuilder, StringSelectMenuBuilder } = require("discord.js");
+const {
+  PermissionFlagsBits,
+  EmbedBuilder,
+  ChannelType,
+  PermissionsBitField,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ButtonBuilder,
+  ButtonStyle,
+} = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 
@@ -11,6 +23,12 @@ const DEFAULT_TICKET_PANEL_DESCRIPTION =
   "If this is a question, explain your issue clearly so our team can assist you efficiently.\n\n" +
   "All tickets are private and only visible to you and the server staff.";
 const DEFAULT_TICKET_CATEGORIES = ["Boost Request", "Questions"];
+
+const CREATE_WIZARD_TTL_MS = 5 * 60_000;
+const WIZARD_REQUIRED_CHANNELS = ["announcements", "chat", "mod-chat"];
+const WIZARD_ALL_CHANNELS = ["announcements", "giveaways", "events", "images", "chat", "mod-chat"];
+const CREATE_WIZARDS_BY_KEY = new Map(); // key: guildId:userId
+const CREATE_WIZARDS_BY_TOKEN = new Map(); // key: token
 
 const SUBCOMMAND_LABELS = {
   "create": "Create Boost Server",
@@ -40,16 +58,16 @@ module.exports = async function handleBoostServer(interaction) {
   const subcommand = interaction.options.getSubcommand();
   const guild = interaction.guild;
 
+  // CREATE wizard starts with a modal, so it must run before deferReply.
+  if (subcommand === "create") {
+    return handleCreateWizardStart(interaction, guild);
+  }
+
   // All responses are ephemeral
   await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
   const isGuildOwner = guild.ownerId === interaction.user.id;
-
-  // ── CREATE — Anyone may run this (self-service) ──
-  if (subcommand === "create") {
-    return handleCreate(interaction, guild);
-  }
 
   // All other subcommands require a server selection
   const serverId = interaction.options.getString("server", true);
@@ -134,8 +152,15 @@ module.exports = async function handleBoostServer(interaction) {
   });
 };
 
-async function handleCreate(interaction, guild) {
-  const name = interaction.options.getString("name", true).trim();
+async function handleCreate(interaction, guild, wizardConfig = null) {
+  const name = wizardConfig?.name || interaction.options?.getString("name", false)?.trim();
+  const serverDescription = wizardConfig?.description || "";
+  const selectedChannels = wizardConfig?.selectedChannels?.length
+    ? wizardConfig.selectedChannels
+    : [...WIZARD_ALL_CHANNELS];
+  const publicChannelSet = new Set(wizardConfig?.publicChannels || []);
+  const wizardPingMode = wizardConfig?.ticketPingMode || "off";
+  const sendLogsToModChat = Boolean(wizardConfig?.sendLogsToModChat);
   const ownerId = interaction.user.id;
 
   // Validate name not blank
@@ -297,54 +322,58 @@ async function handleCreate(interaction, guild) {
       },
     ];
 
-    // 3. Create 6 channels under category
-    const announcementsChannel = await guild.channels.create({
-      name: "【📢】・announcements",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: channelOverwrites,
-    });
-    created.channels.push(announcementsChannel);
+    // 3. Create selected channels under category
+    const channelSpecs = {
+      announcements: { name: "【📢】・announcements", modOnly: false },
+      giveaways: { name: "【🎁】・giveaways", modOnly: false },
+      events: { name: "【🎉】・events", modOnly: false },
+      images: { name: "【📸】・images", modOnly: false },
+      chat: { name: "【💬】・chat", modOnly: false },
+      "mod-chat": { name: "【🔒】・mod-chat", modOnly: true },
+    };
 
-    const giveawaysChannel = await guild.channels.create({
-      name: "【🎁】・giveaways",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: channelOverwrites,
-    });
-    created.channels.push(giveawaysChannel);
+    const createdMainChannels = {};
+    for (const key of selectedChannels) {
+      const spec = channelSpecs[key];
+      if (!spec) continue;
 
-    const eventsChannel = await guild.channels.create({
-      name: "【🎉】・events",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: channelOverwrites,
-    });
-    created.channels.push(eventsChannel);
+      const isPublic = publicChannelSet.has(key);
+      const everyoneOverwrite = isPublic
+        ? {
+          id: guild.id,
+          allow: [PermissionsBitField.Flags.ViewChannel],
+          deny: [PermissionsBitField.Flags.SendMessages],
+        }
+        : {
+          id: guild.id,
+          deny: [PermissionsBitField.Flags.ViewChannel],
+        };
 
-    const imagesChannel = await guild.channels.create({
-      name: "【📸】・images",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: channelOverwrites,
-    });
-    created.channels.push(imagesChannel);
+      const permissionOverwrites = spec.modOnly
+        ? [everyoneOverwrite, ...modChatOverwrites.slice(1)]
+        : [everyoneOverwrite, ...channelOverwrites.slice(1)];
 
-    const chatChannel = await guild.channels.create({
-      name: "【💬】・chat",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: channelOverwrites,
-    });
-    created.channels.push(chatChannel);
+      const createdChannel = await guild.channels.create({
+        name: spec.name,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        permissionOverwrites,
+      });
 
-    const modChatChannel = await guild.channels.create({
-      name: "【🔒】・mod-chat",
-      type: ChannelType.GuildText,
-      parent: category.id,
-      permissionOverwrites: modChatOverwrites,
-    });
-    created.channels.push(modChatChannel);
+      created.channels.push(createdChannel);
+      createdMainChannels[key] = createdChannel;
+    }
+
+    const announcementsChannel = createdMainChannels.announcements || null;
+    const giveawaysChannel = createdMainChannels.giveaways || null;
+    const eventsChannel = createdMainChannels.events || null;
+    const imagesChannel = createdMainChannels.images || null;
+    const chatChannel = createdMainChannels.chat || null;
+    const modChatChannel = createdMainChannels["mod-chat"] || null;
+
+    if (!announcementsChannel || !chatChannel || !modChatChannel) {
+      throw new Error("Required channels were not created correctly.");
+    }
 
     // 3b. Create booster-tickets panel channel (read-only for users, bot sends)
     const ticketPanelOverwrites = [
@@ -494,8 +523,8 @@ async function handleCreate(interaction, guild) {
         title: DEFAULT_TICKET_PANEL_TITLE,
         description: DEFAULT_TICKET_PANEL_DESCRIPTION,
         categories: DEFAULT_TICKET_CATEGORIES,
-        ping_mode: existingConfig?.ping_mode || "off",
-        notifications_channel_id: existingConfig?.notifications_channel_id || null,
+        ping_mode: wizardPingMode || existingConfig?.ping_mode || "off",
+        notifications_channel_id: sendLogsToModChat ? modChatChannel?.id || null : existingConfig?.notifications_channel_id || null,
         panel_message_id: panelMessage?.id || null,
       });
     } catch (err) {
@@ -506,21 +535,26 @@ async function handleCreate(interaction, guild) {
     }
 
     // 7. Post structured header in announcements channel and pin it
+    const channelSummaryLines = [
+      `📢 <#${announcementsChannel.id}> — Server announcements`,
+      giveawaysChannel ? `🎁 <#${giveawaysChannel.id}> — Giveaways` : null,
+      eventsChannel ? `🎉 <#${eventsChannel.id}> — Events` : null,
+      imagesChannel ? `📸 <#${imagesChannel.id}> — Images & screenshots` : null,
+      `💬 <#${chatChannel.id}> — General chat`,
+      `🔒 <#${modChatChannel.id}> — Mod chat (private)`,
+      `🚀 <#${ticketPanelChannel.id}> — Booster tickets`,
+    ].filter(Boolean).join("\n");
+
     const headerEmbed = new EmbedBuilder()
       .setColor(0x5865F2)
       .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
       .setTitle(`${name}`)
       .setDescription(
         `Welcome to **${name}** — Boost Server #${serverIndex}\n\n` +
+        (serverDescription ? `**Description:** ${serverDescription}\n\n` : "") +
         `**Owner:** <@${ownerId}>\n` +
         `**Status:** Active\n\n` +
-        `📢 <#${announcementsChannel.id}> — Server announcements\n` +
-        `🎁 <#${giveawaysChannel.id}> — Giveaways\n` +
-        `🎉 <#${eventsChannel.id}> — Events\n` +
-        `📸 <#${imagesChannel.id}> — Images & screenshots\n` +
-        `💬 <#${chatChannel.id}> — General chat\n` +
-        `🔒 <#${modChatChannel.id}> — Mod chat (private)\n\n` +
-        `🚀 <#${ticketPanelChannel.id}> — Booster tickets`
+        channelSummaryLines
       )
       .setTimestamp(new Date())
       .setFooter({ text: "BoostMon • Boost Server" });
@@ -543,7 +577,10 @@ async function handleCreate(interaction, guild) {
         { name: "Status", value: "Active", inline: true },
         { name: "Category", value: `${category.name}`, inline: false },
         { name: "Channels", value:
-          `${announcementsChannel}\n${giveawaysChannel}\n${eventsChannel}\n${imagesChannel}\n${chatChannel}\n${modChatChannel}\n${ticketPanelChannel}`,
+          [announcementsChannel, giveawaysChannel, eventsChannel, imagesChannel, chatChannel, modChatChannel, ticketPanelChannel]
+            .filter(Boolean)
+            .map((c) => `${c}`)
+            .join("\n"),
           inline: false },
         { name: "Roles", value: `${ownerRole}\n${modRole}\n${memberRole}`, inline: false },
       )
@@ -1107,3 +1144,379 @@ async function handleTicketSetup(interaction, guild, server) {
     return interaction.editReply({ content: `❌ Failed to set up ticket panel: ${err.message}` });
   }
 }
+
+function wizardKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function clearCreateWizard(state) {
+  if (!state) return;
+  if (state.timeout) clearTimeout(state.timeout);
+  CREATE_WIZARDS_BY_KEY.delete(wizardKey(state.guildId, state.userId));
+  CREATE_WIZARDS_BY_TOKEN.delete(state.token);
+}
+
+function getActiveCreateWizard(token, interaction) {
+  const state = CREATE_WIZARDS_BY_TOKEN.get(token);
+  if (!state) return { state: null, reason: "missing" };
+
+  if (Date.now() > state.expiresAt) {
+    clearCreateWizard(state);
+    return { state: null, reason: "expired" };
+  }
+
+  if (state.guildId !== interaction.guildId || state.userId !== interaction.user.id) {
+    return { state: null, reason: "forbidden" };
+  }
+
+  return { state, reason: null };
+}
+
+function toChannelDisplayName(key) {
+  const map = {
+    announcements: "announcements",
+    giveaways: "giveaways",
+    events: "events",
+    images: "images",
+    chat: "chat",
+    "mod-chat": "mod-chat",
+  };
+  return map[key] || key;
+}
+
+function buildStep2Payload(state) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`bswiz_channels:${state.token}`)
+    .setPlaceholder("Select channels to create")
+    .setMinValues(3)
+    .setMaxValues(WIZARD_ALL_CHANNELS.length)
+    .addOptions(
+      WIZARD_ALL_CHANNELS.map((channelKey) => ({
+        label: toChannelDisplayName(channelKey),
+        value: channelKey,
+        default: state.selectedChannels.includes(channelKey),
+        description: WIZARD_REQUIRED_CHANNELS.includes(channelKey)
+          ? "Required channel"
+          : "Optional channel",
+      }))
+    );
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Step 2/5 — Channel Selection")
+    .setDescription(
+      "Select which channels should be created.\n" +
+      "**Required and always included:** announcements, chat, mod-chat."
+    );
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(select),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bswiz_cancel:${state.token}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  };
+}
+
+function buildStep3Payload(state) {
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`bswiz_public:${state.token}`)
+    .setPlaceholder("Select public channels (optional)")
+    .setMinValues(0)
+    .setMaxValues(state.selectedChannels.length)
+    .addOptions(
+      state.selectedChannels.map((channelKey) => ({
+        label: toChannelDisplayName(channelKey),
+        value: channelKey,
+        default: state.publicChannels.includes(channelKey),
+        description: "Public channels are view-only for @everyone",
+      }))
+    );
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Step 3/5 — Public Visibility")
+    .setDescription(
+      "Choose which channels (if any) should be publicly visible to everyone in this Discord. " +
+      "If you select none, your boost server stays private. Public channels are view-only."
+    );
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(select),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bswiz_cancel:${state.token}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  };
+}
+
+function buildStep4Payload(state) {
+  const pingSelect = new StringSelectMenuBuilder()
+    .setCustomId(`bswiz_ping:${state.token}`)
+    .setPlaceholder("Ticket ping mode")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions([
+      { label: "None", value: "off", default: state.ticketPingMode === "off" },
+      { label: "Owner", value: "owner", default: state.ticketPingMode === "owner" },
+      { label: "Mod", value: "mod", default: state.ticketPingMode === "mod" },
+      { label: "Both", value: "both", default: state.ticketPingMode === "both" },
+    ]);
+
+  const logsSelect = new StringSelectMenuBuilder()
+    .setCustomId(`bswiz_logs:${state.token}`)
+    .setPlaceholder("Send logs to mod-chat?")
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions([
+      { label: "Yes", value: "yes", default: state.sendLogsToModChat },
+      { label: "No", value: "no", default: !state.sendLogsToModChat },
+    ]);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Step 4/5 — Ticket + Logs Configuration")
+    .setDescription("Set ticket ping mode and whether logs should go to mod-chat.");
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(pingSelect),
+      new ActionRowBuilder().addComponents(logsSelect),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bswiz_step4_next:${state.token}`)
+          .setLabel("Continue")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`bswiz_cancel:${state.token}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  };
+}
+
+function buildStep5Payload(state) {
+  const summaryEmbed = new EmbedBuilder()
+    .setColor(0x3498DB)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Step 5/5 — Confirm Boost Server Setup")
+    .addFields(
+      { name: "Name", value: state.name, inline: false },
+      { name: "Description", value: state.description || "None", inline: false },
+      { name: "Channels Selected", value: state.selectedChannels.map((c) => `• ${toChannelDisplayName(c)}`).join("\n"), inline: true },
+      { name: "Public Channels", value: state.publicChannels.length > 0 ? state.publicChannels.map((c) => `• ${toChannelDisplayName(c)}`).join("\n") : "None (private)", inline: true },
+      { name: "Ticket Ping Mode", value: state.ticketPingMode, inline: true },
+      { name: "Send Logs to mod-chat", value: state.sendLogsToModChat ? "Yes" : "No", inline: true },
+    )
+    .setFooter({ text: "Wizard expires in 5 minutes" });
+
+  return {
+    embeds: [summaryEmbed],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bswiz_confirm:${state.token}`)
+          .setLabel("Confirm")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`bswiz_cancel:${state.token}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  };
+}
+
+async function handleCreateWizardStart(interaction, guild) {
+  const key = wizardKey(guild.id, interaction.user.id);
+  const existing = CREATE_WIZARDS_BY_KEY.get(key);
+  if (existing && Date.now() <= existing.expiresAt) {
+    return interaction.reply({
+      content: "⏳ You already have an active boost server setup wizard in this server. Complete or cancel it first.",
+      ephemeral: true,
+    });
+  }
+
+  const existingOwned = await db.getBoostServerByOwner(guild.id, interaction.user.id);
+  if (existingOwned) {
+    return interaction.reply({
+      content: `❌ You already own a boost server: **${existingOwned.display_name}** (#${existingOwned.server_index}). Each member may only own one.`,
+      ephemeral: true,
+    });
+  }
+
+  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const state = {
+    token,
+    guildId: guild.id,
+    userId: interaction.user.id,
+    name: "",
+    description: "",
+    selectedChannels: [...WIZARD_REQUIRED_CHANNELS],
+    publicChannels: [],
+    ticketPingMode: "off",
+    sendLogsToModChat: false,
+    expiresAt: Date.now() + CREATE_WIZARD_TTL_MS,
+    timeout: setTimeout(() => {
+      const live = CREATE_WIZARDS_BY_TOKEN.get(token);
+      if (live) clearCreateWizard(live);
+    }, CREATE_WIZARD_TTL_MS),
+  };
+
+  CREATE_WIZARDS_BY_KEY.set(key, state);
+  CREATE_WIZARDS_BY_TOKEN.set(token, state);
+
+  const modal = new ModalBuilder()
+    .setCustomId(`bswiz_step1:${token}`)
+    .setTitle("Boost Server Setup — Step 1/5")
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("bswiz_name")
+          .setLabel("Boost Server Name")
+          .setStyle(TextInputStyle.Short)
+          .setMinLength(1)
+          .setMaxLength(25)
+          .setRequired(true)
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId("bswiz_description")
+          .setLabel("Server Description")
+          .setStyle(TextInputStyle.Paragraph)
+          .setMaxLength(500)
+          .setRequired(false)
+      )
+    );
+
+  return interaction.showModal(modal);
+}
+
+async function handleCreateWizardModal(interaction) {
+  const token = interaction.customId.split(":")[1];
+  const { state, reason } = getActiveCreateWizard(token, interaction);
+  if (!state) {
+    const message = reason === "forbidden"
+      ? "⛔ This wizard belongs to another user."
+      : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
+    return interaction.reply({ content: message, ephemeral: true });
+  }
+
+  const name = interaction.fields.getTextInputValue("bswiz_name")?.trim();
+  const description = interaction.fields.getTextInputValue("bswiz_description")?.trim() || "";
+
+  if (!name) {
+    return interaction.reply({ content: "❌ Server name cannot be blank.", ephemeral: true });
+  }
+  if (name.length > 25) {
+    return interaction.reply({ content: "❌ Server name must be 25 characters or less.", ephemeral: true });
+  }
+  if (description.length > 500) {
+    return interaction.reply({ content: "❌ Description must be 500 characters or less.", ephemeral: true });
+  }
+
+  const existingName = await db.getBoostServerByName(interaction.guildId, name);
+  if (existingName) {
+    clearCreateWizard(state);
+    return interaction.reply({
+      content: `❌ A boost server named **${existingName.display_name}** already exists. Please choose a different name.`,
+      ephemeral: true,
+    });
+  }
+
+  state.name = name;
+  state.description = description;
+
+  return interaction.reply({ ...buildStep2Payload(state), ephemeral: true });
+}
+
+async function handleCreateWizardSelect(interaction) {
+  const [prefix, token] = interaction.customId.split(":");
+  const { state, reason } = getActiveCreateWizard(token, interaction);
+  if (!state) {
+    const message = reason === "forbidden"
+      ? "⛔ This wizard belongs to another user."
+      : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
+    return interaction.reply({ content: message, ephemeral: true });
+  }
+
+  if (prefix === "bswiz_channels") {
+    const selected = new Set(interaction.values);
+    for (const required of WIZARD_REQUIRED_CHANNELS) selected.add(required);
+    state.selectedChannels = WIZARD_ALL_CHANNELS.filter((channelKey) => selected.has(channelKey));
+    state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
+    return interaction.update(buildStep3Payload(state));
+  }
+
+  if (prefix === "bswiz_public") {
+    state.publicChannels = interaction.values.filter((channelKey) => state.selectedChannels.includes(channelKey));
+    return interaction.update(buildStep4Payload(state));
+  }
+
+  if (prefix === "bswiz_ping") {
+    const value = interaction.values[0];
+    if (["off", "owner", "mod", "both"].includes(value)) {
+      state.ticketPingMode = value;
+    }
+    return interaction.update(buildStep4Payload(state));
+  }
+
+  if (prefix === "bswiz_logs") {
+    state.sendLogsToModChat = interaction.values[0] === "yes";
+    return interaction.update(buildStep4Payload(state));
+  }
+
+  return interaction.reply({ content: "❌ Unknown wizard selection.", ephemeral: true });
+}
+
+async function handleCreateWizardButton(interaction) {
+  const [prefix, token] = interaction.customId.split(":");
+  const { state, reason } = getActiveCreateWizard(token, interaction);
+  if (!state) {
+    const message = reason === "forbidden"
+      ? "⛔ This wizard belongs to another user."
+      : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
+    return interaction.reply({ content: message, ephemeral: true });
+  }
+
+  if (prefix === "bswiz_cancel") {
+    clearCreateWizard(state);
+    return interaction.update({ content: "❎ Boost server setup canceled.", embeds: [], components: [] });
+  }
+
+  if (prefix === "bswiz_step4_next") {
+    return interaction.update(buildStep5Payload(state));
+  }
+
+  if (prefix === "bswiz_confirm") {
+    await interaction.update({
+      content: "⏳ Creating your boost server...",
+      embeds: [],
+      components: [],
+    });
+
+    clearCreateWizard(state);
+    return handleCreate(interaction, interaction.guild, state);
+  }
+
+  return interaction.reply({ content: "❌ Unknown wizard action.", ephemeral: true });
+}
+
+module.exports.handleCreateWizardModal = handleCreateWizardModal;
+module.exports.handleCreateWizardSelect = handleCreateWizardSelect;
+module.exports.handleCreateWizardButton = handleCreateWizardButton;

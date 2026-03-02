@@ -26,6 +26,7 @@ const authRouter = require("./routes/auth");
 const dashboardRouter = require("./routes/dashboard");
 const db = require("./db");
 const { handleTicketCreate, handleTicketButton, cancelAutoClose } = require("./discord/handlers/ticket");
+const boostserverHandler = require("./discord/handlers/boostserver");
 
 // Services
 const streakService = require("./services/streak");
@@ -368,7 +369,9 @@ client.on("interactionCreate", async (interaction) => {
   // Handle modal submits
   if (interaction.isModalSubmit()) {
     try {
-      // No modal handlers currently
+      if (interaction.customId.startsWith("bswiz_step1:")) {
+        return boostserverHandler.handleCreateWizardModal(interaction);
+      }
     } catch (err) {
       console.error("Modal submit error:", err);
       const msg = "Error processing modal. Details: " + friendlyDiscordError(err);
@@ -386,6 +389,10 @@ client.on("interactionCreate", async (interaction) => {
   // Handle string select menus (dropdowns)
   if (interaction.isStringSelectMenu()) {
     try {
+      if (interaction.customId.startsWith("bswiz_")) {
+        return boostserverHandler.handleCreateWizardSelect(interaction);
+      }
+
       if (interaction.customId.startsWith("ticket_create:")) {
         return handleTicketCreate(interaction);
       }
@@ -405,6 +412,10 @@ client.on("interactionCreate", async (interaction) => {
   // Handle button interactions
   if (interaction.isButton()) {
     try {
+      if (interaction.customId.startsWith("bswiz_")) {
+        return boostserverHandler.handleCreateWizardButton(interaction);
+      }
+
       if (interaction.customId.startsWith("ticket_close:") || interaction.customId.startsWith("ticket_lock:") || interaction.customId.startsWith("ticket_delete:")) {
         return handleTicketButton(interaction);
       }

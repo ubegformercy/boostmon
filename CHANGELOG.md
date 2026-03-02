@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.8.0 — 2026-03-01
+- `/boostserver create` now starts a 5-step interactive setup wizard instead of creating channels immediately
+- Added modal + select-menu + button flow (with 5-minute expiry and one active wizard per user per guild)
+- Required channels (`announcements`, `chat`, `mod-chat`) are always included; optional channel creation and public visibility are configured before creation
+- Ticket ping mode and "send logs to mod-chat" choices are collected before confirmation and applied on creation
+- Creation only runs after **Confirm**; **Cancel** aborts wizard
+
 ## v2.7.11 — 2026-03-01
 - Improved robustness for ticket panel creation in `/boostserver create`: panel-post failures are now clearly logged as **non-fatal** and do not fail server creation
 - `/boostserver ticket-setup` now explicitly auto-recreates the panel message when none is found in `【🚀】・booster-tickets`, then persists the new `panel_message_id`
