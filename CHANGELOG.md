@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.9.1 — 2026-03-01
+- Audited join + permission changes: verified Owner/Mod access scope, member channel restrictions, private `mod-chat`, authorized-only join approval buttons, DM-failure graceful handling, and no public private-link exposure
+- No functional code changes required from this audit
+
 ## v2.9.0 — 2026-03-01
 - Added `/boostserver join` command to submit join requests for a selected boost server
 - Join requests are posted to `【🔒】・mod-chat` with requester mention, owner/mod role mentions, request summary, and Approve/Decline buttons
