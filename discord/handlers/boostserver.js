@@ -1167,6 +1167,27 @@ function clearCreateWizard(state) {
   CREATE_WIZARDS_BY_TOKEN.delete(state.token);
 }
 
+function isInteractionExpiredError(err) {
+  const message = `${err?.message || ""}`.toLowerCase();
+  return message.includes("unknown interaction") || message.includes("interaction has already been acknowledged");
+}
+
+async function safeInteractionSend(interaction, method, payload) {
+  try {
+    if (method === "reply") return await interaction.reply(payload);
+    if (method === "update") return await interaction.update(payload);
+    if (method === "showModal") return await interaction.showModal(payload);
+    if (method === "followUp") return await interaction.followUp(payload);
+    return null;
+  } catch (err) {
+    if (isInteractionExpiredError(err)) {
+      console.warn(`[BOOSTSERVER] Wizard interaction expired during ${method}: ${err.message}`);
+      return null;
+    }
+    throw err;
+  }
+}
+
 function getActiveCreateWizard(token, interaction) {
   const state = CREATE_WIZARDS_BY_TOKEN.get(token);
   if (!state) return { state: null, reason: "missing" };
@@ -1353,12 +1374,45 @@ function buildStep5Payload(state) {
   };
 }
 
+function buildWizardActivePayload(state) {
+  const stepLabel = {
+    1: "Step 1/5 — Name & Description",
+    2: "Step 2/5 — Channel Selection",
+    3: "Step 3/5 — Public Visibility",
+    4: "Step 4/5 — Ticket + Logs",
+    5: "Step 5/5 — Confirmation",
+  }[state.step] || "Setup Wizard";
+
+  return {
+    embeds: [
+      new EmbedBuilder()
+        .setColor(0xF1C40F)
+        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+        .setTitle("Active Boost Server Wizard")
+        .setDescription(`You already have an active wizard in this server. Current progress: **${stepLabel}**.`)
+        .setFooter({ text: "Choose Resume to continue or Cancel to discard." }),
+    ],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bswiz_resume:${state.token}`)
+          .setLabel("Resume")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`bswiz_cancel:${state.token}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  };
+}
+
 async function handleCreateWizardStart(interaction, guild) {
   const key = wizardKey(guild.id, interaction.user.id);
   const existing = CREATE_WIZARDS_BY_KEY.get(key);
   if (existing && Date.now() <= existing.expiresAt) {
-    return interaction.reply({
-      content: "⏳ You already have an active boost server setup wizard in this server. Complete or cancel it first.",
+    return safeInteractionSend(interaction, "reply", {
+      ...buildWizardActivePayload(existing),
       ephemeral: true,
     });
   }
@@ -1376,6 +1430,7 @@ async function handleCreateWizardStart(interaction, guild) {
     token,
     guildId: guild.id,
     userId: interaction.user.id,
+    step: 1,
     name: "",
     description: "",
     selectedChannels: [...WIZARD_REQUIRED_CHANNELS],
@@ -1415,117 +1470,176 @@ async function handleCreateWizardStart(interaction, guild) {
       )
     );
 
-  return interaction.showModal(modal);
+  return safeInteractionSend(interaction, "showModal", modal);
 }
 
 async function handleCreateWizardModal(interaction) {
-  const token = interaction.customId.split(":")[1];
-  const { state, reason } = getActiveCreateWizard(token, interaction);
-  if (!state) {
-    const message = reason === "forbidden"
-      ? "⛔ This wizard belongs to another user."
-      : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
-    return interaction.reply({ content: message, ephemeral: true });
-  }
+  try {
+    const token = interaction.customId.split(":")[1];
+    const { state, reason } = getActiveCreateWizard(token, interaction);
+    if (!state) {
+      const message = reason === "forbidden"
+        ? "⛔ This wizard belongs to another user."
+        : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
+      return safeInteractionSend(interaction, "reply", { content: message, ephemeral: true });
+    }
 
-  const name = interaction.fields.getTextInputValue("bswiz_name")?.trim();
-  const description = interaction.fields.getTextInputValue("bswiz_description")?.trim() || "";
+    const name = interaction.fields.getTextInputValue("bswiz_name")?.trim();
+    const description = interaction.fields.getTextInputValue("bswiz_description")?.trim() || "";
 
-  if (!name) {
-    return interaction.reply({ content: "❌ Server name cannot be blank.", ephemeral: true });
-  }
-  if (name.length > 25) {
-    return interaction.reply({ content: "❌ Server name must be 25 characters or less.", ephemeral: true });
-  }
-  if (description.length > 500) {
-    return interaction.reply({ content: "❌ Description must be 500 characters or less.", ephemeral: true });
-  }
+    if (!name) {
+      return safeInteractionSend(interaction, "reply", { content: "❌ Server name cannot be blank.", ephemeral: true });
+    }
+    if (name.length > 25) {
+      return safeInteractionSend(interaction, "reply", { content: "❌ Server name must be 25 characters or less.", ephemeral: true });
+    }
+    if (description.length > 500) {
+      return safeInteractionSend(interaction, "reply", { content: "❌ Description must be 500 characters or less.", ephemeral: true });
+    }
 
-  const existingName = await db.getBoostServerByName(interaction.guildId, name);
-  if (existingName) {
-    clearCreateWizard(state);
-    return interaction.reply({
-      content: `❌ A boost server named **${existingName.display_name}** already exists. Please choose a different name.`,
-      ephemeral: true,
-    });
+    const existingName = await db.getBoostServerByName(interaction.guildId, name);
+    if (existingName) {
+      clearCreateWizard(state);
+      return safeInteractionSend(interaction, "reply", {
+        content: `❌ A boost server named **${existingName.display_name}** already exists. Please choose a different name.`,
+        ephemeral: true,
+      });
+    }
+
+    state.name = name;
+    state.description = description;
+    state.step = 2;
+
+    return safeInteractionSend(interaction, "reply", { ...buildStep2Payload(state), ephemeral: true });
+  } catch (err) {
+    if (isInteractionExpiredError(err)) return null;
+    console.error("[BOOSTSERVER] Wizard modal error:", err);
+    return safeInteractionSend(interaction, "reply", { content: "❌ Failed to continue wizard. Please run `/boostserver create` again.", ephemeral: true });
   }
-
-  state.name = name;
-  state.description = description;
-
-  return interaction.reply({ ...buildStep2Payload(state), ephemeral: true });
 }
 
 async function handleCreateWizardSelect(interaction) {
-  const [prefix, token] = interaction.customId.split(":");
-  const { state, reason } = getActiveCreateWizard(token, interaction);
-  if (!state) {
-    const message = reason === "forbidden"
-      ? "⛔ This wizard belongs to another user."
-      : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
-    return interaction.reply({ content: message, ephemeral: true });
-  }
-
-  if (prefix === "bswiz_channels") {
-    const selected = new Set(interaction.values);
-    for (const required of WIZARD_REQUIRED_CHANNELS) selected.add(required);
-    state.selectedChannels = WIZARD_ALL_CHANNELS.filter((channelKey) => selected.has(channelKey));
-    state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
-    return interaction.update(buildStep3Payload(state));
-  }
-
-  if (prefix === "bswiz_public") {
-    state.publicChannels = interaction.values.filter((channelKey) => state.selectedChannels.includes(channelKey));
-    return interaction.update(buildStep4Payload(state));
-  }
-
-  if (prefix === "bswiz_ping") {
-    const value = interaction.values[0];
-    if (["off", "owner", "mod", "both"].includes(value)) {
-      state.ticketPingMode = value;
+  try {
+    const [prefix, token] = interaction.customId.split(":");
+    const { state, reason } = getActiveCreateWizard(token, interaction);
+    if (!state) {
+      const message = reason === "forbidden"
+        ? "⛔ This wizard belongs to another user."
+        : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
+      return safeInteractionSend(interaction, "reply", { content: message, ephemeral: true });
     }
-    return interaction.update(buildStep4Payload(state));
-  }
 
-  if (prefix === "bswiz_logs") {
-    state.sendLogsToModChat = interaction.values[0] === "yes";
-    return interaction.update(buildStep4Payload(state));
-  }
+    if (prefix === "bswiz_channels") {
+      const selected = new Set(interaction.values);
+      for (const required of WIZARD_REQUIRED_CHANNELS) selected.add(required);
+      state.selectedChannels = WIZARD_ALL_CHANNELS.filter((channelKey) => selected.has(channelKey));
+      state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
+      state.step = 3;
+      return safeInteractionSend(interaction, "update", buildStep3Payload(state));
+    }
 
-  return interaction.reply({ content: "❌ Unknown wizard selection.", ephemeral: true });
+    if (prefix === "bswiz_public") {
+      state.publicChannels = interaction.values.filter((channelKey) => state.selectedChannels.includes(channelKey));
+      state.step = 4;
+      return safeInteractionSend(interaction, "update", buildStep4Payload(state));
+    }
+
+    if (prefix === "bswiz_ping") {
+      const value = interaction.values[0];
+      if (["off", "owner", "mod", "both"].includes(value)) {
+        state.ticketPingMode = value;
+      }
+      state.step = 4;
+      return safeInteractionSend(interaction, "update", buildStep4Payload(state));
+    }
+
+    if (prefix === "bswiz_logs") {
+      state.sendLogsToModChat = interaction.values[0] === "yes";
+      state.step = 4;
+      return safeInteractionSend(interaction, "update", buildStep4Payload(state));
+    }
+
+    return safeInteractionSend(interaction, "reply", { content: "❌ Unknown wizard selection.", ephemeral: true });
+  } catch (err) {
+    if (isInteractionExpiredError(err)) return null;
+    console.error("[BOOSTSERVER] Wizard select error:", err);
+    return safeInteractionSend(interaction, "reply", { content: "❌ Failed to continue wizard. Please run `/boostserver create` again.", ephemeral: true });
+  }
 }
 
 async function handleCreateWizardButton(interaction) {
-  const [prefix, token] = interaction.customId.split(":");
-  const { state, reason } = getActiveCreateWizard(token, interaction);
-  if (!state) {
-    const message = reason === "forbidden"
-      ? "⛔ This wizard belongs to another user."
-      : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
-    return interaction.reply({ content: message, ephemeral: true });
+  try {
+    const [prefix, token] = interaction.customId.split(":");
+    const { state, reason } = getActiveCreateWizard(token, interaction);
+    if (!state) {
+      const message = reason === "forbidden"
+        ? "⛔ This wizard belongs to another user."
+        : "⌛ This setup wizard has expired. Run `/boostserver create` again.";
+      return safeInteractionSend(interaction, "reply", { content: message, ephemeral: true });
+    }
+
+    if (prefix === "bswiz_cancel") {
+      clearCreateWizard(state);
+      return safeInteractionSend(interaction, "update", { content: "❎ Boost server setup canceled.", embeds: [], components: [] });
+    }
+
+    if (prefix === "bswiz_resume") {
+      if (state.step === 1) {
+        const modal = new ModalBuilder()
+          .setCustomId(`bswiz_step1:${state.token}`)
+          .setTitle("Boost Server Setup — Step 1/5")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("bswiz_name")
+                .setLabel("Boost Server Name")
+                .setStyle(TextInputStyle.Short)
+                .setMinLength(1)
+                .setMaxLength(25)
+                .setRequired(true)
+                .setValue(state.name || "")
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("bswiz_description")
+                .setLabel("Server Description")
+                .setStyle(TextInputStyle.Paragraph)
+                .setMaxLength(500)
+                .setRequired(false)
+                .setValue(state.description || "")
+            )
+          );
+        return safeInteractionSend(interaction, "showModal", modal);
+      }
+
+      if (state.step === 2) return safeInteractionSend(interaction, "update", buildStep2Payload(state));
+      if (state.step === 3) return safeInteractionSend(interaction, "update", buildStep3Payload(state));
+      if (state.step === 4) return safeInteractionSend(interaction, "update", buildStep4Payload(state));
+      return safeInteractionSend(interaction, "update", buildStep5Payload(state));
+    }
+
+    if (prefix === "bswiz_step4_next") {
+      state.step = 5;
+      return safeInteractionSend(interaction, "update", buildStep5Payload(state));
+    }
+
+    if (prefix === "bswiz_confirm") {
+      await safeInteractionSend(interaction, "update", {
+        content: "⏳ Creating your boost server...",
+        embeds: [],
+        components: [],
+      });
+
+      clearCreateWizard(state);
+      return handleCreate(interaction, interaction.guild, state);
+    }
+
+    return safeInteractionSend(interaction, "reply", { content: "❌ Unknown wizard action.", ephemeral: true });
+  } catch (err) {
+    if (isInteractionExpiredError(err)) return null;
+    console.error("[BOOSTSERVER] Wizard button error:", err);
+    return safeInteractionSend(interaction, "reply", { content: "❌ Failed to continue wizard. Please run `/boostserver create` again.", ephemeral: true });
   }
-
-  if (prefix === "bswiz_cancel") {
-    clearCreateWizard(state);
-    return interaction.update({ content: "❎ Boost server setup canceled.", embeds: [], components: [] });
-  }
-
-  if (prefix === "bswiz_step4_next") {
-    return interaction.update(buildStep5Payload(state));
-  }
-
-  if (prefix === "bswiz_confirm") {
-    await interaction.update({
-      content: "⏳ Creating your boost server...",
-      embeds: [],
-      components: [],
-    });
-
-    clearCreateWizard(state);
-    return handleCreate(interaction, interaction.guild, state);
-  }
-
-  return interaction.reply({ content: "❌ Unknown wizard action.", ephemeral: true });
 }
 
 module.exports.handleCreateWizardModal = handleCreateWizardModal;

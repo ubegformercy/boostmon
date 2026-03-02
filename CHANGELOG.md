@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.8.3 — 2026-03-01
+- Hardened boost server setup wizard lifecycle: explicit 5-minute expiry handling, robust cleanup, and safe interaction handling when Discord interactions expire
+- Added Resume/Cancel flow when an active wizard already exists for the same user+guild
+- Added wizard step tracking so Resume returns users to the correct step
+- Ensured wizard state is cleaned after cancel, completion, and timeout (no partial creation before Confirm)
+
 ## v2.8.2 — 2026-03-01
 - Hardened `/boostserver create` ticket panel posting: dropdown options are now explicitly fixed to exactly `Boost Request` and `Questions`
 - Maintains non-blocking 2.5s delay, read-only `【🚀】・booster-tickets`, duplicate prevention, and panel message ID persistence
