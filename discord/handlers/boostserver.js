@@ -36,6 +36,7 @@ const JOIN_REQUESTS_BY_TOKEN = new Map(); // key: token
 const SUBCOMMAND_LABELS = {
   "create": "Create Boost Server",
   "join": "Join Boost Server",
+  "leave": "Leave Boost Server",
   "info": "Boost Server Info",
   "owner-set": "Set Owner",
   "owner-view": "View Owner",
@@ -431,6 +432,52 @@ async function handleJoin(interaction, guild, server) {
   });
 }
 
+async function handleLeave(interaction, guild, server) {
+  const callerMember = await guild.members.fetch(interaction.user.id).catch(() => null);
+  if (!callerMember) {
+    return interaction.editReply({ content: "❌ Could not verify your membership in this Discord server." });
+  }
+
+  const ownerRoleId = server.role_owner_id;
+  const modRoleId = server.role_mod_id;
+  const memberRoleId = server.role_member_id;
+
+  const hasOwnerRole = ownerRoleId ? callerMember.roles.cache.has(ownerRoleId) : false;
+  const hasModRole = modRoleId ? callerMember.roles.cache.has(modRoleId) : false;
+  if (hasOwnerRole || hasModRole) {
+    return interaction.editReply({
+      content: "⛔ You cannot leave as staff. PS Owner/PS Mod must transfer ownership or be removed by the owner/admin.",
+    });
+  }
+
+  if (!memberRoleId) {
+    return interaction.editReply({ content: "You are not a member of this boost server." });
+  }
+
+  const memberRole = guild.roles.cache.get(memberRoleId) || await guild.roles.fetch(memberRoleId).catch(() => null);
+  if (!memberRole || !callerMember.roles.cache.has(memberRoleId)) {
+    return interaction.editReply({ content: "You are not a member of this boost server." });
+  }
+
+  try {
+    await callerMember.roles.remove(memberRole, `User left boost server #${server.server_index}`);
+  } catch (err) {
+    console.error(`[BOOSTSERVER] Leave failed removing PS Member role for ${interaction.user.id} on server #${server.server_index}: ${err.message}`);
+    return interaction.editReply({ content: "❌ Failed to remove your PS Member role. Please contact an admin." });
+  }
+
+  if (server.channel_mod_chat_id) {
+    const modChat = await guild.channels.fetch(server.channel_mod_chat_id).catch(() => null);
+    if (modChat && typeof modChat.send === "function") {
+      await modChat.send(`<@${interaction.user.id}> left the boost server.`).catch(() => null);
+    }
+  }
+
+  return interaction.editReply({
+    content: `✅ You left **${server.display_name}**. Your PS Member role was removed.`,
+  });
+}
+
 module.exports = async function handleBoostServer(interaction) {
   if (!interaction.guild) {
     await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
@@ -466,7 +513,7 @@ module.exports = async function handleBoostServer(interaction) {
   const hasManage = isAdmin || isGuildOwner || isServerOwner;
 
   // Subcommands open to anyone (no extra permission)
-  const ANYONE_SUBS = new Set(["join", "info", "mods-list", "owner-view"]);
+  const ANYONE_SUBS = new Set(["join", "leave", "info", "mods-list", "owner-view"]);
 
   // Subcommands requiring management permission (PS Owner / Discord Owner / Admin)
   const MANAGE_SUBS = new Set([
@@ -510,6 +557,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── JOIN REQUEST ──
   if (subcommand === "join") {
     return handleJoin(interaction, guild, server);
+  }
+
+  // ── LEAVE BOOST SERVER ──
+  if (subcommand === "leave") {
+    return handleLeave(interaction, guild, server);
   }
 
   // ── ARCHIVE ──

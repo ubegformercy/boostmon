@@ -340,6 +340,14 @@ function getCommands() {
       )
       .addSubcommand((s) =>
         s
+          .setName("leave")
+          .setDescription("Leave a boost server (removes your PS Member role)")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+      )
+      .addSubcommand((s) =>
+        s
           .setName("delete")
           .setDescription("Permanently delete a boost server")
           .addStringOption((o) =>

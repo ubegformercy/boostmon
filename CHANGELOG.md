@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.3 — 2026-03-01
+- Added `/boostserver leave server:<boost_server>` to let users remove themselves from a boost server by revoking only their PS Member role
+- Added leave safety checks: users with PS Owner or PS Mod role are blocked from leaving as staff and shown guidance to transfer ownership or be removed by owner/admin
+- Added membership validation for leave: users without the PS Member role receive `You are not a member of this boost server.`
+- Added graceful error handling when role removal fails, with ephemeral user-facing failure message and server-side logging
+- Added optional mod-chat notification on successful leave: `<user> left the boost server.`
+
 ## v2.9.2 — 2026-03-01
 - Enhanced `/boostserver create` wizard UX on Step 2 (Channel Selection) and Step 3 (Public Visibility) by adding explicit **Continue** + **Cancel** buttons while retaining select menus
 - Changed Step 2 and Step 3 select interactions to update stored selections without auto-advancing, allowing users to adjust options before continuing
