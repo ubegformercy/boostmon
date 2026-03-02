@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.2 — 2026-03-01
+- Enhanced `/boostserver create` wizard UX on Step 2 (Channel Selection) and Step 3 (Public Visibility) by adding explicit **Continue** + **Cancel** buttons while retaining select menus
+- Changed Step 2 and Step 3 select interactions to update stored selections without auto-advancing, allowing users to adjust options before continuing
+- Added Step 2 Continue validation to enforce required channels remain selected: `announcements`, `chat`, and `mod-chat`
+- Added Step 3 Continue validation to enforce public visibility choices are a subset of Step 2 channel selections
+- Continue now uses current wizard state if no new select interaction occurred, preserving defaults/last saved selections
+
 ## v2.9.1 — 2026-03-01
 - Audited join + permission changes: verified Owner/Mod access scope, member channel restrictions, private `mod-chat`, authorized-only join approval buttons, DM-failure graceful handling, and no public private-link exposure
 - No functional code changes required from this audit

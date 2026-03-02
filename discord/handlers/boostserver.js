@@ -1571,6 +1571,10 @@ function buildStep2Payload(state) {
       new ActionRowBuilder().addComponents(select),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
+          .setCustomId(`bswiz_step2_next:${state.token}`)
+          .setLabel("Continue")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
           .setCustomId(`bswiz_cancel:${state.token}`)
           .setLabel("Cancel")
           .setStyle(ButtonStyle.Danger)
@@ -1608,6 +1612,10 @@ function buildStep3Payload(state) {
     components: [
       new ActionRowBuilder().addComponents(select),
       new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bswiz_step3_next:${state.token}`)
+          .setLabel("Continue")
+          .setStyle(ButtonStyle.Primary),
         new ButtonBuilder()
           .setCustomId(`bswiz_cancel:${state.token}`)
           .setLabel("Cancel")
@@ -1857,14 +1865,14 @@ async function handleCreateWizardSelect(interaction) {
       for (const required of WIZARD_REQUIRED_CHANNELS) selected.add(required);
       state.selectedChannels = WIZARD_ALL_CHANNELS.filter((channelKey) => selected.has(channelKey));
       state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
-      state.step = 3;
-      return safeInteractionSend(interaction, "update", buildStep3Payload(state));
+      state.step = 2;
+      return safeInteractionSend(interaction, "update", buildStep2Payload(state));
     }
 
     if (prefix === "bswiz_public") {
       state.publicChannels = interaction.values.filter((channelKey) => state.selectedChannels.includes(channelKey));
-      state.step = 4;
-      return safeInteractionSend(interaction, "update", buildStep4Payload(state));
+      state.step = 3;
+      return safeInteractionSend(interaction, "update", buildStep3Payload(state));
     }
 
     if (prefix === "bswiz_ping") {
@@ -1939,6 +1947,33 @@ async function handleCreateWizardButton(interaction) {
       if (state.step === 3) return safeInteractionSend(interaction, "update", buildStep3Payload(state));
       if (state.step === 4) return safeInteractionSend(interaction, "update", buildStep4Payload(state));
       return safeInteractionSend(interaction, "update", buildStep5Payload(state));
+    }
+
+    if (prefix === "bswiz_step2_next") {
+      const hasRequiredChannels = WIZARD_REQUIRED_CHANNELS.every((channelKey) => state.selectedChannels.includes(channelKey));
+      if (!hasRequiredChannels) {
+        return safeInteractionSend(interaction, "reply", {
+          content: "❌ Required channels must remain selected: announcements, chat, mod-chat.",
+          ephemeral: true,
+        });
+      }
+
+      state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
+      state.step = 3;
+      return safeInteractionSend(interaction, "update", buildStep3Payload(state));
+    }
+
+    if (prefix === "bswiz_step3_next") {
+      const isSubset = state.publicChannels.every((channelKey) => state.selectedChannels.includes(channelKey));
+      if (!isSubset) {
+        return safeInteractionSend(interaction, "reply", {
+          content: "❌ Public visibility channels must be selected in Step 2.",
+          ephemeral: true,
+        });
+      }
+
+      state.step = 4;
+      return safeInteractionSend(interaction, "update", buildStep4Payload(state));
     }
 
     if (prefix === "bswiz_step4_next") {
