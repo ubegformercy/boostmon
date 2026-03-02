@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.8.6 — 2026-03-01
+- Added welcome DM when a user is granted the `PS Member • <Name>` role via `/boostserver member-add`
+- DM includes server name and owner display name guidance (no private server link exposure)
+- DM delivery fails gracefully when user DMs are disabled, with warning log only (no command crash)
+
 ## v2.8.5 — 2026-03-01
 - Updated `/boostserver create` permission overwrite matrix: PS Owner/PS Mod now receive full channel access (view/send/history/attach/embeds) across boost server channels
 - Applied channel-specific PS Member restrictions (`announcements/giveaways/events` read-only, `images` upload-enabled, `chat` text-enabled, `mod-chat` hidden)

@@ -280,6 +280,30 @@ async function repairBoostServerOverwrites(guild, server, clientUserId) {
   return { ok: true, message: "Permission overwrites reapplied." };
 }
 
+async function sendBoostMemberWelcomeDM(guild, server, targetUser) {
+  try {
+    const ownerMember = await guild.members.fetch(server.owner_id).catch(() => null);
+    const ownerDisplayName = ownerMember?.displayName || ownerMember?.user?.username || "The server owner";
+
+    const welcomeEmbed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`Welcome to ${server.display_name}`)
+      .setDescription(
+        `Welcome! ${ownerDisplayName} has added you to their Boost Server: ${server.display_name}.\n` +
+        "Head over to the server channels to get started. If you have questions, open a ticket in booster-tickets."
+      )
+      .setTimestamp(new Date())
+      .setFooter({ text: "BoostMon • Member Access Granted" });
+
+    await targetUser.send({ embeds: [welcomeEmbed] });
+  } catch (err) {
+    console.warn(
+      `[BOOSTSERVER] Welcome DM failed for user ${targetUser.id} in boost server #${server.server_index} (${server.display_name}): ${err.message}`
+    );
+  }
+}
+
 module.exports = async function handleBoostServer(interaction) {
   if (!interaction.guild) {
     await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
@@ -962,6 +986,7 @@ async function handleMember(interaction, guild, server, subcommand) {
     }
 
     await targetMember.roles.add(role, `Approved for boost server #${server.server_index}`);
+    await sendBoostMemberWelcomeDM(guild, server, targetUser);
 
     return interaction.editReply({
       content: `✅ **${targetUser.username}** has been approved and given the **${role.name}** role.\nThey can now access boost server channels and view the private server link.`,
