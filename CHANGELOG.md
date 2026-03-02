@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.5 — 2026-03-01
+- Fixed `【🚀】・booster-tickets` to be strictly read-only for human roles: PS Member, PS Mod, and PS Owner now have `ViewChannel` + `ReadMessageHistory` with explicit `SendMessages` denied
+- Added explicit `@everyone` deny for `SendMessages` (and `ViewChannel` remains denied) on the ticket panel channel
+- Restricted ticket panel bot overwrite to required capabilities (`ViewChannel`, `ReadMessageHistory`, `SendMessages`, `ManageMessages`, `EmbedLinks`) so the bot can post/pin/update the panel message
+- Existing server repair remains available via `/boostserver ticket-setup`, which reapplies the corrected panel overwrites without recreating the boost server
+
 ## v2.9.4 — 2026-03-01
 - Fixed ticket panel visibility: PS Members now have read-only access to `【🚀】・booster-tickets` (can view and read history, cannot send messages)
 - Kept Tickets category private to staff/bot with `@everyone` denied `ViewChannel`, preventing broad exposure of actual ticket channels

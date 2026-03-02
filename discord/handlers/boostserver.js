@@ -207,19 +207,36 @@ function buildTicketPanelOverwrites(guildId, botId, ownerRoleId, modRoleId, memb
   const overwrites = [
     {
       id: guildId,
-      deny: [PermissionsBitField.Flags.ViewChannel],
+      deny: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.SendMessages,
+      ],
     },
     {
       id: botId,
-      allow: fullAccessAllowFlags(),
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.ManageMessages,
+        PermissionsBitField.Flags.EmbedLinks,
+      ],
     },
     {
       id: ownerRoleId,
-      allow: fullAccessAllowFlags(),
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+      deny: [PermissionsBitField.Flags.SendMessages],
     },
     {
       id: modRoleId,
-      allow: fullAccessAllowFlags(),
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+      deny: [PermissionsBitField.Flags.SendMessages],
     },
   ];
 
