@@ -479,11 +479,16 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
         .setCustomId(`ticket_create:${serverRecord.id}`)
         .setPlaceholder("Select a category to open a ticket")
         .addOptions(
-          DEFAULT_TICKET_CATEGORIES.map((cat, i) => ({
-            label: cat,
-            value: `cat_${i}`,
-            description: `Open a ${cat} ticket`,
-          }))
+          {
+            label: "Boost Request",
+            value: "cat_0",
+            description: "Open a Boost Request ticket",
+          },
+          {
+            label: "Questions",
+            value: "cat_1",
+            description: "Open a Questions ticket",
+          }
         );
       const components = [new ActionRowBuilder().addComponents(selectMenu)];
 

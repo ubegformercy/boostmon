@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.8.2 — 2026-03-01
+- Hardened `/boostserver create` ticket panel posting: dropdown options are now explicitly fixed to exactly `Boost Request` and `Questions`
+- Maintains non-blocking 2.5s delay, read-only `【🚀】・booster-tickets`, duplicate prevention, and panel message ID persistence
+
 ## v2.8.1 — 2026-03-01
 - Updated wizard-based `/boostserver create` execution rules: creates only selected channels, keeps tickets category private, and applies public visibility via main category + selected public channels (view-only for `@everyone`)
 - Announcements header embed now always includes wizard description and owner mention
