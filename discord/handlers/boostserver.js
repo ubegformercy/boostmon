@@ -29,9 +29,13 @@ const WIZARD_REQUIRED_CHANNELS = ["announcements", "chat", "mod-chat"];
 const WIZARD_ALL_CHANNELS = ["announcements", "giveaways", "events", "images", "chat", "mod-chat"];
 const CREATE_WIZARDS_BY_KEY = new Map(); // key: guildId:userId
 const CREATE_WIZARDS_BY_TOKEN = new Map(); // key: token
+const JOIN_REQUEST_TTL_MS = 10 * 60_000;
+const JOIN_REQUESTS_BY_KEY = new Map(); // key: guildId:serverId:userId
+const JOIN_REQUESTS_BY_TOKEN = new Map(); // key: token
 
 const SUBCOMMAND_LABELS = {
   "create": "Create Boost Server",
+  "join": "Join Boost Server",
   "info": "Boost Server Info",
   "owner-set": "Set Owner",
   "owner-view": "View Owner",
@@ -304,6 +308,129 @@ async function sendBoostMemberWelcomeDM(guild, server, targetUser) {
   }
 }
 
+function joinRequestKey(guildId, serverId, userId) {
+  return `${guildId}:${serverId}:${userId}`;
+}
+
+function clearJoinRequest(state) {
+  if (!state) return;
+  if (state.timeout) clearTimeout(state.timeout);
+  JOIN_REQUESTS_BY_KEY.delete(joinRequestKey(state.guildId, state.serverId, state.requesterId));
+  JOIN_REQUESTS_BY_TOKEN.delete(state.token);
+}
+
+function getJoinRequestByToken(token) {
+  const state = JOIN_REQUESTS_BY_TOKEN.get(token);
+  if (!state) return null;
+  if (Date.now() > state.expiresAt) {
+    clearJoinRequest(state);
+    return null;
+  }
+  return state;
+}
+
+async function sendJoinDeclinedDM(targetUser, serverName, moderatorName, serverIndex) {
+  try {
+    const embed = new EmbedBuilder()
+      .setColor(0xE74C3C)
+      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+      .setTitle(`Join Request Update — ${serverName}`)
+      .setDescription(`Your request to join ${serverName} was declined by ${moderatorName}.`)
+      .setTimestamp(new Date())
+      .setFooter({ text: `Boost Server #${serverIndex}` });
+    await targetUser.send({ embeds: [embed] });
+  } catch (err) {
+    console.warn(`[BOOSTSERVER] Decline DM failed for user ${targetUser.id} in boost server #${serverIndex} (${serverName}): ${err.message}`);
+  }
+}
+
+async function handleJoin(interaction, guild, server) {
+  const requester = interaction.user;
+  const memberRoleId = server.role_member_id;
+  if (!memberRoleId) {
+    return interaction.editReply({ content: "❌ This boost server does not have a PS Member role configured." });
+  }
+
+  const requesterMember = await guild.members.fetch(requester.id).catch(() => null);
+  if (!requesterMember) {
+    return interaction.editReply({ content: "❌ Could not verify your membership in this Discord server." });
+  }
+
+  if (requesterMember.roles.cache.has(memberRoleId)) {
+    return interaction.editReply({ content: "ℹ️ You already have member access to this boost server." });
+  }
+
+  const modChatId = server.channel_mod_chat_id;
+  const modChatChannel = modChatId ? await guild.channels.fetch(modChatId).catch(() => null) : null;
+  if (!modChatChannel) {
+    return interaction.editReply({ content: "❌ This boost server does not have a valid mod-chat channel for join requests." });
+  }
+
+  const pendingKey = joinRequestKey(guild.id, server.id, requester.id);
+  const existingPending = JOIN_REQUESTS_BY_KEY.get(pendingKey);
+  if (existingPending && Date.now() <= existingPending.expiresAt) {
+    return interaction.editReply({
+      content: "⏳ You already have a pending join request for this boost server. Please wait up to 10 minutes.",
+    });
+  }
+  if (existingPending) {
+    clearJoinRequest(existingPending);
+  }
+
+  const robloxUsername = interaction.options.getString("roblox_username")?.trim() || null;
+  const requestText = interaction.options.getString("request_text")?.trim() || null;
+
+  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const requestEmbed = new EmbedBuilder()
+    .setColor(0x3498DB)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle(`Join Request — ${server.display_name}`)
+    .setDescription(
+      `**Requester:** <@${requester.id}>\n` +
+      `**Roblox Username:** ${robloxUsername || "Not provided"}\n` +
+      `**Request:** ${requestText || "No additional request text. Please include Roblox Username if needed."}`
+    )
+    .setTimestamp(new Date())
+    .setFooter({ text: `Boost Server #${server.server_index}` });
+
+  const controls = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`bsjoin_approve:${token}`)
+      .setLabel("Approve")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(`bsjoin_decline:${token}`)
+      .setLabel("Decline")
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const joinMessage = await modChatChannel.send({
+    content: `<@${requester.id}> <@&${server.role_owner_id}> <@&${server.role_mod_id}>`,
+    embeds: [requestEmbed],
+    components: [controls],
+  });
+
+  const state = {
+    token,
+    guildId: guild.id,
+    serverId: server.id,
+    requesterId: requester.id,
+    messageId: joinMessage.id,
+    channelId: modChatChannel.id,
+    expiresAt: Date.now() + JOIN_REQUEST_TTL_MS,
+    timeout: setTimeout(() => {
+      const live = JOIN_REQUESTS_BY_TOKEN.get(token);
+      if (live) clearJoinRequest(live);
+    }, JOIN_REQUEST_TTL_MS),
+  };
+  JOIN_REQUESTS_BY_KEY.set(pendingKey, state);
+  JOIN_REQUESTS_BY_TOKEN.set(token, state);
+
+  return interaction.editReply({
+    content: `✅ Your join request for **${server.display_name}** has been sent to staff.`,
+  });
+}
+
 module.exports = async function handleBoostServer(interaction) {
   if (!interaction.guild) {
     await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
@@ -339,7 +466,7 @@ module.exports = async function handleBoostServer(interaction) {
   const hasManage = isAdmin || isGuildOwner || isServerOwner;
 
   // Subcommands open to anyone (no extra permission)
-  const ANYONE_SUBS = new Set(["info", "mods-list", "owner-view"]);
+  const ANYONE_SUBS = new Set(["join", "info", "mods-list", "owner-view"]);
 
   // Subcommands requiring management permission (PS Owner / Discord Owner / Admin)
   const MANAGE_SUBS = new Set([
@@ -378,6 +505,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── LINK SET / VIEW / CLEAR ──
   if (subcommand === "link-set" || subcommand === "link-view" || subcommand === "link-clear") {
     return handleLink(interaction, guild, server, subcommand);
+  }
+
+  // ── JOIN REQUEST ──
+  if (subcommand === "join") {
+    return handleJoin(interaction, guild, server);
   }
 
   // ── ARCHIVE ──
@@ -1833,6 +1965,86 @@ async function handleCreateWizardButton(interaction) {
   }
 }
 
+async function handleJoinRequestButton(interaction) {
+  const [action, token] = interaction.customId.split(":");
+  const state = getJoinRequestByToken(token);
+  if (!state || state.guildId !== interaction.guildId) {
+    return interaction.reply({ content: "⌛ This join request is no longer pending.", ephemeral: true });
+  }
+
+  const guild = interaction.guild;
+  const server = await db.getBoostServerById(state.serverId);
+  if (!server || server.guild_id !== guild.id) {
+    clearJoinRequest(state);
+    return interaction.reply({ content: "❌ Boost server not found for this request.", ephemeral: true });
+  }
+
+  const member = interaction.member;
+  const isAdmin = member.permissions?.has(PermissionsBitField.Flags.Administrator);
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+  const isOwnerRole = member.roles?.cache?.has(server.role_owner_id);
+  const isModRole = member.roles?.cache?.has(server.role_mod_id);
+  const authorized = isAdmin || isGuildOwner || isOwnerRole || isModRole;
+
+  if (!authorized) {
+    return interaction.reply({ content: "Not authorized.", ephemeral: true });
+  }
+
+  const requesterMember = await guild.members.fetch(state.requesterId).catch(() => null);
+  const requesterUser = requesterMember?.user || await interaction.client.users.fetch(state.requesterId).catch(() => null);
+  if (!requesterUser) {
+    clearJoinRequest(state);
+    return interaction.reply({ content: "❌ Requester could not be found.", ephemeral: true });
+  }
+
+  const disabledRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`bsjoin_approve:${token}`)
+      .setLabel("Approve")
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(true),
+    new ButtonBuilder()
+      .setCustomId(`bsjoin_decline:${token}`)
+      .setLabel("Decline")
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(true)
+  );
+
+  if (action === "bsjoin_approve") {
+    const memberRoleId = server.role_member_id;
+    const role = memberRoleId ? guild.roles.cache.get(memberRoleId) || await guild.roles.fetch(memberRoleId).catch(() => null) : null;
+    if (!role || !requesterMember) {
+      clearJoinRequest(state);
+      return interaction.reply({ content: "❌ Unable to approve: member role or requester member not found.", ephemeral: true });
+    }
+
+    if (!requesterMember.roles.cache.has(role.id)) {
+      await requesterMember.roles.add(role, `Join request approved for boost server #${server.server_index}`);
+    }
+    await sendBoostMemberWelcomeDM(guild, server, requesterUser);
+
+    await interaction.update({ components: [disabledRow] }).catch(() => null);
+    await interaction.channel.send(`✅ Join request approved for <@${state.requesterId}> by <@${interaction.user.id}>.`).catch(() => null);
+
+    clearJoinRequest(state);
+    return;
+  }
+
+  if (action === "bsjoin_decline") {
+    const moderatorName = interaction.member?.displayName || interaction.user.username;
+    await sendJoinDeclinedDM(requesterUser, server.display_name, moderatorName, server.server_index);
+
+    await interaction.update({ components: [disabledRow] }).catch(() => null);
+    await interaction.channel.send(`❌ Join request declined for <@${state.requesterId}> by <@${interaction.user.id}>.`).catch(() => null);
+
+    clearJoinRequest(state);
+    return;
+  }
+
+  return interaction.reply({ content: "❌ Unknown join request action.", ephemeral: true });
+}
+
 module.exports.handleCreateWizardModal = handleCreateWizardModal;
 module.exports.handleCreateWizardSelect = handleCreateWizardSelect;
 module.exports.handleCreateWizardButton = handleCreateWizardButton;
+module.exports.handleJoinRequestButton = handleJoinRequestButton;

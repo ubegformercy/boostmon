@@ -416,6 +416,10 @@ client.on("interactionCreate", async (interaction) => {
         return boostserverHandler.handleCreateWizardButton(interaction);
       }
 
+      if (interaction.customId.startsWith("bsjoin_")) {
+        return boostserverHandler.handleJoinRequestButton(interaction);
+      }
+
       if (interaction.customId.startsWith("ticket_close:") || interaction.customId.startsWith("ticket_lock:") || interaction.customId.startsWith("ticket_delete:")) {
         return handleTicketButton(interaction);
       }

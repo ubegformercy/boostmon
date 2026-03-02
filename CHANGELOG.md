@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.9.0 — 2026-03-01
+- Added `/boostserver join` command to submit join requests for a selected boost server
+- Join requests are posted to `【🔒】・mod-chat` with requester mention, owner/mod role mentions, request summary, and Approve/Decline buttons
+- Added button authorization guard: only PS Owner, PS Mod, Admin, or Discord server owner can approve/decline (`Not authorized.` for others)
+- Approve flow grants PS Member role, sends welcome DM, and logs approver confirmation in mod-chat
+- Decline flow sends declined DM and logs decliner confirmation in mod-chat
+- Added in-memory pending request tracking with 10-minute TTL and duplicate pending request prevention per user+server
+
 ## v2.8.6 — 2026-03-01
 - Added welcome DM when a user is granted the `PS Member • <Name>` role via `/boostserver member-add`
 - DM includes server name and owner display name guidance (no private server link exposure)

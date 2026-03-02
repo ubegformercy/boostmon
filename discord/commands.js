@@ -326,6 +326,20 @@ function getCommands() {
       )
       .addSubcommand((s) =>
         s
+          .setName("join")
+          .setDescription("Request to join a boost server")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+          .addStringOption((o) =>
+            o.setName("roblox_username").setDescription("Your Roblox username (optional)").setRequired(false)
+          )
+          .addStringOption((o) =>
+            o.setName("request_text").setDescription("Optional request text for staff").setRequired(false)
+          )
+      )
+      .addSubcommand((s) =>
+        s
           .setName("delete")
           .setDescription("Permanently delete a boost server")
           .addStringOption((o) =>
