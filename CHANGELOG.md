@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.4 — 2026-03-01
+- Fixed ticket panel visibility: PS Members now have read-only access to `【🚀】・booster-tickets` (can view and read history, cannot send messages)
+- Kept Tickets category private to staff/bot with `@everyone` denied `ViewChannel`, preventing broad exposure of actual ticket channels
+- Preserved private ticket channel model (creator + PS Owner + PS Mod + admins)
+- Added overwrite repair during `/boostserver ticket-setup` so existing servers with incorrect ticket panel permissions are fixed in place
+
 ## v2.9.3 — 2026-03-01
 - Added `/boostserver leave server:<boost_server>` to let users remove themselves from a boost server by revoking only their PS Member role
 - Added leave safety checks: users with PS Owner or PS Mod role are blocked from leaving as staff and shown guidance to transfer ownership or be removed by owner/admin

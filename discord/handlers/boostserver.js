@@ -174,7 +174,7 @@ function buildMainChannelOverwrites(guildId, botId, ownerRoleId, modRoleId, memb
 }
 
 function buildTicketsCategoryOverwrites(guildId, botId, ownerRoleId, modRoleId, memberRoleId) {
-  return [
+  const overwrites = [
     {
       id: guildId,
       deny: [PermissionsBitField.Flags.ViewChannel],
@@ -191,15 +191,20 @@ function buildTicketsCategoryOverwrites(guildId, botId, ownerRoleId, modRoleId, 
       id: modRoleId,
       allow: fullAccessAllowFlags(),
     },
-    {
+  ];
+
+  if (memberRoleId) {
+    overwrites.push({
       id: memberRoleId,
       deny: [PermissionsBitField.Flags.ViewChannel],
-    },
-  ];
+    });
+  }
+
+  return overwrites;
 }
 
 function buildTicketPanelOverwrites(guildId, botId, ownerRoleId, modRoleId, memberRoleId) {
-  return [
+  const overwrites = [
     {
       id: guildId,
       deny: [PermissionsBitField.Flags.ViewChannel],
@@ -216,11 +221,20 @@ function buildTicketPanelOverwrites(guildId, botId, ownerRoleId, modRoleId, memb
       id: modRoleId,
       allow: fullAccessAllowFlags(),
     },
-    {
-      id: memberRoleId,
-      deny: [PermissionsBitField.Flags.ViewChannel],
-    },
   ];
+
+  if (memberRoleId) {
+    overwrites.push({
+      id: memberRoleId,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+      deny: [PermissionsBitField.Flags.SendMessages],
+    });
+  }
+
+  return overwrites;
 }
 
 async function repairBoostServerOverwrites(guild, server, clientUserId) {
@@ -1401,6 +1415,33 @@ async function handleTicketSetup(interaction, guild, server) {
       server = updated; // use refreshed record going forward
     }
   }
+
+  // Repair ticket overwrites for existing servers without requiring recreation.
+  // Keep tickets category private; allow PS Member read-only on booster-tickets channel.
+  if (server.tickets_category_id) {
+    const ticketsCategory = await guild.channels.fetch(server.tickets_category_id).catch(() => null);
+    if (ticketsCategory) {
+      await ticketsCategory.permissionOverwrites.set(
+        buildTicketsCategoryOverwrites(
+          guild.id,
+          interaction.client.user.id,
+          server.role_owner_id,
+          server.role_mod_id,
+          server.role_member_id
+        )
+      ).catch(() => null);
+    }
+  }
+
+  await panelChannel.permissionOverwrites.set(
+    buildTicketPanelOverwrites(
+      guild.id,
+      interaction.client.user.id,
+      server.role_owner_id,
+      server.role_mod_id,
+      server.role_member_id
+    )
+  ).catch(() => null);
 
   try {
     const existingConfig = await db.getTicketConfig(server.id);
