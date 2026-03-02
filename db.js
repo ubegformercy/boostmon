@@ -181,6 +181,19 @@ async function initDatabase() {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        username VARCHAR(255),
+        discriminator VARCHAR(50),
+        avatar VARCHAR(255),
+        guilds JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NOT NULL
+      );
+    `);
+
+    await client.query(`
       CREATE TABLE IF NOT EXISTS server_urls (
         id SERIAL PRIMARY KEY,
         guild_id VARCHAR(255) NOT NULL,
@@ -468,6 +481,8 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_guild_members_cache_guild_id ON guild_members_cache(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_guild_members_cache_user_id ON guild_members_cache(guild_id, user_id)',
       'CREATE INDEX IF NOT EXISTS idx_guild_members_cache_username ON guild_members_cache(guild_id, username)',
+      'CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)',
+      'CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)',
       'CREATE INDEX IF NOT EXISTS idx_boost_queue_guild_id ON boost_queue(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_boost_queue_user_id ON boost_queue(guild_id, user_id)',
       'CREATE INDEX IF NOT EXISTS idx_boost_queue_position ON boost_queue(guild_id, position_order)',
@@ -2010,6 +2025,64 @@ async function getAllQueueNotifyGuilds() {
   }
 }
 
+// ===== SESSION OPERATIONS =====
+
+async function createSession(data) {
+  try {
+    const result = await pool.query(
+      `INSERT INTO sessions (id, user_id, username, discriminator, avatar, guilds, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)
+       RETURNING *`,
+      [
+        data.id,
+        data.user_id,
+        data.username || null,
+        data.discriminator || null,
+        data.avatar || null,
+        JSON.stringify(data.guilds || []),
+        data.expires_at,
+      ]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("createSession error:", err);
+    return null;
+  }
+}
+
+async function getSessionById(sessionId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM sessions WHERE id = $1 AND expires_at > CURRENT_TIMESTAMP LIMIT 1",
+      [sessionId]
+    );
+    return result.rows[0] || null;
+  } catch (err) {
+    console.error("getSessionById error:", err);
+    return null;
+  }
+}
+
+async function deleteSession(sessionId) {
+  try {
+    await pool.query("DELETE FROM sessions WHERE id = $1", [sessionId]);
+    return true;
+  } catch (err) {
+    console.error("deleteSession error:", err);
+    return false;
+  }
+}
+
+async function deleteExpiredSessions() {
+  try {
+    await pool.query("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP");
+    return true;
+  } catch (err) {
+    console.error("deleteExpiredSessions error:", err);
+    return false;
+  }
+}
+
 // ===== BOOST SERVER OPERATIONS =====
 
 async function getNextServerIndex(guildId) {
@@ -2455,6 +2528,12 @@ module.exports = {
   setQueueNotifySettings,
   updateQueueNotifyLastAt,
   getAllQueueNotifyGuilds,
+
+  // Sessions
+  createSession,
+  getSessionById,
+  deleteSession,
+  deleteExpiredSessions,
   
   // Server URLs
   setServerUrl,

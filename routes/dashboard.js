@@ -6,19 +6,33 @@ const db = require('../db');
 /**
  * Middleware to verify user is authenticated
  */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   try {
-    const authCookie = req.cookies.boostmon_auth;
-    console.log(`[Auth] Checking auth cookie for ${req.path}:`, authCookie ? 'present' : 'missing');
-    if (!authCookie) {
+    const sessionId = req.signedCookies?.boostmon_session;
+
+    if (!sessionId) {
+      res.clearCookie('boostmon_auth');
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    req.user = JSON.parse(authCookie);
-    console.log(`[Auth] User authenticated: ${req.user.userId}`);
+    const session = await db.getSessionById(sessionId);
+    if (!session) {
+      res.clearCookie('boostmon_session');
+      res.clearCookie('boostmon_auth');
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    req.user = {
+      userId: session.user_id,
+      username: session.username,
+      discriminator: session.discriminator,
+      avatar: session.avatar,
+      guilds: Array.isArray(session.guilds) ? session.guilds : [],
+    };
+
     next();
   } catch (err) {
-    console.error(`[Auth] Error parsing session:`, err.message);
+    console.error(`[Auth] Error validating session:`, err.message);
     return res.status(401).json({ error: 'Invalid session' });
   }
 }

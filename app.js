@@ -47,6 +47,12 @@ console.log("DATABASE_URL present:", Boolean(process.env.DATABASE_URL));
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
+const COOKIE_SECRET = process.env.COOKIE_SECRET;
+
+if (!COOKIE_SECRET) {
+  console.error("COOKIE_SECRET is missing. Dashboard session security requires signed cookies.");
+  process.exit(1);
+}
 
 // Multi-server support
 if (GUILD_ID) {
@@ -493,7 +499,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
-app.use(cookieParser());
+app.use(cookieParser(process.env.COOKIE_SECRET));
 app.use(express.static(path.resolve(__dirname, "public")));
 app.use("/", indexRouter);
 app.use("/auth", authRouter);

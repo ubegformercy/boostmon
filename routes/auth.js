@@ -1,7 +1,9 @@
 // Authentication Routes for Dashboard
 
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
+const db = require('../db');
 
 // OAuth Configuration
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -13,6 +15,16 @@ const REDIRECT_URI = process.env.NODE_ENV === 'production'
 const DISCORD_AUTH_URL = 'https://discord.com/api/oauth2/authorize';
 const DISCORD_TOKEN_URL = 'https://discord.com/api/oauth2/token';
 const DISCORD_API_URL = 'https://discord.com/api/v10';
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const COOKIE_SECRET = process.env.COOKIE_SECRET;
+
+if (!COOKIE_SECRET) {
+  throw new Error('COOKIE_SECRET is required for signed dashboard sessions');
+}
+
+function getSessionCookieId(req) {
+  return req.signedCookies?.boostmon_session || null;
+}
 
 /**
  * GET /auth/login
@@ -86,24 +98,32 @@ router.get('/callback', async (req, res) => {
     // Filter to only guilds where user is admin or bot is present
     const adminGuilds = guilds.filter(g => (g.permissions & 0x8) === 0x8); // ADMINISTRATOR
 
-    // Store auth data in session/cookie
-    const sessionData = {
-      userId: user.id,
+    const sessionId = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+
+    const createdSession = await db.createSession({
+      id: sessionId,
+      user_id: user.id,
       username: user.username,
       discriminator: user.discriminator,
       avatar: user.avatar,
-      accessToken,
       guilds: adminGuilds,
-      timestamp: Date.now(),
-    };
+      expires_at: expiresAt,
+    });
 
-    // Set secure session cookie
-    res.cookie('boostmon_auth', JSON.stringify(sessionData), {
+    if (!createdSession) {
+      throw new Error('Failed to create login session');
+    }
+
+    // Set secure server-side session cookie
+    res.cookie('boostmon_session', sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      signed: true,
+      maxAge: SESSION_TTL_MS,
     });
+    res.clearCookie('boostmon_auth');
 
     // Redirect to dashboard with selected guild
     if (adminGuilds.length === 1) {
@@ -124,6 +144,12 @@ router.get('/callback', async (req, res) => {
  * Clear session and redirect to login
  */
 router.get('/logout', (req, res) => {
+  const sessionId = getSessionCookieId(req);
+  if (sessionId) {
+    db.deleteSession(sessionId).catch(() => null);
+  }
+
+  res.clearCookie('boostmon_session');
   res.clearCookie('boostmon_auth');
   res.redirect('/login.html');
 });
@@ -132,20 +158,27 @@ router.get('/logout', (req, res) => {
  * GET /auth/user
  * Returns current user info (protected endpoint)
  */
-router.get('/user', (req, res) => {
+router.get('/user', async (req, res) => {
   try {
-    const authCookie = req.cookies.boostmon_auth;
-    if (!authCookie) {
+    const sessionId = getSessionCookieId(req);
+    if (!sessionId) {
+      res.clearCookie('boostmon_auth');
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const sessionData = JSON.parse(authCookie);
+    const session = await db.getSessionById(sessionId);
+    if (!session) {
+      res.clearCookie('boostmon_session');
+      res.clearCookie('boostmon_auth');
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
     res.json({
-      userId: sessionData.userId,
-      username: sessionData.username,
-      discriminator: sessionData.discriminator,
-      avatar: sessionData.avatar,
-      guilds: sessionData.guilds,
+      userId: session.user_id,
+      username: session.username,
+      discriminator: session.discriminator,
+      avatar: session.avatar,
+      guilds: Array.isArray(session.guilds) ? session.guilds : [],
     });
   } catch (err) {
     console.error('Auth user error:', err);
@@ -156,14 +189,28 @@ router.get('/user', (req, res) => {
 /**
  * Middleware to check if user is authenticated
  */
-router.isAuthenticated = (req, res, next) => {
-  const authCookie = req.cookies.boostmon_auth;
-  if (!authCookie) {
+router.isAuthenticated = async (req, res, next) => {
+  const sessionId = getSessionCookieId(req);
+  if (!sessionId) {
+    res.clearCookie('boostmon_auth');
     return res.status(401).json({ error: 'Not authenticated' });
   }
-  
+
   try {
-    req.user = JSON.parse(authCookie);
+    const session = await db.getSessionById(sessionId);
+    if (!session) {
+      res.clearCookie('boostmon_session');
+      res.clearCookie('boostmon_auth');
+      return res.status(401).json({ error: 'Invalid session' });
+    }
+
+    req.user = {
+      userId: session.user_id,
+      username: session.username,
+      discriminator: session.discriminator,
+      avatar: session.avatar,
+      guilds: Array.isArray(session.guilds) ? session.guilds : [],
+    };
     next();
   } catch (err) {
     res.status(401).json({ error: 'Invalid session' });

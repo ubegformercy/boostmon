@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.9.6 — 2026-03-02
+- Critical security fix: replaced client-trusted `boostmon_auth` JSON cookie authentication with server-side PostgreSQL-backed sessions
+- Added `sessions` table and session lifecycle helpers (create, validate, delete, expiry cleanup path)
+- OAuth login now creates a cryptographically random session ID and sets signed `boostmon_session` cookie (`httpOnly`, `sameSite=strict`, `secure` in production, 7-day max age)
+- Dashboard and auth middleware now validate session IDs against the database on every request; no user or guild authorization data is trusted from client cookie payloads
+- Legacy `boostmon_auth` cookie usage removed and actively cleared to force migration/re-login
+- Enforced required `COOKIE_SECRET` for signed cookie parsing
+
 ## v2.9.5 — 2026-03-01
 - Fixed `【🚀】・booster-tickets` to be strictly read-only for human roles: PS Member, PS Mod, and PS Owner now have `ViewChannel` + `ReadMessageHistory` with explicit `SendMessages` denied
 - Added explicit `@everyone` deny for `SendMessages` (and `ViewChannel` remains denied) on the ticket panel channel
