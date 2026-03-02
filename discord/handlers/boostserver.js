@@ -158,7 +158,9 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
   const selectedChannels = wizardConfig?.selectedChannels?.length
     ? wizardConfig.selectedChannels
     : [...WIZARD_ALL_CHANNELS];
-  const publicChannelSet = new Set(wizardConfig?.publicChannels || []);
+  const publicChannelSet = new Set(
+    (wizardConfig?.publicChannels || []).filter((channelKey) => selectedChannels.includes(channelKey))
+  );
   const wizardPingMode = wizardConfig?.ticketPingMode || "off";
   const sendLogsToModChat = Boolean(wizardConfig?.sendLogsToModChat);
   const ownerId = interaction.user.id;

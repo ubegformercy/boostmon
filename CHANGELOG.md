@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.8.4 — 2026-03-01
+- Audited boost server creation permission model: no Administrator required, no elevated `ManageRoles`/`ManageChannels` overwrites, tickets category remains private, and `@everyone` never gets `SendMessages` through public visibility
+- Hardened public visibility handling to only honor `publicChannels` that are also in the selected channel set (prevents accidental public category mode from invalid payload values)
+
 ## v2.8.3 — 2026-03-01
 - Hardened boost server setup wizard lifecycle: explicit 5-minute expiry handling, robust cleanup, and safe interaction handling when Discord interactions expire
 - Added Resume/Cancel flow when an active wizard already exists for the same user+guild
