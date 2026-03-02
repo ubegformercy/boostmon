@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.8.1 — 2026-03-01
+- Updated wizard-based `/boostserver create` execution rules: creates only selected channels, keeps tickets category private, and applies public visibility via main category + selected public channels (view-only for `@everyone`)
+- Announcements header embed now always includes wizard description and owner mention
+- Persisted ticket setup metadata from creation: ticket ping mode plus explicit `logs_to_mod_chat` flag
+- Added DB migration support for `boost_server_ticket_config.logs_to_mod_chat`
+
 ## v2.8.0 — 2026-03-01
 - `/boostserver create` now starts a 5-step interactive setup wizard instead of creating channels immediately
 - Added modal + select-menu + button flow (with 5-minute expiry and one active wizard per user per guild)

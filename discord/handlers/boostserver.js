@@ -191,6 +191,8 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
   const created = { channels: [], roles: [], categories: [] };
 
   try {
+    const hasPublicChannels = publicChannelSet.size > 0;
+
     // 1. Create category: #{index} — {Name}
     const category = await guild.channels.create({
       name: `#${serverIndex} — ${name}`,
@@ -198,7 +200,8 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       permissionOverwrites: [
         {
           id: guild.id,
-          deny: [PermissionsBitField.Flags.ViewChannel],
+          allow: hasPublicChannels ? [PermissionsBitField.Flags.ViewChannel] : [],
+          deny: hasPublicChannels ? [PermissionsBitField.Flags.SendMessages] : [PermissionsBitField.Flags.ViewChannel],
         },
         {
           id: interaction.client.user.id,
@@ -526,6 +529,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
         ping_mode: wizardPingMode || existingConfig?.ping_mode || "off",
         notifications_channel_id: sendLogsToModChat ? modChatChannel?.id || null : existingConfig?.notifications_channel_id || null,
         panel_message_id: panelMessage?.id || null,
+        logs_to_mod_chat: sendLogsToModChat,
       });
     } catch (err) {
       console.error(
@@ -1029,6 +1033,7 @@ async function handleTicketSetup(interaction, guild, server) {
       ping_mode: pingMode,
       notifications_channel_id: notificationsChannel?.id || null,
       panel_message_id: existingConfig?.panel_message_id || null,
+      logs_to_mod_chat: existingConfig?.logs_to_mod_chat ?? null,
     });
 
     if (!config) {
@@ -1116,6 +1121,7 @@ async function handleTicketSetup(interaction, guild, server) {
       ping_mode: pingMode,
       notifications_channel_id: notificationsChannel?.id || null,
       panel_message_id: panelMessage?.id || null,
+      logs_to_mod_chat: config?.logs_to_mod_chat ?? null,
     });
 
     // 5. Confirm

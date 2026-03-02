@@ -419,7 +419,8 @@ async function initDatabase() {
         categories TEXT[],
         ping_mode VARCHAR(10) DEFAULT 'off' CHECK (ping_mode IN ('off', 'mod', 'owner', 'both')),
         notifications_channel_id VARCHAR(255),
-        panel_message_id VARCHAR(255)
+        panel_message_id VARCHAR(255),
+        logs_to_mod_chat BOOLEAN DEFAULT FALSE
       );
     `);
 
@@ -427,6 +428,12 @@ async function initDatabase() {
       await client.query(`ALTER TABLE boost_server_ticket_config ADD COLUMN IF NOT EXISTS panel_message_id VARCHAR(255)`);
     } catch (err) {
       console.warn("Migration: panel_message_id:", err.message);
+    }
+
+    try {
+      await client.query(`ALTER TABLE boost_server_ticket_config ADD COLUMN IF NOT EXISTS logs_to_mod_chat BOOLEAN DEFAULT FALSE`);
+    } catch (err) {
+      console.warn("Migration: logs_to_mod_chat:", err.message);
     }
 
     // Tickets table
@@ -2187,15 +2194,16 @@ async function getTicketConfig(boostServerId) {
 async function upsertTicketConfig(boostServerId, data) {
   try {
     const result = await pool.query(
-      `INSERT INTO boost_server_ticket_config (boost_server_id, title, description, categories, ping_mode, notifications_channel_id, panel_message_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO boost_server_ticket_config (boost_server_id, title, description, categories, ping_mode, notifications_channel_id, panel_message_id, logs_to_mod_chat)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (boost_server_id) DO UPDATE SET
          title = EXCLUDED.title,
          description = EXCLUDED.description,
          categories = EXCLUDED.categories,
          ping_mode = EXCLUDED.ping_mode,
          notifications_channel_id = EXCLUDED.notifications_channel_id,
-         panel_message_id = COALESCE(EXCLUDED.panel_message_id, boost_server_ticket_config.panel_message_id)
+         panel_message_id = COALESCE(EXCLUDED.panel_message_id, boost_server_ticket_config.panel_message_id),
+         logs_to_mod_chat = COALESCE(EXCLUDED.logs_to_mod_chat, boost_server_ticket_config.logs_to_mod_chat)
        RETURNING *`,
       [
         boostServerId,
@@ -2205,6 +2213,7 @@ async function upsertTicketConfig(boostServerId, data) {
         data.ping_mode || 'off',
         data.notifications_channel_id || null,
         data.panel_message_id || null,
+        typeof data.logs_to_mod_chat === "boolean" ? data.logs_to_mod_chat : null,
       ]
     );
     return result.rows[0] || null;
