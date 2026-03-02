@@ -49,6 +49,237 @@ const SUBCOMMAND_LABELS = {
   "delete": "Delete Server",
 };
 
+function fullAccessAllowFlags() {
+  return [
+    PermissionsBitField.Flags.ViewChannel,
+    PermissionsBitField.Flags.ReadMessageHistory,
+    PermissionsBitField.Flags.SendMessages,
+    PermissionsBitField.Flags.AttachFiles,
+    PermissionsBitField.Flags.EmbedLinks,
+  ];
+}
+
+function buildMainCategoryOverwrites(guildId, botId, ownerRoleId, modRoleId, memberRoleId) {
+  const overwrites = [
+    {
+      id: guildId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+    {
+      id: botId,
+      allow: fullAccessAllowFlags(),
+    },
+  ];
+
+  if (ownerRoleId) {
+    overwrites.push({ id: ownerRoleId, allow: fullAccessAllowFlags() });
+  }
+  if (modRoleId) {
+    overwrites.push({ id: modRoleId, allow: fullAccessAllowFlags() });
+  }
+  if (memberRoleId) {
+    overwrites.push({
+      id: memberRoleId,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+      ],
+    });
+  }
+
+  return overwrites;
+}
+
+function buildMainChannelOverwrites(guildId, botId, ownerRoleId, modRoleId, memberRoleId, channelKey, isPublic) {
+  const everyoneOverwrite = (channelKey === "mod-chat")
+    ? {
+      id: guildId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    }
+    : isPublic
+    ? {
+      id: guildId,
+      allow: [PermissionsBitField.Flags.ViewChannel],
+      deny: [PermissionsBitField.Flags.SendMessages],
+    }
+    : {
+      id: guildId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    };
+
+  const overwrites = [
+    everyoneOverwrite,
+    {
+      id: botId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: ownerRoleId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: modRoleId,
+      allow: fullAccessAllowFlags(),
+    },
+  ];
+
+  if (channelKey === "mod-chat") {
+    overwrites.push({
+      id: memberRoleId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    });
+    return overwrites;
+  }
+
+  if (channelKey === "images") {
+    overwrites.push({
+      id: memberRoleId,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.SendMessages,
+        PermissionsBitField.Flags.AttachFiles,
+      ],
+    });
+    return overwrites;
+  }
+
+  if (channelKey === "chat") {
+    overwrites.push({
+      id: memberRoleId,
+      allow: [
+        PermissionsBitField.Flags.ViewChannel,
+        PermissionsBitField.Flags.ReadMessageHistory,
+        PermissionsBitField.Flags.SendMessages,
+      ],
+    });
+    return overwrites;
+  }
+
+  // announcements / giveaways / events default member read-only
+  overwrites.push({
+    id: memberRoleId,
+    allow: [
+      PermissionsBitField.Flags.ViewChannel,
+      PermissionsBitField.Flags.ReadMessageHistory,
+    ],
+    deny: [PermissionsBitField.Flags.SendMessages],
+  });
+  return overwrites;
+}
+
+function buildTicketsCategoryOverwrites(guildId, botId, ownerRoleId, modRoleId, memberRoleId) {
+  return [
+    {
+      id: guildId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+    {
+      id: botId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: ownerRoleId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: modRoleId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: memberRoleId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+  ];
+}
+
+function buildTicketPanelOverwrites(guildId, botId, ownerRoleId, modRoleId, memberRoleId) {
+  return [
+    {
+      id: guildId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+    {
+      id: botId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: ownerRoleId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: modRoleId,
+      allow: fullAccessAllowFlags(),
+    },
+    {
+      id: memberRoleId,
+      deny: [PermissionsBitField.Flags.ViewChannel],
+    },
+  ];
+}
+
+async function repairBoostServerOverwrites(guild, server, clientUserId) {
+  const roleIdsPresent = [server.role_owner_id, server.role_mod_id, server.role_member_id].every(Boolean);
+  if (!roleIdsPresent) {
+    return { ok: false, message: "Missing boost server role IDs; cannot reapply overwrites." };
+  }
+
+  const mainCategory = server.category_id
+    ? await guild.channels.fetch(server.category_id).catch(() => null)
+    : null;
+  if (mainCategory) {
+    await mainCategory.permissionOverwrites.set(
+      buildMainCategoryOverwrites(guild.id, clientUserId, server.role_owner_id, server.role_mod_id, server.role_member_id)
+    ).catch(() => null);
+  }
+
+  const mainChannelMap = {
+    announcements: server.channel_announcements_id,
+    giveaways: server.channel_giveaways_id,
+    events: server.channel_events_id,
+    images: server.channel_images_id,
+    chat: server.channel_chat_id,
+    "mod-chat": server.channel_mod_chat_id,
+  };
+
+  for (const [channelKey, channelId] of Object.entries(mainChannelMap)) {
+    if (!channelId) continue;
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (!channel) continue;
+    await channel.permissionOverwrites.set(
+      buildMainChannelOverwrites(
+        guild.id,
+        clientUserId,
+        server.role_owner_id,
+        server.role_mod_id,
+        server.role_member_id,
+        channelKey,
+        false
+      )
+    ).catch(() => null);
+  }
+
+  const ticketsCategory = server.tickets_category_id
+    ? await guild.channels.fetch(server.tickets_category_id).catch(() => null)
+    : null;
+  if (ticketsCategory) {
+    await ticketsCategory.permissionOverwrites.set(
+      buildTicketsCategoryOverwrites(guild.id, clientUserId, server.role_owner_id, server.role_mod_id, server.role_member_id)
+    ).catch(() => null);
+  }
+
+  const ticketPanel = server.channel_ticket_panel_id
+    ? await guild.channels.fetch(server.channel_ticket_panel_id).catch(() => null)
+    : null;
+  if (ticketPanel) {
+    await ticketPanel.permissionOverwrites.set(
+      buildTicketPanelOverwrites(guild.id, clientUserId, server.role_owner_id, server.role_mod_id, server.role_member_id)
+    ).catch(() => null);
+  }
+
+  return { ok: true, message: "Permission overwrites reapplied." };
+}
+
 module.exports = async function handleBoostServer(interaction) {
   if (!interaction.guild) {
     await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
@@ -140,6 +371,11 @@ module.exports = async function handleBoostServer(interaction) {
     return handleMember(interaction, guild, server, subcommand);
   }
 
+  // ── CONFIG SET (currently used as repair trigger) ──
+  if (subcommand === "config-set") {
+    return handleConfigSet(interaction, guild, server);
+  }
+
   // ── TICKET SETUP ──
   if (subcommand === "ticket-setup") {
     return handleTicketSetup(interaction, guild, server);
@@ -193,26 +429,17 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
   const created = { channels: [], roles: [], categories: [] };
 
   try {
-    const hasPublicChannels = publicChannelSet.size > 0;
-
     // 1. Create category: #{index} — {Name}
     const category = await guild.channels.create({
       name: `#${serverIndex} — ${name}`,
       type: ChannelType.GuildCategory,
-      permissionOverwrites: [
-        {
-          id: guild.id,
-          allow: hasPublicChannels ? [PermissionsBitField.Flags.ViewChannel] : [],
-          deny: hasPublicChannels ? [PermissionsBitField.Flags.SendMessages] : [PermissionsBitField.Flags.ViewChannel],
-        },
-        {
-          id: interaction.client.user.id,
-          allow: [
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.SendMessages,
-          ],
-        },
-      ],
+      permissionOverwrites: buildMainCategoryOverwrites(
+        guild.id,
+        interaction.client.user.id,
+        null,
+        null,
+        null
+      ),
     });
     created.categories.push(category);
 
@@ -258,74 +485,16 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
     });
     created.roles.push(memberRole);
 
-    // Common channel permission overwrites (visible to owner, mod, member + bot)
-    const channelOverwrites = [
-      {
-        id: guild.id,
-        deny: [PermissionsBitField.Flags.ViewChannel],
-      },
-      {
-        id: interaction.client.user.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      },
-      {
-        id: ownerRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      },
-      {
-        id: modRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-        ],
-      },
-      {
-        id: memberRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-        ],
-      },
-    ];
-
-    // Mod-chat: private to owner + mods + bot only
-    const modChatOverwrites = [
-      {
-        id: guild.id,
-        deny: [PermissionsBitField.Flags.ViewChannel],
-      },
-      {
-        id: interaction.client.user.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      },
-      {
-        id: ownerRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      },
-      {
-        id: modRole.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-        ],
-      },
-    ];
+    // Apply final main category role overwrites now that roles exist
+    await category.permissionOverwrites.set(
+      buildMainCategoryOverwrites(
+        guild.id,
+        interaction.client.user.id,
+        ownerRole.id,
+        modRole.id,
+        memberRole.id
+      )
+    );
 
     // 3. Create selected channels under category
     const channelSpecs = {
@@ -343,20 +512,15 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       if (!spec) continue;
 
       const isPublic = publicChannelSet.has(key);
-      const everyoneOverwrite = isPublic
-        ? {
-          id: guild.id,
-          allow: [PermissionsBitField.Flags.ViewChannel],
-          deny: [PermissionsBitField.Flags.SendMessages],
-        }
-        : {
-          id: guild.id,
-          deny: [PermissionsBitField.Flags.ViewChannel],
-        };
-
-      const permissionOverwrites = spec.modOnly
-        ? [everyoneOverwrite, ...modChatOverwrites.slice(1)]
-        : [everyoneOverwrite, ...channelOverwrites.slice(1)];
+      const permissionOverwrites = buildMainChannelOverwrites(
+        guild.id,
+        interaction.client.user.id,
+        ownerRole.id,
+        modRole.id,
+        memberRole.id,
+        key,
+        isPublic
+      );
 
       const createdChannel = await guild.channels.create({
         name: spec.name,
@@ -381,35 +545,23 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
     }
 
     // 3b. Create booster-tickets panel channel (read-only for users, bot sends)
-    const ticketPanelOverwrites = [
-      {
-        id: guild.id,
-        deny: [PermissionsBitField.Flags.ViewChannel],
-      },
-      {
-        id: interaction.client.user.id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      },
-      {
-        id: ownerRole.id,
-        allow: [PermissionsBitField.Flags.ViewChannel],
-        deny: [PermissionsBitField.Flags.SendMessages],
-      },
-      {
-        id: modRole.id,
-        allow: [PermissionsBitField.Flags.ViewChannel],
-        deny: [PermissionsBitField.Flags.SendMessages],
-      },
-      {
-        id: memberRole.id,
-        allow: [PermissionsBitField.Flags.ViewChannel],
-        deny: [PermissionsBitField.Flags.SendMessages],
-      },
-    ];
+    await ticketsCategory.permissionOverwrites.set(
+      buildTicketsCategoryOverwrites(
+        guild.id,
+        interaction.client.user.id,
+        ownerRole.id,
+        modRole.id,
+        memberRole.id
+      )
+    );
+
+    const ticketPanelOverwrites = buildTicketPanelOverwrites(
+      guild.id,
+      interaction.client.user.id,
+      ownerRole.id,
+      modRole.id,
+      memberRole.id
+    );
 
     const ticketPanelChannel = await guild.channels.create({
       name: "【🚀】・booster-tickets",
@@ -943,6 +1095,18 @@ async function handleDelete(interaction, guild, server) {
     console.error("[BOOSTSERVER] Delete error:", err);
     return interaction.editReply({ content: `❌ Failed to delete boost server: ${err.message}` });
   }
+}
+
+async function handleConfigSet(interaction, guild, server) {
+  const repairResult = await repairBoostServerOverwrites(guild, server, interaction.client.user.id);
+
+  if (!repairResult.ok) {
+    return interaction.editReply({ content: `❌ ${repairResult.message}` });
+  }
+
+  return interaction.editReply({
+    content: `✅ ${repairResult.message} for **${server.display_name}** (#${server.server_index}).`,
+  });
 }
 
 // ── TICKET SETUP ──

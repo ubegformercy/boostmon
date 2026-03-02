@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.8.5 — 2026-03-01
+- Updated `/boostserver create` permission overwrite matrix: PS Owner/PS Mod now receive full channel access (view/send/history/attach/embeds) across boost server channels
+- Applied channel-specific PS Member restrictions (`announcements/giveaways/events` read-only, `images` upload-enabled, `chat` text-enabled, `mod-chat` hidden)
+- Enforced private tickets scope: tickets category always private, PS Member hidden by default, and `@everyone` never receives `SendMessages`
+- Added overwrite repair routine for existing servers and wired it to `/boostserver config-set` as an admin-triggered reapply path
+- Hardened `mod-chat` to remain private even if selected in public visibility options
+
 ## v2.8.4 — 2026-03-01
 - Audited boost server creation permission model: no Administrator required, no elevated `ManageRoles`/`ManageChannels` overwrites, tickets category remains private, and `@everyone` never gets `SendMessages` through public visibility
 - Hardened public visibility handling to only honor `publicChannels` that are also in the selected channel set (prevents accidental public category mode from invalid payload values)
