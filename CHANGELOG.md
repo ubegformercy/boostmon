@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.9 — 2026-03-02
+- Fixed `/boostserver create` DB conflict for admins/owners by removing the unique `(guild_id, owner_id)` index on `boost_servers`
+- Added startup migration to drop legacy unique owner index and recreate `idx_boost_servers_guild_owner` as a non-unique lookup index
+- Resolves `duplicate key value violates unique constraint "idx_boost_servers_guild_owner"` during server creation
+
 ## v2.9.8 — 2026-03-02
 - Updated `/boostserver create` ownership limit: Discord Server Owners and Administrators can now create multiple boost servers
 - Kept one-server ownership limit for regular members

@@ -466,6 +466,14 @@ async function initDatabase() {
       );
     `);
 
+    // Migration: allow multiple boost servers per owner in the same guild.
+    // Previous versions created a UNIQUE index on (guild_id, owner_id), which blocks this.
+    try {
+      await client.query(`DROP INDEX IF EXISTS idx_boost_servers_guild_owner`);
+    } catch (err) {
+      console.warn("Migration: drop idx_boost_servers_guild_owner:", err.message);
+    }
+
     console.log("✓ Database schema initialized");
 
     // Create performance indexes for scale
@@ -494,7 +502,7 @@ async function initDatabase() {
       'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild ON boost_servers(guild_id)',
       'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild_index ON boost_servers(guild_id, server_index)',
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_boost_servers_guild_slug ON boost_servers(guild_id, slug) WHERE slug IS NOT NULL',
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_boost_servers_guild_owner ON boost_servers(guild_id, owner_id)',
+      'CREATE INDEX IF NOT EXISTS idx_boost_servers_guild_owner ON boost_servers(guild_id, owner_id)',
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_boost_servers_guild_display_name ON boost_servers(guild_id, LOWER(display_name))',
       'CREATE INDEX IF NOT EXISTS idx_boost_server_tickets_server ON boost_server_tickets(boost_server_id)',
       'CREATE INDEX IF NOT EXISTS idx_boost_server_tickets_channel ON boost_server_tickets(channel_id)',
