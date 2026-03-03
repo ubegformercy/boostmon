@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.11 — 2026-03-02
+- Increased `/boostserver create` wizard server description limit from 500 to 1000 characters
+- Updated both Step 1 modal and Resume modal input max length to keep behavior consistent
+- Updated validation message and backend length check to match the new 1000-character limit
+
 ## v2.9.10 — 2026-03-02
 - Added race-safe ownership enforcement for non-admin `/boostserver create` using PostgreSQL transaction + advisory lock (`guild_id` + `owner_id`)
 - `createBoostServer` now performs atomic owner check and insert for regular members to prevent duplicate ownership under concurrent requests

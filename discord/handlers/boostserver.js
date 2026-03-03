@@ -25,6 +25,7 @@ const DEFAULT_TICKET_PANEL_DESCRIPTION =
 const DEFAULT_TICKET_CATEGORIES = ["Boost Request", "Questions"];
 
 const CREATE_WIZARD_TTL_MS = 5 * 60_000;
+const WIZARD_DESCRIPTION_MAX_LENGTH = 1000;
 const WIZARD_REQUIRED_CHANNELS = ["announcements", "chat", "mod-chat"];
 const WIZARD_ALL_CHANNELS = ["announcements", "giveaways", "events", "images", "chat", "mod-chat"];
 const WIZARD_PUBLIC_ELIGIBLE_CHANNELS = WIZARD_ALL_CHANNELS.filter((channelKey) => channelKey !== "mod-chat");
@@ -1937,7 +1938,7 @@ async function handleCreateWizardStart(interaction, guild) {
           .setCustomId("bswiz_description")
           .setLabel("Server Description")
           .setStyle(TextInputStyle.Paragraph)
-          .setMaxLength(500)
+            .setMaxLength(WIZARD_DESCRIPTION_MAX_LENGTH)
           .setRequired(false)
       )
     );
@@ -1965,8 +1966,8 @@ async function handleCreateWizardModal(interaction) {
     if (name.length > 25) {
       return safeInteractionSend(interaction, "reply", { content: "❌ Server name must be 25 characters or less.", ephemeral: true });
     }
-    if (description.length > 500) {
-      return safeInteractionSend(interaction, "reply", { content: "❌ Description must be 500 characters or less.", ephemeral: true });
+    if (description.length > WIZARD_DESCRIPTION_MAX_LENGTH) {
+      return safeInteractionSend(interaction, "reply", { content: `❌ Description must be ${WIZARD_DESCRIPTION_MAX_LENGTH} characters or less.`, ephemeral: true });
     }
 
     const existingName = await db.getBoostServerByName(interaction.guildId, name);
@@ -2080,7 +2081,7 @@ async function handleCreateWizardButton(interaction) {
                 .setCustomId("bswiz_description")
                 .setLabel("Server Description")
                 .setStyle(TextInputStyle.Paragraph)
-                .setMaxLength(500)
+                .setMaxLength(WIZARD_DESCRIPTION_MAX_LENGTH)
                 .setRequired(false)
                 .setValue(state.description || "")
             )
