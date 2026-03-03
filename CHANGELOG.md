@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.23 — 2026-03-02
+- Added lightweight integrity guard after `/boostserver owner-set` completes
+- Guard now verifies PS Owner role holder count and, if multiple users are detected, removes owner role from extras
+- Added warning logging for integrity cleanups and mod-chat warning message when extra owner holders are removed
+
 ## v2.9.22 — 2026-03-02
 - Enhanced `/boostserver owner-set server:<boost_server> new_owner:<user>` with safe ownership transfer flow and 5-minute confirmation token
 - Added validation for `new_owner` (must be non-bot guild member) and self-transfer guard (`You are already the owner.`)

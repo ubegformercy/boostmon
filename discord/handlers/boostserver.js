@@ -903,6 +903,27 @@ async function handleOwnerTransferButton(interaction) {
     });
   }
 
+  await guild.members.fetch().catch(() => null);
+  const ownerHoldersAfterTransfer = [...ownerRole.members.values()]
+    .filter((member) => member.roles.cache.has(ownerRole.id));
+
+  if (ownerHoldersAfterTransfer.length > 1) {
+    const extraHolders = ownerHoldersAfterTransfer.filter((member) => member.id !== newOwnerMember.id);
+    for (const extra of extraHolders) {
+      await extra.roles.remove(ownerRole, `Owner integrity guard for boost server #${server.server_index}`).catch(() => null);
+    }
+
+    const warningText = `⚠️ Owner integrity guard removed extra PS Owner holders for **${server.display_name}**: ${extraHolders.map((member) => `<@${member.id}>`).join(", ")}.`;
+    console.warn(`[BOOSTSERVER] owner-set integrity guard triggered for server #${server.server_index} (${server.display_name}). Removed extras: ${extraHolders.map((member) => member.id).join(", ")}.`);
+
+    if (server.channel_mod_chat_id) {
+      const modChat = await guild.channels.fetch(server.channel_mod_chat_id).catch(() => null);
+      if (modChat && typeof modChat.send === "function") {
+        await modChat.send(warningText).catch(() => null);
+      }
+    }
+  }
+
   if (server.channel_mod_chat_id) {
     const modChat = await guild.channels.fetch(server.channel_mod_chat_id).catch(() => null);
     if (modChat && typeof modChat.send === "function") {
