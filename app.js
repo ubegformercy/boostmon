@@ -438,6 +438,10 @@ client.on("interactionCreate", async (interaction) => {
         return boostserverHandler.handleLeadersRefreshButton(interaction);
       }
 
+      if (interaction.customId.startsWith("bsowner_")) {
+        return boostserverHandler.handleOwnerTransferButton(interaction);
+      }
+
       if (interaction.customId.startsWith("ticket_close:") || interaction.customId.startsWith("ticket_lock:") || interaction.customId.startsWith("ticket_delete:")) {
         return handleTicketButton(interaction);
       }

@@ -34,6 +34,8 @@ const CREATE_WIZARDS_BY_KEY = new Map(); // key: guildId:userId
 const CREATE_WIZARDS_BY_TOKEN = new Map(); // key: token
 const DESCRIPTION_EDIT_TTL_MS = 5 * 60_000;
 const DESCRIPTION_EDITS_BY_TOKEN = new Map(); // key: token
+const OWNER_TRANSFER_TTL_MS = 5 * 60_000;
+const OWNER_TRANSFERS_BY_TOKEN = new Map(); // key: token
 const JOIN_REQUEST_TTL_MS = 10 * 60_000;
 const JOIN_REQUESTS_BY_KEY = new Map(); // key: guildId:serverId:userId
 const JOIN_REQUESTS_BY_TOKEN = new Map(); // key: token
@@ -85,6 +87,68 @@ function isBoostServerMember(interaction, server) {
   const hasModRole = server.role_mod_id ? member?.roles?.cache?.has(server.role_mod_id) : false;
   const hasMemberRole = server.role_member_id ? member?.roles?.cache?.has(server.role_member_id) : false;
   return Boolean(hasOwnerRole || hasModRole || hasMemberRole);
+}
+
+function canManageOwnerTransfer(interaction, guild, server) {
+  const member = interaction.member;
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+  const hasManageGuild = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+    || member?.permissions?.has(PermissionFlagsBits.ManageGuild)
+    || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    || member?.permissions?.has(PermissionFlagsBits.Administrator);
+  const isCurrentOwnerByDb = server.owner_id === interaction.user.id;
+  const hasOwnerRole = server.role_owner_id ? member?.roles?.cache?.has(server.role_owner_id) : false;
+  return Boolean(isGuildOwner || hasManageGuild || isCurrentOwnerByDb || hasOwnerRole);
+}
+
+function canOwnerTransferOverride(interaction, guild) {
+  const member = interaction.member;
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+  const hasManageGuild = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+    || member?.permissions?.has(PermissionFlagsBits.ManageGuild)
+    || interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    || member?.permissions?.has(PermissionFlagsBits.Administrator);
+  return Boolean(isGuildOwner || hasManageGuild);
+}
+
+async function resolveBoostServerOwner(guild, server, options = {}) {
+  const { logWarning = false } = options;
+  let resolvedOwnerId = server.owner_id || null;
+  let warningText = null;
+
+  if (!server.role_owner_id) {
+    return { ownerId: resolvedOwnerId, warningText };
+  }
+
+  const ownerRole = guild.roles.cache.get(server.role_owner_id)
+    || await guild.roles.fetch(server.role_owner_id).catch(() => null);
+
+  if (!ownerRole) {
+    return { ownerId: resolvedOwnerId, warningText };
+  }
+
+  const ownerHolders = [...ownerRole.members.values()];
+  if (ownerHolders.length > 1) {
+    ownerHolders.sort((a, b) => {
+      const positionDiff = (b.roles?.highest?.position || 0) - (a.roles?.highest?.position || 0);
+      if (positionDiff !== 0) return positionDiff;
+      const joinedA = Number(a.joinedTimestamp || 0);
+      const joinedB = Number(b.joinedTimestamp || 0);
+      if (joinedA !== joinedB) return joinedA - joinedB;
+      return String(a.id).localeCompare(String(b.id));
+    });
+
+    resolvedOwnerId = ownerHolders[0].id;
+    warningText = `⚠️ Multiple PS Owner role holders detected (${ownerHolders.length}). Showing highest-role-positioned holder: <@${resolvedOwnerId}>.`;
+
+    if (logWarning) {
+      console.warn(`[BOOSTSERVER] owner resolution warning for server #${server.server_index} (${server.display_name}): multiple PS Owner holders detected: ${ownerHolders.map((m) => m.id).join(", ")}. Selected ${resolvedOwnerId}.`);
+    }
+  } else if (!resolvedOwnerId && ownerHolders.length === 1) {
+    resolvedOwnerId = ownerHolders[0].id;
+  }
+
+  return { ownerId: resolvedOwnerId, warningText };
 }
 
 function buildLeadersRefreshRow(serverId) {
@@ -634,49 +698,7 @@ async function handleLeaders(interaction, guild, server) {
 
 async function handleOwnerView(interaction, guild, server) {
   await guild.members.fetch().catch(() => null);
-
-  let resolvedOwnerId = server.owner_id || null;
-  let warningText = null;
-
-  if (server.role_owner_id) {
-    const ownerRole = guild.roles.cache.get(server.role_owner_id)
-      || await guild.roles.fetch(server.role_owner_id).catch(() => null);
-
-    if (ownerRole) {
-      const ownerHolders = [...ownerRole.members.values()];
-
-      if (ownerHolders.length > 1) {
-        ownerHolders.sort((a, b) => {
-          const positionDiff = (b.roles?.highest?.position || 0) - (a.roles?.highest?.position || 0);
-          if (positionDiff !== 0) return positionDiff;
-          const joinedA = Number(a.joinedTimestamp || 0);
-          const joinedB = Number(b.joinedTimestamp || 0);
-          if (joinedA !== joinedB) return joinedA - joinedB;
-          return String(a.id).localeCompare(String(b.id));
-        });
-
-        resolvedOwnerId = ownerHolders[0].id;
-        warningText = `⚠️ Multiple PS Owner role holders detected (${ownerHolders.length}). Showing highest-role-positioned holder: <@${resolvedOwnerId}>.`;
-
-        console.warn(`[BOOSTSERVER] owner-view warning for server #${server.server_index} (${server.display_name}): multiple PS Owner holders detected: ${ownerHolders.map((m) => m.id).join(", ")}. Selected ${resolvedOwnerId}.`);
-
-        if (server.channel_mod_chat_id) {
-          const modChat = await guild.channels.fetch(server.channel_mod_chat_id).catch(() => null);
-          if (modChat && typeof modChat.send === "function") {
-            const mentionParts = [server.role_owner_id, server.role_mod_id]
-              .filter(Boolean)
-              .map((roleId) => `<@&${roleId}>`)
-              .join(" ");
-            await modChat
-              .send(`${mentionParts || "⚠️"} ${warningText}`)
-              .catch(() => null);
-          }
-        }
-      } else if (!resolvedOwnerId && ownerHolders.length === 1) {
-        resolvedOwnerId = ownerHolders[0].id;
-      }
-    }
-  }
+  const { ownerId: resolvedOwnerId, warningText } = await resolveBoostServerOwner(guild, server, { logWarning: true });
 
   const ownerDisplay = resolvedOwnerId ? `<@${resolvedOwnerId}>` : "No owner set.";
 
@@ -696,6 +718,208 @@ async function handleOwnerView(interaction, guild, server) {
   }
 
   return interaction.editReply({ embeds: [embed] });
+}
+
+function clearOwnerTransferState(state) {
+  if (!state) return;
+  if (state.timeout) clearTimeout(state.timeout);
+  OWNER_TRANSFERS_BY_TOKEN.delete(state.token);
+}
+
+function getActiveOwnerTransfer(token, interaction) {
+  const state = OWNER_TRANSFERS_BY_TOKEN.get(token);
+  if (!state) return { state: null, reason: "missing" };
+
+  if (Date.now() > state.expiresAt) {
+    clearOwnerTransferState(state);
+    return { state: null, reason: "expired" };
+  }
+
+  if (state.guildId !== interaction.guildId) {
+    return { state: null, reason: "forbidden" };
+  }
+
+  return { state, reason: null };
+}
+
+async function handleOwnerSet(interaction, guild, server) {
+  if (!canManageOwnerTransfer(interaction, guild, server)) {
+    return interaction.editReply({ content: "Not authorized." });
+  }
+
+  const newOwner = interaction.options.getUser("new_owner", false)
+    || interaction.options.getUser("user", true);
+
+  if (newOwner.bot) {
+    return interaction.editReply({ content: "❌ Bots cannot be set as owner." });
+  }
+
+  const newOwnerMember = await guild.members.fetch(newOwner.id).catch(() => null);
+  if (!newOwnerMember) {
+    return interaction.editReply({ content: "❌ New owner must be a member of this server." });
+  }
+
+  await guild.members.fetch().catch(() => null);
+  const { ownerId: currentOwnerId } = await resolveBoostServerOwner(guild, server);
+
+  if (currentOwnerId === newOwner.id) {
+    return interaction.editReply({ content: "You are already the owner." });
+  }
+
+  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const state = {
+    token,
+    guildId: guild.id,
+    serverId: server.id,
+    actorUserId: interaction.user.id,
+    oldOwnerId: currentOwnerId || server.owner_id || null,
+    newOwnerId: newOwner.id,
+    expiresAt: Date.now() + OWNER_TRANSFER_TTL_MS,
+    timeout: setTimeout(() => {
+      const live = OWNER_TRANSFERS_BY_TOKEN.get(token);
+      if (live) clearOwnerTransferState(live);
+    }, OWNER_TRANSFER_TTL_MS),
+  };
+
+  OWNER_TRANSFERS_BY_TOKEN.set(token, state);
+
+  const embed = new EmbedBuilder()
+    .setColor(0xF1C40F)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Confirm Ownership Transfer")
+    .setDescription(`Transfer ownership of **${server.display_name}** to <@${newOwner.id}>?`)
+    .setTimestamp(new Date())
+    .addFields(
+      { name: "Server", value: `#${server.server_index} — ${server.display_name}`, inline: false },
+      { name: "Current Owner", value: state.oldOwnerId ? `<@${state.oldOwnerId}>` : "No owner set.", inline: true },
+      { name: "New Owner", value: `<@${newOwner.id}>`, inline: true }
+    )
+    .setFooter({ text: "This confirmation expires in 5 minutes" });
+
+  return interaction.editReply({
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bsowner_confirm:${token}`)
+          .setLabel("Confirm")
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`bsowner_cancel:${token}`)
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger)
+      ),
+    ],
+  });
+}
+
+async function handleOwnerTransferButton(interaction) {
+  const [action, token] = interaction.customId.split(":");
+  const { state, reason } = getActiveOwnerTransfer(token, interaction);
+  if (!state) {
+    const message = reason === "forbidden"
+      ? "Not authorized."
+      : "⌛ This ownership transfer request has expired. Run `/boostserver owner-set` again.";
+    return interaction.reply({ content: message, ephemeral: true });
+  }
+
+  const guild = interaction.guild;
+  const server = await db.getBoostServerById(state.serverId);
+  if (!guild || !server || server.guild_id !== guild.id) {
+    clearOwnerTransferState(state);
+    return interaction.reply({ content: "❌ Boost server not found.", ephemeral: true });
+  }
+
+  const isInitiator = state.actorUserId === interaction.user.id;
+  const isOverride = canOwnerTransferOverride(interaction, guild);
+  if (!isInitiator && !isOverride) {
+    return interaction.reply({ content: "Not authorized.", ephemeral: true });
+  }
+
+  if (action === "bsowner_cancel") {
+    clearOwnerTransferState(state);
+    return interaction.update({
+      content: "❎ Ownership transfer canceled.",
+      embeds: [],
+      components: [],
+    });
+  }
+
+  if (action !== "bsowner_confirm") {
+    return interaction.reply({ content: "❌ Unknown owner transfer action.", ephemeral: true });
+  }
+
+  const newOwnerMember = await guild.members.fetch(state.newOwnerId).catch(() => null);
+  if (!newOwnerMember || newOwnerMember.user?.bot) {
+    clearOwnerTransferState(state);
+    return interaction.update({
+      content: "❌ New owner is no longer eligible (missing, left server, or bot account).",
+      embeds: [],
+      components: [],
+    });
+  }
+
+  const ownerRole = server.role_owner_id
+    ? (guild.roles.cache.get(server.role_owner_id) || await guild.roles.fetch(server.role_owner_id).catch(() => null))
+    : null;
+
+  if (!ownerRole) {
+    clearOwnerTransferState(state);
+    return interaction.update({
+      content: "❌ PS Owner role is missing for this boost server.",
+      embeds: [],
+      components: [],
+    });
+  }
+
+  const memberRole = server.role_member_id
+    ? (guild.roles.cache.get(server.role_member_id) || await guild.roles.fetch(server.role_member_id).catch(() => null))
+    : null;
+
+  await guild.members.fetch().catch(() => null);
+  const previousOwnerId = state.oldOwnerId || server.owner_id || null;
+
+  for (const holder of ownerRole.members.values()) {
+    if (holder.roles.cache.has(ownerRole.id)) {
+      await holder.roles.remove(ownerRole, `Ownership transfer for boost server #${server.server_index}`).catch(() => null);
+    }
+  }
+
+  if (memberRole && !newOwnerMember.roles.cache.has(memberRole.id)) {
+    await newOwnerMember.roles.add(memberRole, `Ownership transfer prep for boost server #${server.server_index}`).catch(() => null);
+  }
+
+  if (!newOwnerMember.roles.cache.has(ownerRole.id)) {
+    await newOwnerMember.roles.add(ownerRole, `Ownership transfer for boost server #${server.server_index}`).catch(() => null);
+  }
+
+  const updated = await db.updateBoostServer(server.id, { owner_id: newOwnerMember.id });
+  if (!updated) {
+    clearOwnerTransferState(state);
+    return interaction.update({
+      content: "❌ Failed to update owner in database.",
+      embeds: [],
+      components: [],
+    });
+  }
+
+  if (server.channel_mod_chat_id) {
+    const modChat = await guild.channels.fetch(server.channel_mod_chat_id).catch(() => null);
+    if (modChat && typeof modChat.send === "function") {
+      await modChat.send(
+        `Ownership transferred: ${previousOwnerId ? `<@${previousOwnerId}>` : "No owner set"} → <@${newOwnerMember.id}> (by <@${interaction.user.id}>)`
+      ).catch(() => null);
+    }
+  }
+
+  await newOwnerMember.send(`You are now the PS Owner of ${server.display_name}.`).catch(() => null);
+
+  clearOwnerTransferState(state);
+  return interaction.update({
+    content: `✅ Ownership transferred to <@${newOwnerMember.id}>.`,
+    embeds: [],
+    components: [],
+  });
 }
 
 async function buildLeadersPayload(guild, server) {
@@ -828,7 +1052,7 @@ module.exports = async function handleBoostServer(interaction) {
   const MANAGE_SUBS = new Set([
     "delete", "link-set", "link-clear", "config-set",
     "mods-add", "mods-remove", "member-add", "member-remove",
-    "owner-set", "status-set", "ticket-setup", "description",
+    "status-set", "ticket-setup", "description",
   ]);
 
   if (ANYONE_SUBS.has(subcommand)) {
@@ -842,6 +1066,10 @@ module.exports = async function handleBoostServer(interaction) {
       return interaction.editReply({
         content: "⛔ You must be a **member of this boost server** (PS Member, PS Mod, or PS Owner role) to view its link.",
       });
+    }
+  } else if (subcommand === "owner-set") {
+    if (!canManageOwnerTransfer(interaction, guild, server)) {
+      return interaction.editReply({ content: "Not authorized." });
     }
   } else if (MANAGE_SUBS.has(subcommand)) {
     if (!hasManage) {
@@ -881,6 +1109,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── OWNER VIEW ──
   if (subcommand === "owner-view") {
     return handleOwnerView(interaction, guild, server);
+  }
+
+  // ── OWNER SET ──
+  if (subcommand === "owner-set") {
+    return handleOwnerSet(interaction, guild, server);
   }
 
   // ── ARCHIVE ──
@@ -2724,4 +2957,5 @@ module.exports.handleCreateWizardButton = handleCreateWizardButton;
 module.exports.handleDescriptionEditModal = handleDescriptionEditModal;
 module.exports.handleDescriptionEditButton = handleDescriptionEditButton;
 module.exports.handleLeadersRefreshButton = handleLeadersRefreshButton;
+module.exports.handleOwnerTransferButton = handleOwnerTransferButton;
 module.exports.handleJoinRequestButton = handleJoinRequestButton;

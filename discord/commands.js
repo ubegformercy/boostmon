@@ -491,7 +491,7 @@ function getCommands() {
             o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
           )
           .addUserOption((o) =>
-            o.setName("user").setDescription("User to set as owner").setRequired(true)
+            o.setName("new_owner").setDescription("User to set as owner").setRequired(true)
           )
       )
       .addSubcommand((s) =>

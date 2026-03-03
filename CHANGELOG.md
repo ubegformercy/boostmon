@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.9.22 — 2026-03-02
+- Enhanced `/boostserver owner-set server:<boost_server> new_owner:<user>` with safe ownership transfer flow and 5-minute confirmation token
+- Added validation for `new_owner` (must be non-bot guild member) and self-transfer guard (`You are already the owner.`)
+- Added Confirm/Cancel ephemeral prompt before transfer; cancel performs no changes
+- On confirm, bot now removes PS Owner role from all holders, auto-adds PS Member role to new owner when missing, assigns PS Owner role to new owner, and updates DB owner (`owner_id`)
+- Added actor validation for transfer buttons (initiator or admin override with ManageGuild/guild owner); unauthorized response is `Not authorized.`
+- Added transfer notifications: mod-chat audit message and DM to new owner
+- Added button routing for owner transfer interactions in `app.js`
+
 ## v2.9.21 — 2026-03-02
 - Implemented `/boostserver owner-view server:<boost_server>` to return an embed with server name and current owner
 - Owner resolution now prefers DB owner (`owner_id`) and falls back to PS Owner role holder when needed
