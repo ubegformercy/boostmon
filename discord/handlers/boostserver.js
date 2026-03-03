@@ -733,8 +733,10 @@ module.exports = async function handleBoostServer(interaction) {
     return handleDescriptionEditStart(interaction, guild);
   }
 
-  // All responses are ephemeral
-  await interaction.deferReply({ ephemeral: true }).catch(() => null);
+  const isLeadersSubcommand = subcommand === "leaders";
+
+  // Keep boostserver flows ephemeral by default, but make leaders output public.
+  await interaction.deferReply({ ephemeral: !isLeadersSubcommand }).catch(() => null);
 
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
   const isGuildOwner = guild.ownerId === interaction.user.id;

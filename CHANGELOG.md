@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.9.18 — 2026-03-02
+- Fixed `/boostserver leaders` visibility to post publicly in channel instead of ephemeral "Only you can see this"
+- Kept other `/boostserver` subcommands ephemeral; only `leaders` now uses a public initial response
+
 ## v2.9.17 — 2026-03-02
 - Hardened timer command handlers against undefined/non-array timer results to prevent crashes after restart when in-memory state is empty
 - Added safe timer result normalization in `/timer clear`, `/timer remove`, `/timer pause user`, and `/timer resume user`
