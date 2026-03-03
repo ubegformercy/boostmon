@@ -356,6 +356,7 @@ async function initDatabase() {
         guild_id VARCHAR(255) NOT NULL,
         server_index INTEGER NOT NULL,
         display_name VARCHAR(255) NOT NULL,
+        description TEXT,
         slug VARCHAR(255),
         owner_id VARCHAR(255) NOT NULL,
         category_id VARCHAR(255) NOT NULL,
@@ -400,6 +401,7 @@ async function initDatabase() {
       catch (err) { /* already renamed */ }
     }
     for (const col of [
+      { name: 'description', type: 'TEXT' },
       { name: 'slug', type: 'VARCHAR(255)' },
       { name: 'tickets_category_id', type: 'VARCHAR(255)' },
       { name: 'channel_ticket_panel_id', type: 'VARCHAR(255)' },
@@ -2136,17 +2138,17 @@ async function createBoostServer(data, options = {}) {
 
     const result = await client.query(
       `INSERT INTO boost_servers (
-        guild_id, server_index, display_name, slug, owner_id,
+        guild_id, server_index, display_name, description, slug, owner_id,
         category_id, tickets_category_id,
         channel_announcements_id, channel_giveaways_id,
         channel_events_id, channel_images_id, channel_chat_id, channel_mod_chat_id,
         channel_ticket_panel_id,
         role_owner_id, role_mod_id, role_member_id,
         status, ps_link
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       RETURNING *`,
       [
-        data.guild_id, data.server_index, data.display_name, data.slug || null, data.owner_id,
+        data.guild_id, data.server_index, data.display_name, data.description || null, data.slug || null, data.owner_id,
         data.category_id, data.tickets_category_id || null,
         data.channel_announcements_id || null, data.channel_giveaways_id || null,
         data.channel_events_id || null, data.channel_images_id || null,
@@ -2234,7 +2236,7 @@ async function getBoostServers(guildId) {
 }
 
 const BOOST_SERVER_UPDATABLE_COLUMNS = new Set([
-  'display_name', 'slug', 'owner_id', 'status', 'ps_link',
+  'display_name', 'description', 'slug', 'owner_id', 'status', 'ps_link',
   'category_id', 'tickets_category_id',
   'channel_announcements_id', 'channel_giveaways_id', 'channel_events_id',
   'channel_images_id', 'channel_chat_id', 'channel_mod_chat_id',

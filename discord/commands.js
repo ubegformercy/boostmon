@@ -326,6 +326,14 @@ function getCommands() {
       )
       .addSubcommand((s) =>
         s
+          .setName("description")
+          .setDescription("Update a boost server description")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+      )
+      .addSubcommand((s) =>
+        s
           .setName("join")
           .setDescription("Request to join a boost server")
           .addStringOption((o) =>

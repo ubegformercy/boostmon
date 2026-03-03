@@ -31,12 +31,15 @@ const WIZARD_ALL_CHANNELS = ["announcements", "giveaways", "events", "images", "
 const WIZARD_PUBLIC_ELIGIBLE_CHANNELS = WIZARD_ALL_CHANNELS.filter((channelKey) => channelKey !== "mod-chat");
 const CREATE_WIZARDS_BY_KEY = new Map(); // key: guildId:userId
 const CREATE_WIZARDS_BY_TOKEN = new Map(); // key: token
+const DESCRIPTION_EDIT_TTL_MS = 5 * 60_000;
+const DESCRIPTION_EDITS_BY_TOKEN = new Map(); // key: token
 const JOIN_REQUEST_TTL_MS = 10 * 60_000;
 const JOIN_REQUESTS_BY_KEY = new Map(); // key: guildId:serverId:userId
 const JOIN_REQUESTS_BY_TOKEN = new Map(); // key: token
 
 const SUBCOMMAND_LABELS = {
   "create": "Create Boost Server",
+  "description": "Update Description",
   "join": "Join Boost Server",
   "leave": "Leave Boost Server",
   "info": "Boost Server Info",
@@ -61,6 +64,75 @@ function canBypassSingleServerOwnershipLimit(interaction, guild) {
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
     || interaction.member?.permissions?.has(PermissionFlagsBits.Administrator);
   return Boolean(isGuildOwner || isAdmin);
+}
+
+function buildServerChannelSummaryLines(server) {
+  return [
+    server.channel_announcements_id ? `📢 <#${server.channel_announcements_id}> — Server announcements` : null,
+    server.channel_giveaways_id ? `🎁 <#${server.channel_giveaways_id}> — Giveaways` : null,
+    server.channel_events_id ? `🎉 <#${server.channel_events_id}> — Events` : null,
+    server.channel_images_id ? `📸 <#${server.channel_images_id}> — Images & screenshots` : null,
+    server.channel_chat_id ? `💬 <#${server.channel_chat_id}> — General chat` : null,
+    server.channel_mod_chat_id ? `🔒 <#${server.channel_mod_chat_id}> — Mod chat (private)` : null,
+    server.channel_ticket_panel_id ? `🚀 <#${server.channel_ticket_panel_id}> — Booster tickets` : null,
+  ].filter(Boolean).join("\n");
+}
+
+function buildServerHeaderEmbed(server, descriptionOverride = null) {
+  const descriptionText = descriptionOverride ?? server.description ?? "";
+  const channelSummaryLines = buildServerChannelSummaryLines(server);
+
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle(`${server.display_name}`)
+    .setDescription(
+      `Welcome to **${server.display_name}** — Boost Server #${server.server_index}\n\n` +
+      (descriptionText ? `**Description:** ${descriptionText}\n\n` : "") +
+      `**Owner:** <@${server.owner_id}>\n` +
+      `**Status:** ${String(server.status || "active").replace(/^./, (c) => c.toUpperCase())}\n\n` +
+      channelSummaryLines
+    )
+    .setTimestamp(new Date())
+    .setFooter({ text: "BoostMon • Boost Server" });
+}
+
+async function upsertPinnedBoostServerHeader(guild, server, descriptionOverride = null, clientUserId = null) {
+  const announcementsId = server.channel_announcements_id;
+  if (!announcementsId) {
+    return { ok: false, message: "Announcements channel is not configured for this boost server." };
+  }
+
+  const announcementsChannel = await guild.channels.fetch(announcementsId).catch(() => null);
+  if (!announcementsChannel) {
+    return { ok: false, message: "Announcements channel could not be found." };
+  }
+
+  const expectedAuthorId = clientUserId || guild.client.user?.id;
+  const pinnedMessages = await announcementsChannel.messages.fetchPinned().catch(() => null);
+  const existingHeader = pinnedMessages?.find((message) => {
+    const embed = message.embeds?.[0];
+    if (!embed) return false;
+    const isBoostHeader = embed.footer?.text === "BoostMon • Boost Server" && embed.title === server.display_name;
+    if (!isBoostHeader) return false;
+    if (!expectedAuthorId) return true;
+    return message.author?.id === expectedAuthorId;
+  }) || null;
+
+  const embed = buildServerHeaderEmbed(server, descriptionOverride);
+  const headerMessage = existingHeader
+    ? await existingHeader.edit({ embeds: [embed] }).catch(() => null)
+    : await announcementsChannel.send({ embeds: [embed] }).catch(() => null);
+
+  if (!headerMessage) {
+    return { ok: false, message: "Failed to post/update the announcements header." };
+  }
+
+  if (!headerMessage.pinned) {
+    await headerMessage.pin().catch(() => null);
+  }
+
+  return { ok: true, messageId: headerMessage.id };
 }
 
 function fullAccessAllowFlags() {
@@ -532,6 +604,11 @@ module.exports = async function handleBoostServer(interaction) {
     return handleCreateWizardStart(interaction, guild);
   }
 
+  // DESCRIPTION editor starts with a modal, so it must run before deferReply.
+  if (subcommand === "description") {
+    return handleDescriptionEditStart(interaction, guild);
+  }
+
   // All responses are ephemeral
   await interaction.deferReply({ ephemeral: true }).catch(() => null);
 
@@ -559,7 +636,7 @@ module.exports = async function handleBoostServer(interaction) {
   const MANAGE_SUBS = new Set([
     "delete", "link-set", "link-clear", "config-set",
     "mods-add", "mods-remove", "member-add", "member-remove",
-    "owner-set", "status-set", "ticket-setup",
+    "owner-set", "status-set", "ticket-setup", "description",
   ]);
 
   if (ANYONE_SUBS.has(subcommand)) {
@@ -622,6 +699,10 @@ module.exports = async function handleBoostServer(interaction) {
   // ── CONFIG SET (currently used as repair trigger) ──
   if (subcommand === "config-set") {
     return handleConfigSet(interaction, guild, server);
+  }
+
+  if (subcommand === "description") {
+    return handleDescriptionEditStart(interaction, guild, server);
   }
 
   // ── TICKET SETUP ──
@@ -840,6 +921,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       guild_id: guild.id,
       server_index: serverIndex,
       display_name: name,
+      description: serverDescription,
       slug,
       owner_id: ownerId,
       category_id: category.id,
@@ -961,34 +1043,12 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       );
     }
 
-    // 7. Post structured header in announcements channel and pin it
-    const channelSummaryLines = [
-      `📢 <#${announcementsChannel.id}> — Server announcements`,
-      giveawaysChannel ? `🎁 <#${giveawaysChannel.id}> — Giveaways` : null,
-      eventsChannel ? `🎉 <#${eventsChannel.id}> — Events` : null,
-      imagesChannel ? `📸 <#${imagesChannel.id}> — Images & screenshots` : null,
-      `💬 <#${chatChannel.id}> — General chat`,
-      `🔒 <#${modChatChannel.id}> — Mod chat (private)`,
-      `🚀 <#${ticketPanelChannel.id}> — Booster tickets`,
-    ].filter(Boolean).join("\n");
-
-    const headerEmbed = new EmbedBuilder()
-      .setColor(0x5865F2)
-      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(`${name}`)
-      .setDescription(
-        `Welcome to **${name}** — Boost Server #${serverIndex}\n\n` +
-        (serverDescription ? `**Description:** ${serverDescription}\n\n` : "") +
-        `**Owner:** <@${ownerId}>\n` +
-        `**Status:** Active\n\n` +
-        channelSummaryLines
-      )
-      .setTimestamp(new Date())
-      .setFooter({ text: "BoostMon • Boost Server" });
-
+    // 7. Post/update structured header in announcements channel and keep it pinned
     try {
-      const headerMsg = await announcementsChannel.send({ embeds: [headerEmbed] });
-      await headerMsg.pin().catch(() => null);
+      const headerResult = await upsertPinnedBoostServerHeader(guild, serverRecord, serverDescription, interaction.client.user.id);
+      if (!headerResult.ok) {
+        console.error(`[BOOSTSERVER] Failed to post/pin header: ${headerResult.message}`);
+      }
     } catch (err) {
       console.error(`[BOOSTSERVER] Failed to post/pin header: ${err.message}`);
     }
@@ -1662,6 +1722,231 @@ function getActiveCreateWizard(token, interaction) {
   return { state, reason: null };
 }
 
+function clearDescriptionEditState(state) {
+  if (!state) return;
+  if (state.timeout) clearTimeout(state.timeout);
+  DESCRIPTION_EDITS_BY_TOKEN.delete(state.token);
+}
+
+function getActiveDescriptionEdit(token, interaction) {
+  const state = DESCRIPTION_EDITS_BY_TOKEN.get(token);
+  if (!state) return { state: null, reason: "missing" };
+
+  if (Date.now() > state.expiresAt) {
+    clearDescriptionEditState(state);
+    return { state: null, reason: "expired" };
+  }
+
+  if (state.guildId !== interaction.guildId || state.userId !== interaction.user.id) {
+    return { state: null, reason: "forbidden" };
+  }
+
+  return { state, reason: null };
+}
+
+async function handleDescriptionEditStart(interaction, guild) {
+  try {
+    const serverId = interaction.options.getString("server", true);
+    const server = await db.getBoostServerById(serverId);
+
+    if (!server || server.guild_id !== guild.id) {
+      return interaction.reply({ content: "❌ Boost server not found.", ephemeral: true });
+    }
+
+    const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+    const isGuildOwner = guild.ownerId === interaction.user.id;
+    const isServerOwner = server.owner_id === interaction.user.id;
+    const hasManage = isAdmin || isGuildOwner || isServerOwner;
+
+    if (!hasManage) {
+      return interaction.reply({
+        content: "⛔ Only the **PS Owner**, **Discord Server Owner**, or **Administrators** can update the description.",
+        ephemeral: true,
+      });
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`bsdesc_modal:${server.id}`)
+      .setTitle("Boost Server Setup — Step 1/5")
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId("bsdesc_description")
+            .setLabel("Server Description")
+            .setStyle(TextInputStyle.Paragraph)
+            .setMaxLength(WIZARD_DESCRIPTION_MAX_LENGTH)
+            .setRequired(false)
+            .setValue(server.description || "")
+        )
+      );
+
+    return interaction.showModal(modal);
+  } catch (err) {
+    console.error("[BOOSTSERVER] Description edit start error:", err);
+    if (interaction.deferred || interaction.replied) {
+      return interaction.editReply({ content: "❌ Failed to start description editor." });
+    }
+    return interaction.reply({ content: "❌ Failed to start description editor.", ephemeral: true });
+  }
+}
+
+async function handleDescriptionEditModal(interaction) {
+  try {
+    const [, serverId] = interaction.customId.split(":");
+    const guild = interaction.guild;
+
+    if (!guild || !serverId) {
+      return safeInteractionSend(interaction, "reply", { content: "❌ Invalid description editor request.", ephemeral: true });
+    }
+
+    const server = await db.getBoostServerById(serverId);
+    if (!server || server.guild_id !== guild.id) {
+      return safeInteractionSend(interaction, "reply", { content: "❌ Boost server not found.", ephemeral: true });
+    }
+
+    const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+    const isGuildOwner = guild.ownerId === interaction.user.id;
+    const isServerOwner = server.owner_id === interaction.user.id;
+    const hasManage = isAdmin || isGuildOwner || isServerOwner;
+
+    if (!hasManage) {
+      return safeInteractionSend(interaction, "reply", {
+        content: "⛔ Only the **PS Owner**, **Discord Server Owner**, or **Administrators** can update the description.",
+        ephemeral: true,
+      });
+    }
+
+    const description = interaction.fields.getTextInputValue("bsdesc_description")?.trim() || "";
+    if (description.length > WIZARD_DESCRIPTION_MAX_LENGTH) {
+      return safeInteractionSend(interaction, "reply", {
+        content: `❌ Description must be ${WIZARD_DESCRIPTION_MAX_LENGTH} characters or less.`,
+        ephemeral: true,
+      });
+    }
+
+    const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+    const state = {
+      token,
+      guildId: guild.id,
+      userId: interaction.user.id,
+      serverId: server.id,
+      description,
+      expiresAt: Date.now() + DESCRIPTION_EDIT_TTL_MS,
+      timeout: setTimeout(() => {
+        const live = DESCRIPTION_EDITS_BY_TOKEN.get(token);
+        if (live) clearDescriptionEditState(live);
+      }, DESCRIPTION_EDIT_TTL_MS),
+    };
+
+    DESCRIPTION_EDITS_BY_TOKEN.set(token, state);
+
+    const previewEmbed = buildServerHeaderEmbed(server, description);
+    return safeInteractionSend(interaction, "reply", {
+      content: "Preview your updated server header below. Confirm to save and keep it pinned.",
+      embeds: [previewEmbed],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`bsdesc_confirm:${token}`)
+            .setLabel("Confirm")
+            .setStyle(ButtonStyle.Success),
+          new ButtonBuilder()
+            .setCustomId(`bsdesc_cancel:${token}`)
+            .setLabel("Cancel")
+            .setStyle(ButtonStyle.Danger)
+        ),
+      ],
+      ephemeral: true,
+    });
+  } catch (err) {
+    if (isInteractionExpiredError(err)) return null;
+    console.error("[BOOSTSERVER] Description modal error:", err);
+    return safeInteractionSend(interaction, "reply", { content: "❌ Failed to build description preview.", ephemeral: true });
+  }
+}
+
+async function handleDescriptionEditButton(interaction) {
+  try {
+    const [action, token] = interaction.customId.split(":");
+    const { state, reason } = getActiveDescriptionEdit(token, interaction);
+    if (!state) {
+      const message = reason === "forbidden"
+        ? "⛔ This preview belongs to another user."
+        : "⌛ This description preview has expired. Run `/boostserver description` again.";
+      return safeInteractionSend(interaction, "reply", { content: message, ephemeral: true });
+    }
+
+    if (action === "bsdesc_cancel") {
+      clearDescriptionEditState(state);
+      return safeInteractionSend(interaction, "update", {
+        content: "❎ Description update canceled.",
+        embeds: [],
+        components: [],
+      });
+    }
+
+    if (action !== "bsdesc_confirm") {
+      return safeInteractionSend(interaction, "reply", { content: "❌ Unknown description action.", ephemeral: true });
+    }
+
+    const guild = interaction.guild;
+    const server = await db.getBoostServerById(state.serverId);
+    if (!guild || !server || server.guild_id !== guild.id) {
+      clearDescriptionEditState(state);
+      return safeInteractionSend(interaction, "update", {
+        content: "❌ Boost server not found.",
+        embeds: [],
+        components: [],
+      });
+    }
+
+    const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator);
+    const isGuildOwner = guild.ownerId === interaction.user.id;
+    const isServerOwner = server.owner_id === interaction.user.id;
+    const hasManage = isAdmin || isGuildOwner || isServerOwner;
+
+    if (!hasManage) {
+      clearDescriptionEditState(state);
+      return safeInteractionSend(interaction, "update", {
+        content: "⛔ Only the PS Owner, Discord Server Owner, or Administrators can update the description.",
+        embeds: [],
+        components: [],
+      });
+    }
+
+    const updatedServer = await db.updateBoostServer(server.id, { description: state.description });
+    if (!updatedServer) {
+      clearDescriptionEditState(state);
+      return safeInteractionSend(interaction, "update", {
+        content: "❌ Failed to save description.",
+        embeds: [],
+        components: [],
+      });
+    }
+
+    const headerResult = await upsertPinnedBoostServerHeader(guild, updatedServer, state.description, interaction.client.user.id);
+    clearDescriptionEditState(state);
+
+    if (!headerResult.ok) {
+      return safeInteractionSend(interaction, "update", {
+        content: `⚠️ Description saved, but header update failed: ${headerResult.message}`,
+        embeds: [],
+        components: [],
+      });
+    }
+
+    return safeInteractionSend(interaction, "update", {
+      content: `✅ Description updated for **${updatedServer.display_name}** and announcements header is pinned in <#${updatedServer.channel_announcements_id}>.`,
+      embeds: [],
+      components: [],
+    });
+  } catch (err) {
+    if (isInteractionExpiredError(err)) return null;
+    console.error("[BOOSTSERVER] Description button error:", err);
+    return safeInteractionSend(interaction, "reply", { content: "❌ Failed to update description.", ephemeral: true });
+  }
+}
+
 function toChannelDisplayName(key) {
   const map = {
     announcements: "announcements",
@@ -2230,4 +2515,6 @@ async function handleJoinRequestButton(interaction) {
 module.exports.handleCreateWizardModal = handleCreateWizardModal;
 module.exports.handleCreateWizardSelect = handleCreateWizardSelect;
 module.exports.handleCreateWizardButton = handleCreateWizardButton;
+module.exports.handleDescriptionEditModal = handleDescriptionEditModal;
+module.exports.handleDescriptionEditButton = handleDescriptionEditButton;
 module.exports.handleJoinRequestButton = handleJoinRequestButton;

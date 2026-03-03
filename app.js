@@ -378,6 +378,10 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.customId.startsWith("bswiz_step1:")) {
         return boostserverHandler.handleCreateWizardModal(interaction);
       }
+
+      if (interaction.customId.startsWith("bsdesc_modal:")) {
+        return boostserverHandler.handleDescriptionEditModal(interaction);
+      }
     } catch (err) {
       console.error("Modal submit error:", err);
       const msg = "Error processing modal. Details: " + friendlyDiscordError(err);
@@ -420,6 +424,10 @@ client.on("interactionCreate", async (interaction) => {
     try {
       if (interaction.customId.startsWith("bswiz_")) {
         return boostserverHandler.handleCreateWizardButton(interaction);
+      }
+
+      if (interaction.customId.startsWith("bsdesc_")) {
+        return boostserverHandler.handleDescriptionEditButton(interaction);
       }
 
       if (interaction.customId.startsWith("bsjoin_")) {

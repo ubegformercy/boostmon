@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.12 — 2026-03-02
+- Added `/boostserver description` subcommand to let PS Owner/Discord Owner/Admin update a boost server description anytime
+- New flow opens a Step-1 style description modal, then shows an embed preview with Confirm/Cancel before saving
+- Description is now persisted on `boost_servers.description` and announcements header is updated in place (or created if missing) and kept pinned
+
 ## v2.9.11 — 2026-03-02
 - Increased `/boostserver create` wizard server description limit from 500 to 1000 characters
 - Updated both Step 1 modal and Resume modal input max length to keep behavior consistent
