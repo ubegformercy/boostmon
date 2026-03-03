@@ -2106,9 +2106,35 @@ async function getNextServerIndex(guildId) {
   }
 }
 
-async function createBoostServer(data) {
+async function createBoostServer(data, options = {}) {
+  const { enforceSingleOwner = false } = options;
+  const client = await pool.connect();
+
   try {
-    const result = await pool.query(
+    await client.query("BEGIN");
+
+    if (enforceSingleOwner) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+        [String(data.guild_id), String(data.owner_id)]
+      );
+
+      const existingOwned = await client.query(
+        "SELECT id, display_name, server_index FROM boost_servers WHERE guild_id = $1 AND owner_id = $2 AND status != 'deleted' LIMIT 1",
+        [data.guild_id, data.owner_id]
+      );
+
+      if (existingOwned.rows.length > 0) {
+        await client.query("ROLLBACK");
+        return {
+          record: null,
+          error: "OWNER_LIMIT",
+          existingOwned: existingOwned.rows[0],
+        };
+      }
+    }
+
+    const result = await client.query(
       `INSERT INTO boost_servers (
         guild_id, server_index, display_name, slug, owner_id,
         category_id, tickets_category_id,
@@ -2130,10 +2156,15 @@ async function createBoostServer(data) {
         data.status || 'active', data.ps_link || null
       ]
     );
-    return result.rows[0];
+
+    await client.query("COMMIT");
+    return { record: result.rows[0], error: null };
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => null);
     console.error("createBoostServer error:", err);
-    return null;
+    return { record: null, error: "DB_ERROR" };
+  } finally {
+    client.release();
   }
 }
 

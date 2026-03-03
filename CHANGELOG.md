@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.10 — 2026-03-02
+- Added race-safe ownership enforcement for non-admin `/boostserver create` using PostgreSQL transaction + advisory lock (`guild_id` + `owner_id`)
+- `createBoostServer` now performs atomic owner check and insert for regular members to prevent duplicate ownership under concurrent requests
+- Creation flow now returns a clear one-server-limit message when blocked by atomic owner check and rolls back created Discord resources
+
 ## v2.9.9 — 2026-03-02
 - Fixed `/boostserver create` DB conflict for admins/owners by removing the unique `(guild_id, owner_id)` index on `boost_servers`
 - Added startup migration to drop legacy unique owner index and recreate `idx_boost_servers_guild_owner` as a non-unique lookup index

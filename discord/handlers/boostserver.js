@@ -835,7 +835,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
     // Generate slug from name
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-    const serverRecord = await db.createBoostServer({
+    const createResult = await db.createBoostServer({
       guild_id: guild.id,
       server_index: serverIndex,
       display_name: name,
@@ -855,7 +855,11 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       role_member_id: memberRole.id,
       status: "active",
       ps_link: null,
+    }, {
+      enforceSingleOwner: !bypassOwnershipLimit,
     });
+
+    const serverRecord = createResult?.record || null;
 
     if (!serverRecord) {
       // Rollback: delete all created resources
@@ -863,6 +867,13 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       for (const ch of created.channels) await ch.delete("Rollback: DB save failed").catch(() => null);
       for (const cat of created.categories) await cat.delete("Rollback: DB save failed").catch(() => null);
       for (const r of created.roles) await r.delete("Rollback: DB save failed").catch(() => null);
+
+      if (createResult?.error === "OWNER_LIMIT") {
+        const existingOwned = createResult.existingOwned;
+        return interaction.editReply({
+          content: `❌ You already own a boost server: **${existingOwned?.display_name || "Unknown"}** (#${existingOwned?.server_index || "?"}). Each member may only own one.`,
+        });
+      }
 
       return interaction.editReply({
         content: "❌ Failed to save boost server to the database. Created channels and roles have been rolled back.",
