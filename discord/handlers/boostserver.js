@@ -632,6 +632,72 @@ async function handleLeaders(interaction, guild, server) {
   return interaction.editReply(payload);
 }
 
+async function handleOwnerView(interaction, guild, server) {
+  await guild.members.fetch().catch(() => null);
+
+  let resolvedOwnerId = server.owner_id || null;
+  let warningText = null;
+
+  if (server.role_owner_id) {
+    const ownerRole = guild.roles.cache.get(server.role_owner_id)
+      || await guild.roles.fetch(server.role_owner_id).catch(() => null);
+
+    if (ownerRole) {
+      const ownerHolders = [...ownerRole.members.values()];
+
+      if (ownerHolders.length > 1) {
+        ownerHolders.sort((a, b) => {
+          const positionDiff = (b.roles?.highest?.position || 0) - (a.roles?.highest?.position || 0);
+          if (positionDiff !== 0) return positionDiff;
+          const joinedA = Number(a.joinedTimestamp || 0);
+          const joinedB = Number(b.joinedTimestamp || 0);
+          if (joinedA !== joinedB) return joinedA - joinedB;
+          return String(a.id).localeCompare(String(b.id));
+        });
+
+        resolvedOwnerId = ownerHolders[0].id;
+        warningText = `⚠️ Multiple PS Owner role holders detected (${ownerHolders.length}). Showing highest-role-positioned holder: <@${resolvedOwnerId}>.`;
+
+        console.warn(`[BOOSTSERVER] owner-view warning for server #${server.server_index} (${server.display_name}): multiple PS Owner holders detected: ${ownerHolders.map((m) => m.id).join(", ")}. Selected ${resolvedOwnerId}.`);
+
+        if (server.channel_mod_chat_id) {
+          const modChat = await guild.channels.fetch(server.channel_mod_chat_id).catch(() => null);
+          if (modChat && typeof modChat.send === "function") {
+            const mentionParts = [server.role_owner_id, server.role_mod_id]
+              .filter(Boolean)
+              .map((roleId) => `<@&${roleId}>`)
+              .join(" ");
+            await modChat
+              .send(`${mentionParts || "⚠️"} ${warningText}`)
+              .catch(() => null);
+          }
+        }
+      } else if (!resolvedOwnerId && ownerHolders.length === 1) {
+        resolvedOwnerId = ownerHolders[0].id;
+      }
+    }
+  }
+
+  const ownerDisplay = resolvedOwnerId ? `<@${resolvedOwnerId}>` : "No owner set.";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle("Boost Server Owner")
+    .setTimestamp(new Date())
+    .addFields(
+      { name: "Server", value: `#${server.server_index} — ${server.display_name}`, inline: false },
+      { name: "Current Owner", value: ownerDisplay, inline: false }
+    )
+    .setFooter({ text: "BoostMon • Owner View" });
+
+  if (warningText) {
+    embed.addFields({ name: "Warning", value: warningText, inline: false });
+  }
+
+  return interaction.editReply({ embeds: [embed] });
+}
+
 async function buildLeadersPayload(guild, server) {
   await guild.members.fetch().catch(() => null);
 
@@ -810,6 +876,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── LEADERS VIEW ──
   if (subcommand === "leaders") {
     return handleLeaders(interaction, guild, server);
+  }
+
+  // ── OWNER VIEW ──
+  if (subcommand === "owner-view") {
+    return handleOwnerView(interaction, guild, server);
   }
 
   // ── ARCHIVE ──

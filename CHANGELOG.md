@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.21 — 2026-03-02
+- Implemented `/boostserver owner-view server:<boost_server>` to return an embed with server name and current owner
+- Owner resolution now prefers DB owner (`owner_id`) and falls back to PS Owner role holder when needed
+- Added multi-owner safety handling: if multiple PS Owner role holders are detected, bot warns, selects the highest-role-positioned member, and logs a staff warning to mod-chat when available
+- Shows `No owner set.` when no owner can be resolved
+
 ## v2.9.20 — 2026-03-02
 - Updated `/timer add` so the `role` option is no longer required
 - When `role` is omitted, command now auto-selects the target user's existing timed role in the same guild
