@@ -4,7 +4,136 @@ const db = require("../../db");
 const { BOOSTMON_ICON_URL, formatMs, formatPauseDuration } = require("../../utils/helpers");
 const { getFirstTimedRoleId } = require("../../services/timer");
 
-module.exports = async function handleShowtime(interaction) {
+async function buildTimersLeaderboardForUsers(guild, timersFromDb, options = {}) {
+  const {
+    title,
+    maxEntries = 30,
+  } = options;
+
+  if (!Array.isArray(timersFromDb) || timersFromDb.length === 0) {
+    return { status: "empty_no_timers", embed: null };
+  }
+
+  const timersList = [];
+  for (const timer of timersFromDb) {
+    try {
+      const member = await guild.members.fetch(timer.user_id).catch(() => null);
+      if (member) {
+        const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
+        timersList.push({ member, timer, registration });
+      }
+    } catch (err) {
+      console.error(`Failed to fetch member ${timer.user_id}:`, err);
+    }
+  }
+
+  if (timersList.length === 0) {
+    return { status: "empty_no_members", embed: null };
+  }
+
+  const sortOrder = await db.getReportSortOrder(guild.id).catch(() => 'descending');
+
+  timersList.sort((a, b) => {
+    let aMs = Number(a.timer.expires_at) - Date.now();
+    let bMs = Number(b.timer.expires_at) - Date.now();
+
+    if (a.timer.paused && a.timer.paused_remaining_ms) {
+      aMs = Number(a.timer.paused_remaining_ms);
+    }
+    if (b.timer.paused && b.timer.paused_remaining_ms) {
+      bMs = Number(b.timer.paused_remaining_ms);
+    }
+
+    if (sortOrder === 'ascending') {
+      return aMs - bMs;
+    } else {
+      return bMs - aMs;
+    }
+  });
+
+  let membersList = [];
+  let totalMembers = 0;
+  let activeMembers = 0;
+  let pausedMembers = 0;
+  let expiringMembers = 0;
+  let memberCount = 0;
+
+  for (const { member, timer, registration } of timersList) {
+    totalMembers++;
+
+    let timerRemainingMs = Math.max(0, Number(timer.expires_at) - Date.now());
+    if (timer.paused && timer.paused_remaining_ms) {
+      timerRemainingMs = Math.max(0, Number(timer.paused_remaining_ms));
+    }
+
+    let pauseRemainingMs = 0;
+    if (timer.paused && timer.pause_expires_at) {
+      pauseRemainingMs = Math.max(0, Number(timer.pause_expires_at) - Date.now());
+    }
+
+    const isPaused = timer.paused;
+    if (isPaused) pausedMembers++;
+    else activeMembers++;
+
+    let emoji;
+    if (isPaused) {
+      emoji = "⏸️";
+    } else if (timerRemainingMs <= 0) {
+      emoji = "🔴";
+    } else if (timerRemainingMs < 60 * 60 * 1000) {
+      emoji = "🔴";
+      expiringMembers++;
+    } else if (timerRemainingMs < 24 * 60 * 60 * 1000) {
+      emoji = "🟡";
+      expiringMembers++;
+    } else {
+      emoji = "🟢";
+    }
+
+    const timeText = formatMs(timerRemainingMs);
+    const displayName = member.nickname || member.user.globalName || member.user.username;
+    const inGameUsername = registration?.in_game_username || member.user.username;
+    const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
+
+    let line;
+    if (isPaused && pauseRemainingMs > 0) {
+      const pauseDuration = formatPauseDuration(pauseRemainingMs);
+      line = `${rankMedal} ${emoji} ${pauseDuration} • ${timeText} • ${displayName} - (${inGameUsername})`;
+    } else if (isPaused) {
+      line = `${rankMedal} ${emoji} [>0m] • ${timeText} • ${displayName} - (${inGameUsername})`;
+    } else {
+      line = `${rankMedal} ${emoji} • ${timeText} • ${displayName} - (${inGameUsername})`;
+    }
+    membersList.push(line);
+    memberCount++;
+
+    if (membersList.length >= maxEntries) break;
+  }
+
+  const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
+  const description = membersList.length > 0
+    ? '\n' + membersList.join(`\n${separator}\n`)
+    : "\nNo members have timers for this role";
+
+  const embed = new EmbedBuilder()
+    .setColor(0x2ECC71)
+    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
+    .setTitle(title || "Timer Leaderboard")
+    .setDescription(description)
+    .setTimestamp(new Date())
+    .addFields(
+      {
+        name: "📊 Summary",
+        value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
+        inline: false
+      }
+    )
+    .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, maxEntries)} members | Sort: ${sortOrder}` });
+
+  return { status: "ok", embed };
+}
+
+async function handleShowtime(interaction) {
   await interaction.deferReply().catch(() => null);
 
   if (!interaction.guild) {
@@ -68,20 +197,12 @@ module.exports = async function handleShowtime(interaction) {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    const timersList = [];
-    for (const timer of timersFromDb) {
-      try {
-        const member = await guild.members.fetch(timer.user_id).catch(() => null);
-        if (member) {
-          const registration = await db.getUserRegistration(guild.id, timer.user_id).catch(() => null);
-          timersList.push({ member, timer, registration });
-        }
-      } catch (err) {
-        console.error(`Failed to fetch member ${timer.user_id}:`, err);
-      }
-    }
+    const leaderboard = await buildTimersLeaderboardForUsers(guild, timersFromDb, {
+      title: `【⭐】${roleOption.name} Leaderboard【⭐】`,
+      maxEntries: 30,
+    });
 
-    if (timersList.length === 0) {
+    if (leaderboard.status === "empty_no_members") {
       const embed = new EmbedBuilder()
         .setColor(0x95A5A6)
         .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
@@ -96,112 +217,7 @@ module.exports = async function handleShowtime(interaction) {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    const sortOrder = await db.getReportSortOrder(guild.id).catch(() => 'descending');
-
-    timersList.sort((a, b) => {
-      let aMs = Number(a.timer.expires_at) - Date.now();
-      let bMs = Number(b.timer.expires_at) - Date.now();
-
-      if (a.timer.paused && a.timer.paused_remaining_ms) {
-        aMs = Number(a.timer.paused_remaining_ms);
-      }
-      if (b.timer.paused && b.timer.paused_remaining_ms) {
-        bMs = Number(b.timer.paused_remaining_ms);
-      }
-
-      if (sortOrder === 'ascending') {
-        return aMs - bMs;
-      } else {
-        return bMs - aMs;
-      }
-    });
-
-    let membersList = [];
-    let totalMembers = 0;
-    let activeMembers = 0;
-    let pausedMembers = 0;
-    let expiringMembers = 0;
-    let memberCount = 0;
-
-    for (const { member, timer, registration } of timersList) {
-      totalMembers++;
-
-      // Timer remaining time (frozen when paused)
-      let timerRemainingMs = Math.max(0, Number(timer.expires_at) - Date.now());
-      
-      // When paused, use the frozen time stored in paused_remaining_ms
-      if (timer.paused && timer.paused_remaining_ms) {
-        timerRemainingMs = Math.max(0, Number(timer.paused_remaining_ms));
-      }
-      
-      // Pause duration remaining (how much pause time is left)
-      let pauseRemainingMs = 0;
-      if (timer.paused && timer.pause_expires_at) {
-        pauseRemainingMs = Math.max(0, Number(timer.pause_expires_at) - Date.now());
-      }
-
-      const isPaused = timer.paused;
-      if (isPaused) pausedMembers++;
-      else activeMembers++;
-
-      let emoji;
-      if (isPaused) {
-        emoji = "⏸️";
-      } else if (timerRemainingMs <= 0) {
-        emoji = "🔴";
-      } else if (timerRemainingMs < 60 * 60 * 1000) { // < 1 hour
-        emoji = "🔴";
-        expiringMembers++;
-      } else if (timerRemainingMs < 24 * 60 * 60 * 1000) { // < 1 day
-        emoji = "🟡";
-        expiringMembers++;
-      } else {
-        emoji = "🟢";
-      }
-
-      const timeText = formatMs(timerRemainingMs);
-      const displayName = member.nickname || member.user.globalName || member.user.username;
-      const inGameUsername = registration?.in_game_username || member.user.username;
-      const rankMedal = memberCount === 0 ? '🥇' : memberCount === 1 ? '🥈' : memberCount === 2 ? '🥉' : '  ';
-      
-      let line;
-      if (isPaused && pauseRemainingMs > 0) {
-        const pauseDuration = formatPauseDuration(pauseRemainingMs);
-        line = `${rankMedal} ${emoji} ${pauseDuration} • ${timeText} • ${displayName} - (${inGameUsername})`;
-      } else if (isPaused) {
-        line = `${rankMedal} ${emoji} [>0m] • ${timeText} • ${displayName} - (${inGameUsername})`;
-      } else {
-        line = `${rankMedal} ${emoji} • ${timeText} • ${displayName} - (${inGameUsername})`;
-      }
-      membersList.push(line);
-      memberCount++;
-
-      if (membersList.length >= 30) break;
-    }
-
-    const separator = '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━';
-    const description = membersList.length > 0
-      ? '\n' + membersList.join(`\n${separator}\n`)
-      : "\nNo members have timers for this role";
-
-    const leaderboardTitle = `【⭐】${roleOption.name} Leaderboard【⭐】`;
-
-    const embed = new EmbedBuilder()
-      .setColor(0x2ECC71)
-      .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-      .setTitle(leaderboardTitle)
-      .setDescription(description)
-      .setTimestamp(new Date())
-      .addFields(
-        {
-          name: "📊 Summary",
-          value: `\`\`\`Total  |  Active  |  Expires Soon  |  Paused\n${String(totalMembers).padEnd(7)}|  ${String(activeMembers).padEnd(8)}|  ${String(expiringMembers).padEnd(14)}|  ${pausedMembers}\`\`\``,
-          inline: false
-        }
-      )
-      .setFooter({ text: `BoostMon • Showing ${Math.min(membersList.length, 30)} members | Sort: ${sortOrder}` });
-
-    return interaction.editReply({ embeds: [embed] });
+    return interaction.editReply({ embeds: [leaderboard.embed] });
   }
 
   // If user is provided (with or without role), show that user's timer(s)
@@ -348,4 +364,7 @@ module.exports = async function handleShowtime(interaction) {
     .setFooter({ text: statusFooter });
 
   return interaction.editReply({ embeds: [embed] });
-};
+}
+
+module.exports = handleShowtime;
+module.exports.buildTimersLeaderboardForUsers = buildTimersLeaderboardForUsers;

@@ -14,6 +14,7 @@ const {
 } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
+const showtimeHandler = require("./showtime");
 
 const DEFAULT_TICKET_PANEL_TITLE = "Support & Boost Ticket System";
 const DEFAULT_TICKET_PANEL_DESCRIPTION =
@@ -64,6 +65,26 @@ function canBypassSingleServerOwnershipLimit(interaction, guild) {
   const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
     || interaction.member?.permissions?.has(PermissionFlagsBits.Administrator);
   return Boolean(isGuildOwner || isAdmin);
+}
+
+function canViewBoostServerLeaders(interaction, guild, server) {
+  const member = interaction.member;
+  const hasOwnerRole = server.role_owner_id ? member?.roles?.cache?.has(server.role_owner_id) : false;
+  const hasModRole = server.role_mod_id ? member?.roles?.cache?.has(server.role_mod_id) : false;
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+  const hasManageGuild = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+    || member?.permissions?.has(PermissionFlagsBits.ManageGuild);
+  return Boolean(hasOwnerRole || hasModRole || isGuildOwner || hasManageGuild);
+}
+
+function buildLeadersRefreshRow(serverId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`bsleaders_refresh:${serverId}`)
+      .setLabel("Refresh")
+      .setEmoji("🔄")
+      .setStyle(ButtonStyle.Secondary)
+  );
 }
 
 function buildServerChannelSummaryLines(server) {
@@ -592,6 +613,78 @@ async function handleLeave(interaction, guild, server) {
   });
 }
 
+async function handleLeaders(interaction, guild, server) {
+  if (!canViewBoostServerLeaders(interaction, guild, server)) {
+    return interaction.editReply({ content: "Not authorized." });
+  }
+
+  await guild.members.fetch().catch(() => null);
+
+  const roleIds = [server.role_owner_id, server.role_mod_id, server.role_member_id].filter(Boolean);
+  const boostServerUserIds = new Set();
+
+  for (const member of guild.members.cache.values()) {
+    if (roleIds.some((roleId) => member.roles?.cache?.has(roleId))) {
+      boostServerUserIds.add(member.user.id);
+    }
+  }
+
+  if (boostServerUserIds.size === 0) {
+    return interaction.editReply({
+      content: "No active timers for this boost server.",
+      components: [buildLeadersRefreshRow(server.id)],
+    });
+  }
+
+  const allGuildTimers = await db.getAllGuildTimers(guild.id);
+  const timersForBoostServer = allGuildTimers.filter((timer) => boostServerUserIds.has(timer.user_id));
+
+  if (timersForBoostServer.length === 0) {
+    return interaction.editReply({
+      content: "No active timers for this boost server.",
+      components: [buildLeadersRefreshRow(server.id)],
+    });
+  }
+
+  const leaderboard = await showtimeHandler.buildTimersLeaderboardForUsers(guild, timersForBoostServer, {
+    title: `【⭐】${server.display_name} Leaders【⭐】`,
+    maxEntries: 25,
+  });
+
+  if (leaderboard.status !== "ok") {
+    return interaction.editReply({
+      content: "No active timers for this boost server.",
+      components: [buildLeadersRefreshRow(server.id)],
+    });
+  }
+
+  return interaction.editReply({
+    content: null,
+    embeds: [leaderboard.embed],
+    components: [buildLeadersRefreshRow(server.id)],
+  });
+}
+
+async function handleLeadersRefreshButton(interaction) {
+  const [, serverId] = interaction.customId.split(":");
+  const guild = interaction.guild;
+  if (!guild || !serverId) {
+    return interaction.reply({ content: "❌ Invalid refresh action.", ephemeral: true });
+  }
+
+  const server = await db.getBoostServerById(serverId);
+  if (!server || server.guild_id !== guild.id) {
+    return interaction.reply({ content: "❌ Boost server not found.", ephemeral: true });
+  }
+
+  if (!canViewBoostServerLeaders(interaction, guild, server)) {
+    return interaction.reply({ content: "Not authorized.", ephemeral: true });
+  }
+
+  await interaction.deferUpdate().catch(() => null);
+  return handleLeaders(interaction, guild, server);
+}
+
 module.exports = async function handleBoostServer(interaction) {
   if (!interaction.guild) {
     await interaction.reply({ content: "This command can only be used in a server.", ephemeral: true });
@@ -632,7 +725,7 @@ module.exports = async function handleBoostServer(interaction) {
   const hasManage = isAdmin || isGuildOwner || isServerOwner;
 
   // Subcommands open to anyone (no extra permission)
-  const ANYONE_SUBS = new Set(["join", "leave", "info", "mods-list", "owner-view"]);
+  const ANYONE_SUBS = new Set(["join", "leave", "info", "mods-list", "owner-view", "leaders"]);
 
   // Subcommands requiring management permission (PS Owner / Discord Owner / Admin)
   const MANAGE_SUBS = new Set([
@@ -681,6 +774,11 @@ module.exports = async function handleBoostServer(interaction) {
   // ── LEAVE BOOST SERVER ──
   if (subcommand === "leave") {
     return handleLeave(interaction, guild, server);
+  }
+
+  // ── LEADERS VIEW ──
+  if (subcommand === "leaders") {
+    return handleLeaders(interaction, guild, server);
   }
 
   // ── ARCHIVE ──
@@ -2523,4 +2621,5 @@ module.exports.handleCreateWizardSelect = handleCreateWizardSelect;
 module.exports.handleCreateWizardButton = handleCreateWizardButton;
 module.exports.handleDescriptionEditModal = handleDescriptionEditModal;
 module.exports.handleDescriptionEditButton = handleDescriptionEditButton;
+module.exports.handleLeadersRefreshButton = handleLeadersRefreshButton;
 module.exports.handleJoinRequestButton = handleJoinRequestButton;

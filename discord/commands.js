@@ -348,6 +348,14 @@ function getCommands() {
       )
       .addSubcommand((s) =>
         s
+          .setName("leaders")
+          .setDescription("Show active timers for a boost server")
+          .addStringOption((o) =>
+            o.setName("server").setDescription("Select a boost server").setRequired(true).setAutocomplete(true)
+          )
+      )
+      .addSubcommand((s) =>
+        s
           .setName("leave")
           .setDescription("Leave a boost server (removes your PS Member role)")
           .addStringOption((o) =>

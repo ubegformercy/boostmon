@@ -884,6 +884,19 @@ async function getGuildPausedTimers(guildId) {
   }
 }
 
+async function getAllGuildTimers(guildId) {
+  try {
+    const result = await pool.query(
+      "SELECT * FROM role_timers WHERE guild_id = $1 AND expires_at > 0 ORDER BY expires_at ASC",
+      [guildId]
+    );
+    return result.rows;
+  } catch (err) {
+    console.error("getAllGuildTimers error:", err);
+    return [];
+  }
+}
+
 async function getTimerRemaining(userId, roleId) {
   // Get remaining milliseconds for a timer
   try {
@@ -2487,6 +2500,7 @@ module.exports = {
   getTimersForUserRole,
   getGuildTimers,
   getGuildPausedTimers,
+  getAllGuildTimers,
   getTimerRemaining,
   getTimerExpiry,
   markWarningAsSent,

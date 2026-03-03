@@ -434,6 +434,10 @@ client.on("interactionCreate", async (interaction) => {
         return boostserverHandler.handleJoinRequestButton(interaction);
       }
 
+      if (interaction.customId.startsWith("bsleaders_refresh:")) {
+        return boostserverHandler.handleLeadersRefreshButton(interaction);
+      }
+
       if (interaction.customId.startsWith("ticket_close:") || interaction.customId.startsWith("ticket_lock:") || interaction.customId.startsWith("ticket_delete:")) {
         return handleTicketButton(interaction);
       }

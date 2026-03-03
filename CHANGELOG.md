@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.15 — 2026-03-02
+- Added `/boostserver leaders server:<boost_server>` to display active timers for members in the selected boost server (PS Owner/PS Mod/PS Member role holders)
+- Added permission gate for leaders view: PS Owner role, PS Mod role, Discord server owner, or `ManageGuild`; unauthorized response is `Not authorized.`
+- Reused `/timer show role` leaderboard rendering logic by extracting shared timer leaderboard builder (sorting, summary stats, and formatting preserved)
+- Added `🔄 Refresh` button for leaders view and button interaction routing to reload current server timer leaderboard
+- Added `db.getAllGuildTimers(guildId)` for guild-scoped timer retrieval before filtering by boost server member user IDs
+
 ## v2.9.14 — 2026-03-02
 - Updated `/boostserver delete` to explicitly include `channel_leaderboard_id` in tracked channel deletion list
 - Updated `/boostserver archive` to explicitly include `channel_leaderboard_id` when locking/moving channels
