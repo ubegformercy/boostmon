@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.16 — 2026-03-02
+- Enhanced `/boostserver leaders` refresh behavior: any PS Owner/PS Mod/PS Member of that boost server can press `🔄 Refresh`
+- Added refresh unauthorized response for non-members: `You are not part of this boost server.`
+- Added 5-second per-user cooldown for leaders refresh button to reduce spam/abuse
+- Refactored leaders query+embed build into shared payload builder used by both slash output and refresh button updates (no new message creation)
+
 ## v2.9.15 — 2026-03-02
 - Added `/boostserver leaders server:<boost_server>` to display active timers for members in the selected boost server (PS Owner/PS Mod/PS Member role holders)
 - Added permission gate for leaders view: PS Owner role, PS Mod role, Discord server owner, or `ManageGuild`; unauthorized response is `Not authorized.`

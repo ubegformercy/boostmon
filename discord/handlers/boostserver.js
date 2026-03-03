@@ -37,6 +37,8 @@ const DESCRIPTION_EDITS_BY_TOKEN = new Map(); // key: token
 const JOIN_REQUEST_TTL_MS = 10 * 60_000;
 const JOIN_REQUESTS_BY_KEY = new Map(); // key: guildId:serverId:userId
 const JOIN_REQUESTS_BY_TOKEN = new Map(); // key: token
+const LEADERS_REFRESH_COOLDOWNS = new Map(); // key: guildId:serverId:userId
+const LEADERS_REFRESH_COOLDOWN_MS = 5_000;
 
 const SUBCOMMAND_LABELS = {
   "create": "Create Boost Server",
@@ -75,6 +77,14 @@ function canViewBoostServerLeaders(interaction, guild, server) {
   const hasManageGuild = interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
     || member?.permissions?.has(PermissionFlagsBits.ManageGuild);
   return Boolean(hasOwnerRole || hasModRole || isGuildOwner || hasManageGuild);
+}
+
+function isBoostServerMember(interaction, server) {
+  const member = interaction.member;
+  const hasOwnerRole = server.role_owner_id ? member?.roles?.cache?.has(server.role_owner_id) : false;
+  const hasModRole = server.role_mod_id ? member?.roles?.cache?.has(server.role_mod_id) : false;
+  const hasMemberRole = server.role_member_id ? member?.roles?.cache?.has(server.role_member_id) : false;
+  return Boolean(hasOwnerRole || hasModRole || hasMemberRole);
 }
 
 function buildLeadersRefreshRow(serverId) {
@@ -618,6 +628,11 @@ async function handleLeaders(interaction, guild, server) {
     return interaction.editReply({ content: "Not authorized." });
   }
 
+  const payload = await buildLeadersPayload(guild, server);
+  return interaction.editReply(payload);
+}
+
+async function buildLeadersPayload(guild, server) {
   await guild.members.fetch().catch(() => null);
 
   const roleIds = [server.role_owner_id, server.role_mod_id, server.role_member_id].filter(Boolean);
@@ -630,20 +645,22 @@ async function handleLeaders(interaction, guild, server) {
   }
 
   if (boostServerUserIds.size === 0) {
-    return interaction.editReply({
+    return {
       content: "No active timers for this boost server.",
+      embeds: [],
       components: [buildLeadersRefreshRow(server.id)],
-    });
+    };
   }
 
   const allGuildTimers = await db.getAllGuildTimers(guild.id);
   const timersForBoostServer = allGuildTimers.filter((timer) => boostServerUserIds.has(timer.user_id));
 
   if (timersForBoostServer.length === 0) {
-    return interaction.editReply({
+    return {
       content: "No active timers for this boost server.",
+      embeds: [],
       components: [buildLeadersRefreshRow(server.id)],
-    });
+    };
   }
 
   const leaderboard = await showtimeHandler.buildTimersLeaderboardForUsers(guild, timersForBoostServer, {
@@ -652,17 +669,18 @@ async function handleLeaders(interaction, guild, server) {
   });
 
   if (leaderboard.status !== "ok") {
-    return interaction.editReply({
+    return {
       content: "No active timers for this boost server.",
+      embeds: [],
       components: [buildLeadersRefreshRow(server.id)],
-    });
+    };
   }
 
-  return interaction.editReply({
+  return {
     content: null,
     embeds: [leaderboard.embed],
     components: [buildLeadersRefreshRow(server.id)],
-  });
+  };
 }
 
 async function handleLeadersRefreshButton(interaction) {
@@ -677,12 +695,22 @@ async function handleLeadersRefreshButton(interaction) {
     return interaction.reply({ content: "❌ Boost server not found.", ephemeral: true });
   }
 
-  if (!canViewBoostServerLeaders(interaction, guild, server)) {
-    return interaction.reply({ content: "Not authorized.", ephemeral: true });
+  if (!isBoostServerMember(interaction, server)) {
+    return interaction.reply({ content: "You are not part of this boost server.", ephemeral: true });
   }
 
+  const cooldownKey = `${guild.id}:${server.id}:${interaction.user.id}`;
+  const lastRefreshAt = LEADERS_REFRESH_COOLDOWNS.get(cooldownKey) || 0;
+  const elapsedMs = Date.now() - lastRefreshAt;
+  if (elapsedMs < LEADERS_REFRESH_COOLDOWN_MS) {
+    const waitSeconds = Math.ceil((LEADERS_REFRESH_COOLDOWN_MS - elapsedMs) / 1000);
+    return interaction.reply({ content: `⏳ Please wait ${waitSeconds}s before refreshing again.`, ephemeral: true });
+  }
+  LEADERS_REFRESH_COOLDOWNS.set(cooldownKey, Date.now());
+
   await interaction.deferUpdate().catch(() => null);
-  return handleLeaders(interaction, guild, server);
+  const payload = await buildLeadersPayload(guild, server);
+  return interaction.editReply(payload);
 }
 
 module.exports = async function handleBoostServer(interaction) {
