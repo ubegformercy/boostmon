@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.14 — 2026-03-02
+- Updated `/boostserver delete` to explicitly include `channel_leaderboard_id` in tracked channel deletion list
+- Updated `/boostserver archive` to explicitly include `channel_leaderboard_id` when locking/moving channels
+- Ensures `【👑】・leaderboard` is always handled even if category/orphan sweep behavior changes
+
 ## v2.9.13 — 2026-03-02
 - Added new required boost server channel `【👑】・leaderboard` during `/boostserver create` and wizard setup flow
 - Channel order updated so `leaderboard` is created directly below `【📢】・announcements`

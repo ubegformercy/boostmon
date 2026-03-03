@@ -1191,7 +1191,7 @@ async function handleArchive(interaction, guild, server) {
 
     // 2. Lock and move channels under the archive category
     const channelIds = [
-      server.channel_announcements_id, server.channel_giveaways_id,
+      server.channel_announcements_id, server.channel_leaderboard_id, server.channel_giveaways_id,
       server.channel_events_id, server.channel_images_id,
       server.channel_chat_id, server.channel_mod_chat_id,
     ].filter(Boolean);
@@ -1333,7 +1333,7 @@ async function handleDelete(interaction, guild, server) {
   try {
     // 1. Delete tracked child channels
     const channelIds = [
-      server.channel_announcements_id, server.channel_giveaways_id,
+      server.channel_announcements_id, server.channel_leaderboard_id, server.channel_giveaways_id,
       server.channel_events_id, server.channel_images_id,
       server.channel_chat_id, server.channel_mod_chat_id,
       server.channel_ticket_panel_id,
