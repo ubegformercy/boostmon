@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.9.19 — 2026-03-02
+- Added new `/ping` slash command for quick bot health checks
+- `/ping` now returns bot online status, API latency, command latency, and uptime in an embed
+
 ## v2.9.18 — 2026-03-02
 - Fixed `/boostserver leaders` visibility to post publicly in channel instead of ephemeral "Only you can see this"
 - Kept other `/boostserver` subcommands ephemeral; only `leaders` now uses a public initial response

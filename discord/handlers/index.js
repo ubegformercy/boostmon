@@ -9,6 +9,7 @@ const handlers = {
   streak:      require("./streak"),
   url:         require("./url"),
   info:        require("./info"),
+  ping:        require("./ping"),
 };
 
 module.exports = handlers;

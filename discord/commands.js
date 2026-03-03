@@ -671,6 +671,11 @@ function getCommands() {
       .addUserOption((o) =>
         o.setName("user").setDescription("User to check (default: you)").setRequired(false)
       ),
+
+    // ── /ping (Bot status check) ──
+    new SlashCommandBuilder()
+      .setName("ping")
+      .setDescription("Check bot status, latency, and uptime."),
   ];
 }
 
