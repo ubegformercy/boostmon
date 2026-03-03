@@ -55,6 +55,13 @@ const SUBCOMMAND_LABELS = {
   "delete": "Delete Server",
 };
 
+function canBypassSingleServerOwnershipLimit(interaction, guild) {
+  const isGuildOwner = guild.ownerId === interaction.user.id;
+  const isAdmin = interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)
+    || interaction.member?.permissions?.has(PermissionFlagsBits.Administrator);
+  return Boolean(isGuildOwner || isAdmin);
+}
+
 function fullAccessAllowFlags() {
   return [
     PermissionsBitField.Flags.ViewChannel,
@@ -642,6 +649,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
   const wizardPingMode = wizardConfig?.ticketPingMode || "off";
   const sendLogsToModChat = Boolean(wizardConfig?.sendLogsToModChat);
   const ownerId = interaction.user.id;
+  const bypassOwnershipLimit = canBypassSingleServerOwnershipLimit(interaction, guild);
 
   // Validate name not blank
   if (!name) {
@@ -649,11 +657,13 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
   }
 
   // Restriction: member may only own ONE boost server
-  const existingOwned = await db.getBoostServerByOwner(guild.id, ownerId);
-  if (existingOwned) {
-    return interaction.editReply({
-      content: `❌ You already own a boost server: **${existingOwned.display_name}** (#${existingOwned.server_index}). Each member may only own one.`,
-    });
+  if (!bypassOwnershipLimit) {
+    const existingOwned = await db.getBoostServerByOwner(guild.id, ownerId);
+    if (existingOwned) {
+      return interaction.editReply({
+        content: `❌ You already own a boost server: **${existingOwned.display_name}** (#${existingOwned.server_index}). Each member may only own one.`,
+      });
+    }
   }
 
   // Restriction: duplicate server names (case-insensitive)
@@ -1865,12 +1875,15 @@ async function handleCreateWizardStart(interaction, guild) {
     });
   }
 
-  const existingOwned = await db.getBoostServerByOwner(guild.id, interaction.user.id);
-  if (existingOwned) {
-    return interaction.reply({
-      content: `❌ You already own a boost server: **${existingOwned.display_name}** (#${existingOwned.server_index}). Each member may only own one.`,
-      ephemeral: true,
-    });
+  const bypassOwnershipLimit = canBypassSingleServerOwnershipLimit(interaction, guild);
+  if (!bypassOwnershipLimit) {
+    const existingOwned = await db.getBoostServerByOwner(guild.id, interaction.user.id);
+    if (existingOwned) {
+      return interaction.reply({
+        content: `❌ You already own a boost server: **${existingOwned.display_name}** (#${existingOwned.server_index}). Each member may only own one.`,
+        ephemeral: true,
+      });
+    }
   }
 
   const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;

@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.8 — 2026-03-02
+- Updated `/boostserver create` ownership limit: Discord Server Owners and Administrators can now create multiple boost servers
+- Kept one-server ownership limit for regular members
+- Applied bypass check in both wizard start and final create execution paths for consistent behavior
+
 ## v2.9.7 — 2026-03-02
 - Removed `【🔒】・mod-chat` from `/boostserver create` Step 3 public visibility options so it can never be selected as public
 - Added defensive wizard state sanitization to strip `mod-chat` from `publicChannels` during Step 2/3 transitions and create-time filtering
