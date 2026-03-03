@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.20 — 2026-03-02
+- Updated `/timer add` so the `role` option is no longer required
+- When `role` is omitted, command now auto-selects the target user's existing timed role in the same guild
+- Added clear fallback message when no existing timed role is found and role must be specified manually
+
 ## v2.9.19 — 2026-03-02
 - Added new `/ping` slash command for quick bot health checks
 - `/ping` now returns bot online status, API latency, command latency, and uptime in an embed

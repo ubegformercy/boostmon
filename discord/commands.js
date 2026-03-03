@@ -41,8 +41,8 @@ function getCommands() {
           .addStringOption((o) =>
             o
               .setName("role")
-              .setDescription("Role to add time to (must be configured via /setup timer-roles)")
-              .setRequired(true)
+              .setDescription("Role to add time to (optional, auto-picks existing timed role if omitted)")
+              .setRequired(false)
               .setAutocomplete(true)
           )
       )

@@ -14,7 +14,7 @@ module.exports = async function handleAddtime(interaction) {
 
   const targetUser = interaction.options.getUser("user", true);
   const timeInput = interaction.options.getString("time", true);
-  const roleInput = interaction.options.getString("role", true); // now mandatory
+  const roleInput = interaction.options.getString("role", false); // optional
 
   // Parse time input (1d, 24h, 1440m, 1440, or 1d 12h 30m)
   const minutes = parseDuration(timeInput);
@@ -27,24 +27,26 @@ module.exports = async function handleAddtime(interaction) {
   const guild = interaction.guild;
   const member = await guild.members.fetch(targetUser.id);
 
-  // Parse role from input (now mandatory)
+  // Parse role from input (optional)
   let roleOption = null;
-  // Try to extract role ID from mention format <@&123456>
-  const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
-  if (mentionMatch) {
-    roleOption = guild.roles.cache.get(mentionMatch[1]);
-  } else if (/^\d+$/.test(roleInput)) {
-    // Try as direct ID
-    roleOption = guild.roles.cache.get(roleInput);
-  } else {
-    // Try to find by name
-    roleOption = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
-  }
+  if (roleInput) {
+    // Try to extract role ID from mention format <@&123456>
+    const mentionMatch = roleInput.match(/^<@&(\d+)>$/);
+    if (mentionMatch) {
+      roleOption = guild.roles.cache.get(mentionMatch[1]);
+    } else if (/^\d+$/.test(roleInput)) {
+      // Try as direct ID
+      roleOption = guild.roles.cache.get(roleInput);
+    } else {
+      // Try to find by name
+      roleOption = guild.roles.cache.find(r => r.name === roleInput || r.id === roleInput);
+    }
 
-  if (!roleOption) {
-    return interaction.editReply({
-      content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
-    });
+    if (!roleOption) {
+      return interaction.editReply({
+        content: `❌ I couldn't find a role named **${roleInput}**. Make sure the role exists.`
+      });
+    }
   }
 
   // Check if timer roles are configured for this guild
@@ -55,8 +57,28 @@ module.exports = async function handleAddtime(interaction) {
     });
   }
 
-  // Check if this role is allowed
   const allowedRoles = await db.getTimerAllowedRoles(guild.id);
+
+  if (!roleOption) {
+    const timers = await db.getTimersForUser(targetUser.id);
+    const safeTimers = Array.isArray(timers) ? timers : [];
+    const guildTimers = safeTimers.filter((t) => t.guild_id === guild.id);
+
+    if (guildTimers.length > 0) {
+      const timedRoleIds = guildTimers.map((t) => t.role_id);
+      const matchingRoleId = timedRoleIds.find((rid) => member.roles.cache.has(rid));
+      const fallbackRoleId = matchingRoleId || timedRoleIds[0];
+      roleOption = guild.roles.cache.get(fallbackRoleId) || null;
+    }
+
+    if (!roleOption) {
+      return interaction.editReply({
+        content: `❌ Please specify a role. ${targetUser} has no existing timed role in this server to auto-select.`
+      });
+    }
+  }
+
+  // Check if this role is allowed
   const isRoleAllowed = allowedRoles.some(ar => ar.role_id === roleOption.id);
   if (!isRoleAllowed) {
     return interaction.editReply({
