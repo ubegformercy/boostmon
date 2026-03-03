@@ -27,6 +27,7 @@ const DEFAULT_TICKET_CATEGORIES = ["Boost Request", "Questions"];
 const CREATE_WIZARD_TTL_MS = 5 * 60_000;
 const WIZARD_REQUIRED_CHANNELS = ["announcements", "chat", "mod-chat"];
 const WIZARD_ALL_CHANNELS = ["announcements", "giveaways", "events", "images", "chat", "mod-chat"];
+const WIZARD_PUBLIC_ELIGIBLE_CHANNELS = WIZARD_ALL_CHANNELS.filter((channelKey) => channelKey !== "mod-chat");
 const CREATE_WIZARDS_BY_KEY = new Map(); // key: guildId:userId
 const CREATE_WIZARDS_BY_TOKEN = new Map(); // key: token
 const JOIN_REQUEST_TTL_MS = 10 * 60_000;
@@ -634,7 +635,9 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
     ? wizardConfig.selectedChannels
     : [...WIZARD_ALL_CHANNELS];
   const publicChannelSet = new Set(
-    (wizardConfig?.publicChannels || []).filter((channelKey) => selectedChannels.includes(channelKey))
+    (wizardConfig?.publicChannels || []).filter(
+      (channelKey) => selectedChannels.includes(channelKey) && channelKey !== "mod-chat"
+    )
   );
   const wizardPingMode = wizardConfig?.ticketPingMode || "off";
   const sendLogsToModChat = Boolean(wizardConfig?.sendLogsToModChat);
@@ -1694,13 +1697,17 @@ function buildStep2Payload(state) {
 }
 
 function buildStep3Payload(state) {
+  const publicEligibleSelectedChannels = state.selectedChannels.filter((channelKey) =>
+    WIZARD_PUBLIC_ELIGIBLE_CHANNELS.includes(channelKey)
+  );
+
   const select = new StringSelectMenuBuilder()
     .setCustomId(`bswiz_public:${state.token}`)
     .setPlaceholder("Select public channels (optional)")
     .setMinValues(0)
-    .setMaxValues(state.selectedChannels.length)
+    .setMaxValues(publicEligibleSelectedChannels.length)
     .addOptions(
-      state.selectedChannels.map((channelKey) => ({
+      publicEligibleSelectedChannels.map((channelKey) => ({
         label: toChannelDisplayName(channelKey),
         value: channelKey,
         default: state.publicChannels.includes(channelKey),
@@ -1974,13 +1981,17 @@ async function handleCreateWizardSelect(interaction) {
       const selected = new Set(interaction.values);
       for (const required of WIZARD_REQUIRED_CHANNELS) selected.add(required);
       state.selectedChannels = WIZARD_ALL_CHANNELS.filter((channelKey) => selected.has(channelKey));
-      state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
+      state.publicChannels = state.publicChannels.filter(
+        (channelKey) => state.selectedChannels.includes(channelKey) && channelKey !== "mod-chat"
+      );
       state.step = 2;
       return safeInteractionSend(interaction, "update", buildStep2Payload(state));
     }
 
     if (prefix === "bswiz_public") {
-      state.publicChannels = interaction.values.filter((channelKey) => state.selectedChannels.includes(channelKey));
+      state.publicChannels = interaction.values.filter(
+        (channelKey) => state.selectedChannels.includes(channelKey) && channelKey !== "mod-chat"
+      );
       state.step = 3;
       return safeInteractionSend(interaction, "update", buildStep3Payload(state));
     }
@@ -2068,7 +2079,9 @@ async function handleCreateWizardButton(interaction) {
         });
       }
 
-      state.publicChannels = state.publicChannels.filter((channelKey) => state.selectedChannels.includes(channelKey));
+      state.publicChannels = state.publicChannels.filter(
+        (channelKey) => state.selectedChannels.includes(channelKey) && channelKey !== "mod-chat"
+      );
       state.step = 3;
       return safeInteractionSend(interaction, "update", buildStep3Payload(state));
     }

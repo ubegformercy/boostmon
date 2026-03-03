@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.7 — 2026-03-02
+- Removed `【🔒】・mod-chat` from `/boostserver create` Step 3 public visibility options so it can never be selected as public
+- Added defensive wizard state sanitization to strip `mod-chat` from `publicChannels` during Step 2/3 transitions and create-time filtering
+- Preserved required-channel behavior (`mod-chat` is still always created in Step 2 and remains private)
+
 ## v2.9.6 — 2026-03-02
 - Critical security fix: replaced client-trusted `boostmon_auth` JSON cookie authentication with server-side PostgreSQL-backed sessions
 - Added `sessions` table and session lifecycle helpers (create, validate, delete, expiry cleanup path)
