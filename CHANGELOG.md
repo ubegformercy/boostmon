@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.13 — 2026-03-02
+- Added new required boost server channel `【👑】・leaderboard` during `/boostserver create` and wizard setup flow
+- Channel order updated so `leaderboard` is created directly below `【📢】・announcements`
+- Applied permissions: PS Member read-only (`ViewChannel` + `ReadMessageHistory`), PS Owner/PS Mod full chat/media access (`ViewChannel`, `SendMessages`, `AttachFiles`, `ReadMessageHistory`)
+- Added DB support for `channel_leaderboard_id` and included it in overwrite repair + server header summary/confirmation output
+
 ## v2.9.12 — 2026-03-02
 - Added `/boostserver description` subcommand to let PS Owner/Discord Owner/Admin update a boost server description anytime
 - New flow opens a Step-1 style description modal, then shows an embed preview with Confirm/Cancel before saving

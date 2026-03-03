@@ -26,8 +26,8 @@ const DEFAULT_TICKET_CATEGORIES = ["Boost Request", "Questions"];
 
 const CREATE_WIZARD_TTL_MS = 5 * 60_000;
 const WIZARD_DESCRIPTION_MAX_LENGTH = 1000;
-const WIZARD_REQUIRED_CHANNELS = ["announcements", "chat", "mod-chat"];
-const WIZARD_ALL_CHANNELS = ["announcements", "giveaways", "events", "images", "chat", "mod-chat"];
+const WIZARD_REQUIRED_CHANNELS = ["announcements", "leaderboard", "chat", "mod-chat"];
+const WIZARD_ALL_CHANNELS = ["announcements", "leaderboard", "giveaways", "events", "images", "chat", "mod-chat"];
 const WIZARD_PUBLIC_ELIGIBLE_CHANNELS = WIZARD_ALL_CHANNELS.filter((channelKey) => channelKey !== "mod-chat");
 const CREATE_WIZARDS_BY_KEY = new Map(); // key: guildId:userId
 const CREATE_WIZARDS_BY_TOKEN = new Map(); // key: token
@@ -69,6 +69,7 @@ function canBypassSingleServerOwnershipLimit(interaction, guild) {
 function buildServerChannelSummaryLines(server) {
   return [
     server.channel_announcements_id ? `📢 <#${server.channel_announcements_id}> — Server announcements` : null,
+    server.channel_leaderboard_id ? `👑 <#${server.channel_leaderboard_id}> — Leaderboard` : null,
     server.channel_giveaways_id ? `🎁 <#${server.channel_giveaways_id}> — Giveaways` : null,
     server.channel_events_id ? `🎉 <#${server.channel_events_id}> — Events` : null,
     server.channel_images_id ? `📸 <#${server.channel_images_id}> — Images & screenshots` : null,
@@ -352,6 +353,7 @@ async function repairBoostServerOverwrites(guild, server, clientUserId) {
 
   const mainChannelMap = {
     announcements: server.channel_announcements_id,
+    leaderboard: server.channel_leaderboard_id,
     giveaways: server.channel_giveaways_id,
     events: server.channel_events_id,
     images: server.channel_images_id,
@@ -833,6 +835,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
     // 3. Create selected channels under category
     const channelSpecs = {
       announcements: { name: "【📢】・announcements", modOnly: false },
+      leaderboard: { name: "【👑】・leaderboard", modOnly: false },
       giveaways: { name: "【🎁】・giveaways", modOnly: false },
       events: { name: "【🎉】・events", modOnly: false },
       images: { name: "【📸】・images", modOnly: false },
@@ -868,13 +871,14 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
     }
 
     const announcementsChannel = createdMainChannels.announcements || null;
+    const leaderboardChannel = createdMainChannels.leaderboard || null;
     const giveawaysChannel = createdMainChannels.giveaways || null;
     const eventsChannel = createdMainChannels.events || null;
     const imagesChannel = createdMainChannels.images || null;
     const chatChannel = createdMainChannels.chat || null;
     const modChatChannel = createdMainChannels["mod-chat"] || null;
 
-    if (!announcementsChannel || !chatChannel || !modChatChannel) {
+    if (!announcementsChannel || !leaderboardChannel || !chatChannel || !modChatChannel) {
       throw new Error("Required channels were not created correctly.");
     }
 
@@ -927,6 +931,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
       category_id: category.id,
       tickets_category_id: ticketsCategory.id,
       channel_announcements_id: announcementsChannel.id,
+      channel_leaderboard_id: leaderboardChannel.id,
       channel_giveaways_id: giveawaysChannel.id,
       channel_events_id: eventsChannel.id,
       channel_images_id: imagesChannel.id,
@@ -1064,7 +1069,7 @@ async function handleCreate(interaction, guild, wizardConfig = null) {
         { name: "Status", value: "Active", inline: true },
         { name: "Category", value: `${category.name}`, inline: false },
         { name: "Channels", value:
-          [announcementsChannel, giveawaysChannel, eventsChannel, imagesChannel, chatChannel, modChatChannel, ticketPanelChannel]
+          [announcementsChannel, leaderboardChannel, giveawaysChannel, eventsChannel, imagesChannel, chatChannel, modChatChannel, ticketPanelChannel]
             .filter(Boolean)
             .map((c) => `${c}`)
             .join("\n"),
@@ -1950,6 +1955,7 @@ async function handleDescriptionEditButton(interaction) {
 function toChannelDisplayName(key) {
   const map = {
     announcements: "announcements",
+    leaderboard: "leaderboard",
     giveaways: "giveaways",
     events: "events",
     images: "images",
@@ -1982,7 +1988,7 @@ function buildStep2Payload(state) {
     .setTitle("Step 2/5 — Channel Selection")
     .setDescription(
       "Select which channels should be created.\n" +
-      "**Required and always included:** announcements, chat, mod-chat."
+      "**Required and always included:** announcements, leaderboard, chat, mod-chat."
     );
 
   return {
@@ -2384,7 +2390,7 @@ async function handleCreateWizardButton(interaction) {
       const hasRequiredChannels = WIZARD_REQUIRED_CHANNELS.every((channelKey) => state.selectedChannels.includes(channelKey));
       if (!hasRequiredChannels) {
         return safeInteractionSend(interaction, "reply", {
-          content: "❌ Required channels must remain selected: announcements, chat, mod-chat.",
+          content: "❌ Required channels must remain selected: announcements, leaderboard, chat, mod-chat.",
           ephemeral: true,
         });
       }
