@@ -38,7 +38,8 @@ module.exports = async function handleCleartime(interaction) {
   }
 
   const timers = await db.getTimersForUser(targetUser.id);
-  const timedRoleIds = timers.map(t => t.role_id);
+  const safeTimers = Array.isArray(timers) ? timers : [];
+  const timedRoleIds = safeTimers.map(t => t.role_id);
 
   if (timedRoleIds.length === 0) {
     return interaction.editReply({ content: `${targetUser} has no active timed roles.` });

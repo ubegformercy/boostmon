@@ -30,7 +30,8 @@ module.exports = async function handleInfo(interaction) {
     const userTitle = `📊 ${displayName} (@${targetUser.username}) - (${inGameUsername || targetUser.username})`;
 
     // Get user's timers across ALL guilds
-    const allTimers = await db.getTimersForUser(targetUser.id).catch(() => []);
+    const allTimersRaw = await db.getTimersForUser(targetUser.id).catch(() => []);
+    const allTimers = Array.isArray(allTimersRaw) ? allTimersRaw : [];
     
     // Check if user has any ACTIVE (non-paused, non-expired) timers in current guild
     const now = Date.now();

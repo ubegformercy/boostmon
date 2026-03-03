@@ -652,7 +652,8 @@ async function buildLeadersPayload(guild, server) {
     };
   }
 
-  const allGuildTimers = await db.getAllGuildTimers(guild.id);
+  const allGuildTimersRaw = await db.getAllGuildTimers(guild.id);
+  const allGuildTimers = Array.isArray(allGuildTimersRaw) ? allGuildTimersRaw : [];
   const timersForBoostServer = allGuildTimers.filter((timer) => boostServerUserIds.has(timer.user_id));
 
   if (timersForBoostServer.length === 0) {

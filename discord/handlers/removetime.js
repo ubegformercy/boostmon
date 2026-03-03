@@ -48,7 +48,8 @@ module.exports = async function handleRemovetime(interaction) {
   }
 
   const timers = await db.getTimersForUser(targetUser.id);
-  const timedRoleIds = timers.map(t => t.role_id);
+  const safeTimers = Array.isArray(timers) ? timers : [];
+  const timedRoleIds = safeTimers.map(t => t.role_id);
 
   if (timedRoleIds.length === 0) {
     const embed = new EmbedBuilder()

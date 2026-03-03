@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.17 — 2026-03-02
+- Hardened timer command handlers against undefined/non-array timer results to prevent crashes after restart when in-memory state is empty
+- Added safe timer result normalization in `/timer clear`, `/timer remove`, `/timer pause user`, and `/timer resume user`
+- Added empty-result guards in `/info`, `/timer show role`, and `/boostserver leaders` payload building so reboot states return clean "no active timers" responses
+
 ## v2.9.16 — 2026-03-02
 - Enhanced `/boostserver leaders` refresh behavior: any PS Owner/PS Mod/PS Member of that boost server can press `🔄 Refresh`
 - Added refresh unauthorized response for non-members: `You are not part of this boost server.`

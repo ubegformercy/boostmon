@@ -180,7 +180,8 @@ async function handleShowtime(interaction) {
       }
     }
 
-    const timersFromDb = await db.getTimersForRole(roleOption.id).catch(() => []);
+    const timersFromDbRaw = await db.getTimersForRole(roleOption.id).catch(() => []);
+    const timersFromDb = Array.isArray(timersFromDbRaw) ? timersFromDbRaw : [];
 
     if (timersFromDb.length === 0) {
       const embed = new EmbedBuilder()
