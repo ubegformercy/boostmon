@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.28 — 2026-03-08
+- Enhanced `prefixRouter` argument resolution for `b! timer show <role>` with safe role parsing (mention/ID/exact-name) and ambiguous role detection
+- Added quoted server name support for `b! boostserver leaders <server>` (example: `"House of Mercy"`) and unquoted resolution when unambiguous
+- Added safe ambiguous-server handling with short usage hints instead of unsafe guessing
+- Improved whitespace normalization/parsing for prefix command bodies while preserving exact `b! ` activation
+- Kept existing slash-equivalent permission checks and generic internal error handling
+
 ## v2.9.27 — 2026-03-08
 - Added new internal `discord/prefixRouter.js` for prefix command routing on `messageCreate`
 - Prefix router enforces exact `b! ` activation, ignores bot/DM messages, normalizes extra spaces, and provides short usage help for unsupported commands
