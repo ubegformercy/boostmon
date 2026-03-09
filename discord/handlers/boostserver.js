@@ -15,6 +15,7 @@ const {
 const db = require("../../db");
 const { BOOSTMON_ICON_URL } = require("../../utils/helpers");
 const showtimeHandler = require("./showtime");
+const { buildBoostServerLeadersPayload } = require("../../services/commandViews");
 
 const DEFAULT_TICKET_PANEL_TITLE = "Support & Boost Ticket System";
 const DEFAULT_TICKET_PANEL_DESCRIPTION =
@@ -944,53 +945,15 @@ async function handleOwnerTransferButton(interaction) {
 }
 
 async function buildLeadersPayload(guild, server) {
-  await guild.members.fetch().catch(() => null);
-
-  const roleIds = [server.role_owner_id, server.role_mod_id, server.role_member_id].filter(Boolean);
-  const boostServerUserIds = new Set();
-
-  for (const member of guild.members.cache.values()) {
-    if (roleIds.some((roleId) => member.roles?.cache?.has(roleId))) {
-      boostServerUserIds.add(member.user.id);
-    }
-  }
-
-  if (boostServerUserIds.size === 0) {
-    return {
-      content: "No active timers for this boost server.",
-      embeds: [],
-      components: [buildLeadersRefreshRow(server.id)],
-    };
-  }
-
-  const allGuildTimersRaw = await db.getAllGuildTimers(guild.id);
-  const allGuildTimers = Array.isArray(allGuildTimersRaw) ? allGuildTimersRaw : [];
-  const timersForBoostServer = allGuildTimers.filter((timer) => boostServerUserIds.has(timer.user_id));
-
-  if (timersForBoostServer.length === 0) {
-    return {
-      content: "No active timers for this boost server.",
-      embeds: [],
-      components: [buildLeadersRefreshRow(server.id)],
-    };
-  }
-
-  const leaderboard = await showtimeHandler.buildTimersLeaderboardForUsers(guild, timersForBoostServer, {
-    title: `【⭐】${server.display_name} Leaders【⭐】`,
-    maxEntries: 25,
+  const payload = await buildBoostServerLeadersPayload({
+    guild,
+    server,
+    buildTimersLeaderboardForUsers: showtimeHandler.buildTimersLeaderboardForUsers,
   });
 
-  if (leaderboard.status !== "ok") {
-    return {
-      content: "No active timers for this boost server.",
-      embeds: [],
-      components: [buildLeadersRefreshRow(server.id)],
-    };
-  }
-
   return {
-    content: null,
-    embeds: [leaderboard.embed],
+    content: payload.content,
+    embeds: payload.embeds,
     components: [buildLeadersRefreshRow(server.id)],
   };
 }

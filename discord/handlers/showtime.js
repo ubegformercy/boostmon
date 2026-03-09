@@ -3,6 +3,7 @@ const { EmbedBuilder } = require("discord.js");
 const db = require("../../db");
 const { BOOSTMON_ICON_URL, formatMs, formatPauseDuration } = require("../../utils/helpers");
 const { getFirstTimedRoleId } = require("../../services/timer");
+const { buildTimerShowRolePayload } = require("../../services/commandViews");
 
 async function buildTimersLeaderboardForUsers(guild, timersFromDb, options = {}) {
   const {
@@ -168,57 +169,12 @@ async function handleShowtime(interaction) {
 
   // If only role is provided (no user), show all users with that role (leaderboard view)
   if (roleOption && !userOption) {
-    // Check if this role is allowed
-    const hasAllowedRoles = await db.hasTimerAllowedRoles(guild.id);
-    if (hasAllowedRoles) {
-      const allowedRoles = await db.getTimerAllowedRoles(guild.id);
-      const isRoleAllowed = allowedRoles.some(ar => ar.role_id === roleOption.id);
-      if (!isRoleAllowed) {
-        return interaction.editReply({
-          content: `❌ The role **${roleOption.name}** is not configured for timer use. Admin must add it via \`/setup timer-roles\`.`
-        });
-      }
-    }
-
-    const timersFromDbRaw = await db.getTimersForRole(roleOption.id).catch(() => []);
-    const timersFromDb = Array.isArray(timersFromDbRaw) ? timersFromDbRaw : [];
-
-    if (timersFromDb.length === 0) {
-      const embed = new EmbedBuilder()
-        .setColor(0x95A5A6)
-        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle("Role Status")
-        .setTimestamp(new Date())
-        .addFields(
-          { name: "Role", value: `${roleOption.name}`, inline: true },
-          { name: "Members", value: "0", inline: true },
-          { name: "Status", value: "No members have timers for this role", inline: false }
-        )
-        .setFooter({ text: "BoostMon • Role Status" });
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    const leaderboard = await buildTimersLeaderboardForUsers(guild, timersFromDb, {
-      title: `【⭐】${roleOption.name} Leaderboard【⭐】`,
-      maxEntries: 30,
+    const payload = await buildTimerShowRolePayload({
+      guild,
+      roleOption,
+      buildTimersLeaderboardForUsers,
     });
-
-    if (leaderboard.status === "empty_no_members") {
-      const embed = new EmbedBuilder()
-        .setColor(0x95A5A6)
-        .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle("Role Status")
-        .setTimestamp(new Date())
-        .addFields(
-          { name: "Role", value: `${roleOption.name}`, inline: true },
-          { name: "Members", value: "0", inline: true },
-          { name: "Status", value: "Members with timers have left the server", inline: false }
-        )
-        .setFooter({ text: "BoostMon • Role Status" });
-      return interaction.editReply({ embeds: [embed] });
-    }
-
-    return interaction.editReply({ embeds: [leaderboard.embed] });
+    return interaction.editReply(payload);
   }
 
   // If user is provided (with or without role), show that user's timer(s)

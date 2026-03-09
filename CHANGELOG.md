@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.26 — 2026-03-08
+- Added scoped shared command service module for command business logic reuse: `services/commandViews.js`
+- Extracted `/timer show` role leaderboard business logic into shared service and updated slash handler to consume it
+- Extracted `/boostserver leaders` business logic into shared service and updated boostserver handler to consume it
+- Preserved existing slash command outputs/permissions while enabling future prefix routes to call the same service layer
+
 ## v2.9.25 — 2026-03-08
 - Hardened prefix parser to ignore DMs for guild-only bridged commands (`timer show` and `boostserver leaders`)
 - Kept strict activation on exact `b! ` prefix and whitespace normalization for extra spaces after prefix
