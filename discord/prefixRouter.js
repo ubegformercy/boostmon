@@ -1,5 +1,4 @@
 // discord/prefixRouter.js — Internal prefix router using shared command services
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const db = require("../db");
 const { buildTimerShowRolePayload, buildBoostServerLeadersPayload } = require("../services/commandViews");
 const showtimeHandler = require("./handlers/showtime");
@@ -90,16 +89,6 @@ async function resolveBoostServerFromArg(guildId, rawServerArg) {
   return { server: null, error: "not_found" };
 }
 
-function buildLeadersRefreshRow(serverId) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`bsleaders_refresh:${serverId}`)
-      .setLabel("Refresh")
-      .setEmoji("🔄")
-      .setStyle(ButtonStyle.Secondary)
-  );
-}
-
 async function handleTimerShowPrefix(message, argText) {
   if (!argText) {
     return message.reply({ content: TIMER_SHOW_USAGE });
@@ -161,7 +150,7 @@ async function handleBoostserverLeadersPrefix(message, argText) {
 
   const payload = {
     ...basePayload,
-    components: [buildLeadersRefreshRow(server.id)],
+    components: [boostserverHandler.buildLeadersRefreshRow(server.id)],
   };
 
   return message.reply(sanitizeReplyPayload(payload));

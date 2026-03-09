@@ -2944,3 +2944,4 @@ module.exports.handleLeadersRefreshButton = handleLeadersRefreshButton;
 module.exports.handleOwnerTransferButton = handleOwnerTransferButton;
 module.exports.handleJoinRequestButton = handleJoinRequestButton;
 module.exports.canViewBoostServerLeaders = canViewBoostServerLeaders;
+module.exports.buildLeadersRefreshRow = buildLeadersRefreshRow;

@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.29 — 2026-03-08
+- Audited shared command service + prefixRouter paths for `/timer show <role>` and `/boostserver leaders <server>`
+- Verified slash handlers still execute through the same shared business logic service layer used by prefix routing
+- Applied a small consistency fix: prefix leaders now reuses boostserver handler refresh-row builder instead of duplicating component construction
+- Preserved existing permission checks and user-facing output behavior
+
 ## v2.9.28 — 2026-03-08
 - Enhanced `prefixRouter` argument resolution for `b! timer show <role>` with safe role parsing (mention/ID/exact-name) and ambiguous role detection
 - Added quoted server name support for `b! boostserver leaders <server>` (example: `"House of Mercy"`) and unquoted resolution when unambiguous
