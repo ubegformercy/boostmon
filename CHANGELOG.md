@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.25 — 2026-03-08
+- Hardened prefix parser to ignore DMs for guild-only bridged commands (`timer show` and `boostserver leaders`)
+- Kept strict activation on exact `b! ` prefix and whitespace normalization for extra spaces after prefix
+- Added clearer minimal usage response for unsupported/empty prefix commands
+
 ## v2.9.24 — 2026-03-08
 - Reworked prefix parser to require exact `b! ` command prefix (with trailing space), ignore bot messages, and trim extra spaces after prefix
 - Added initial prefix bridge routes: `b! timer show <role>` and `b! boostserver leaders <server>`

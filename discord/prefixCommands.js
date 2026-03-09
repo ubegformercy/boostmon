@@ -6,6 +6,7 @@ const boostserverHandler = require("./handlers/boostserver");
 const PREFIX = "b! ";
 
 const USAGE_HINT = "Usage: b! timer show <role> | b! boostserver leaders <server>";
+const UNSUPPORTED_HINT = `Unsupported prefix command. ${USAGE_HINT}`;
 
 function sanitizeMessagePayload(payload) {
   if (typeof payload === "string") {
@@ -166,13 +167,13 @@ async function processPrefixCommand(message) {
   if (!message.content || !message.content.startsWith(PREFIX)) return;
 
   if (!message.guild) {
-    await message.reply({ content: "This command can only be used in a server." }).catch(() => null);
+    // Keep behavior aligned with guild-only slash commands by ignoring DMs.
     return;
   }
 
   const body = message.content.slice(PREFIX.length).trim();
   if (!body) {
-    await message.reply({ content: USAGE_HINT }).catch(() => null);
+    await message.reply({ content: UNSUPPORTED_HINT }).catch(() => null);
     return;
   }
 
@@ -192,7 +193,7 @@ async function processPrefixCommand(message) {
       return;
     }
 
-    await message.reply({ content: USAGE_HINT }).catch(() => null);
+    await message.reply({ content: UNSUPPORTED_HINT }).catch(() => null);
   } catch (err) {
     console.error("[PREFIX] Command bridge error:", err);
     await message.reply({ content: "❌ Could not run prefix command. Please try again." }).catch(() => null);
