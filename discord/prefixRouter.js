@@ -2,6 +2,7 @@
 const db = require("../db");
 const { buildTimerShowRolePayload } = require("../services/commandViews");
 const timerHandler = require("./handlers/timer");
+const showtimeHandler = require("./handlers/showtime");
 const boostserverHandler = require("./handlers/boostserver");
 const urlHandler = require("./handlers/url");
 const infoHandler = require("./handlers/info");

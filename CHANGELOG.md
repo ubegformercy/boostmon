@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.32 — 2026-03-08
+- Fixed a runtime regression in `prefixRouter` where `b! timer show <role>` referenced `showtimeHandler` without importing it
+- Restored role-based prefix timer execution by wiring the missing `showtime` handler import used by the shared timer role payload builder path
+- No behavior changes intended beyond restoring prefix command execution reliability
+
 ## v2.9.31 — 2026-03-08
 - Stabilized `b! timer show <role>` execution path in `prefixRouter`
 - Role-based timer prefix flow now calls shared command service payload builder directly (same proven path used before), while `b! timer show @user` remains bridged to slash handler logic
