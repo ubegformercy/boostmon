@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.33 — 2026-03-08
+- Fixed global prefix-command intake by restoring `GatewayIntentBits.GuildMessages` in Discord client intents
+- Prefix commands depend on guild `messageCreate` events; without this intent, prefix commands can appear completely unresponsive across versions
+- No user-facing behavior changes beyond restoring prefix message handling
+
 ## v2.9.32 — 2026-03-08
 - Fixed a runtime regression in `prefixRouter` where `b! timer show <role>` referenced `showtimeHandler` without importing it
 - Restored role-based prefix timer execution by wiring the missing `showtime` handler import used by the shared timer role payload builder path
