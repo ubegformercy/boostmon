@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.9.31 — 2026-03-08
+- Stabilized `b! timer show <role>` execution path in `prefixRouter`
+- Role-based timer prefix flow now calls shared command service payload builder directly (same proven path used before), while `b! timer show @user` remains bridged to slash handler logic
+- No user-facing behavior changes intended outside this stability fix
+
 ## v2.9.30 — 2026-03-08
 - Expanded `prefixRouter` support (exact `b! ` prefix) for: `url get`, `info`, `autopurge status`, `ping`, `queue list`, `streak leaderboard`, `streak status [@user]`, and `timer show @user`
 - Prefix routes now call existing slash handlers via an internal interaction adapter to avoid duplicating business logic

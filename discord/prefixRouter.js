@@ -1,5 +1,6 @@
 // discord/prefixRouter.js — Internal prefix router using existing slash handlers
 const db = require("../db");
+const { buildTimerShowRolePayload } = require("../services/commandViews");
 const timerHandler = require("./handlers/timer");
 const boostserverHandler = require("./handlers/boostserver");
 const urlHandler = require("./handlers/url");
@@ -256,14 +257,13 @@ async function handleTimerShowPrefix(message, argText) {
     });
   }
 
-  const interaction = buildPrefixInteraction(message, {
-    commandName: "timer",
-    options: {
-      subcommand: "show",
-      strings: { role: `<@&${roleOption.id}>` },
-    },
+  const payload = await buildTimerShowRolePayload({
+    guild: message.guild,
+    roleOption,
+    buildTimersLeaderboardForUsers: showtimeHandler.buildTimersLeaderboardForUsers,
   });
-  return timerHandler(interaction);
+
+  return message.reply(sanitizeReplyPayload(payload));
 }
 
 async function handleBoostserverLeadersPrefix(message, argText) {
