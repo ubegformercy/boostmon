@@ -35,7 +35,7 @@ const cleanupService = require("./services/cleanup");
 // Discord modules
 const { registerCommands } = require("./discord/register");
 const commandHandlers = require("./discord/handlers");
-const { processPrefixCommand } = require("./discord/prefixCommands");
+const { routePrefixCommand } = require("./discord/prefixRouter");
 const { friendlyDiscordError } = require("./utils/helpers");
 
 console.log("=== BoostMon app.js booted ===");
@@ -495,7 +495,7 @@ client.on("messageCreate", async (message) => {
 
   console.log("[PREFIX] messageCreate event fired for:", message.content?.substring(0, 50));
   try {
-    await processPrefixCommand(message);
+    await routePrefixCommand(message);
   } catch (err) {
     console.error("[PREFIX] Error:", err);
   }

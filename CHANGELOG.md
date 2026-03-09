@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.27 — 2026-03-08
+- Added new internal `discord/prefixRouter.js` for prefix command routing on `messageCreate`
+- Prefix router enforces exact `b! ` activation, ignores bot/DM messages, normalizes extra spaces, and provides short usage help for unsupported commands
+- Added initial routed prefix commands: `b! timer show <role>` and `b! boostserver leaders <server>`
+- Prefix routes now call shared command service functions (`services/commandViews.js`) and reuse existing leaders permission check from boostserver handler
+- Updated `app.js` to use `routePrefixCommand` from the new prefix router
+
 ## v2.9.26 — 2026-03-08
 - Added scoped shared command service module for command business logic reuse: `services/commandViews.js`
 - Extracted `/timer show` role leaderboard business logic into shared service and updated slash handler to consume it

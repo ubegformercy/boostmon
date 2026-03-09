@@ -2943,3 +2943,4 @@ module.exports.handleDescriptionEditButton = handleDescriptionEditButton;
 module.exports.handleLeadersRefreshButton = handleLeadersRefreshButton;
 module.exports.handleOwnerTransferButton = handleOwnerTransferButton;
 module.exports.handleJoinRequestButton = handleJoinRequestButton;
+module.exports.canViewBoostServerLeaders = canViewBoostServerLeaders;
