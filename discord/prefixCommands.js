@@ -1,159 +1,201 @@
-// discord/prefixCommands.js — Prefix command handler for b! commands
-const { EmbedBuilder } = require("discord.js");
-const { BOOSTMON_ICON_URL } = require("../utils/helpers");
+// discord/prefixCommands.js — Prefix command bridge for existing slash handlers
+const db = require("../db");
+const timerHandler = require("./handlers/timer");
+const boostserverHandler = require("./handlers/boostserver");
 
-const PREFIX = "b!";
+const PREFIX = "b! ";
 
-// Prefix command handlers
-const prefixHandlers = {
-  help: handleHelp,
-  info: handleInfo,
-  queue: handleQueue,
-  streak: handleStreak,
-  timers: handleTimers,
-};
+const USAGE_HINT = "Usage: b! timer show <role> | b! boostserver leaders <server>";
 
-async function handleHelp(message, args) {
-  const embed = new EmbedBuilder()
-    .setColor(0x3498DB)
-    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-    .setTitle("📚 BoostMon Command Help")
-    .setDescription("BoostMon uses **slash commands** (`/`). Here's how to get started:")
-    .addFields(
-      {
-        name: "🎯 Timer Management",
-        value: "/timer set, /timer add, /timer remove, /timer clear, /timer show",
-        inline: false,
+function sanitizeMessagePayload(payload) {
+  if (typeof payload === "string") {
+    return { content: payload };
+  }
+
+  const safe = { ...(payload || {}) };
+  delete safe.ephemeral;
+
+  if (safe.content === null || safe.content === undefined) {
+    delete safe.content;
+  }
+
+  return safe;
+}
+
+function buildPrefixInteraction(message, config) {
+  const optionsConfig = config?.options || {};
+  let sentReply = null;
+
+  const interaction = {
+    client: message.client,
+    guild: message.guild,
+    guildId: message.guild?.id,
+    channel: message.channel,
+    user: message.author,
+    member: message.member,
+    memberPermissions: message.member?.permissions || null,
+    deferred: false,
+    replied: false,
+    commandName: config?.commandName || null,
+    options: {
+      getSubcommand(required = true) {
+        const value = optionsConfig.subcommand || null;
+        if (!value && required) throw new Error("Missing subcommand");
+        return value;
       },
-      {
-        name: "⏸️ Pause & Resume",
-        value: "/timer pause user, /timer pause global, /timer resume user, /timer resume global",
-        inline: false,
+      getSubcommandGroup(required = false) {
+        const value = optionsConfig.subcommandGroup || null;
+        if (!value && required) throw new Error("Missing subcommand group");
+        return value;
       },
-      {
-        name: "🏆 Streaks",
-        value: "/streak status, /streak leaderboard",
-        inline: false,
+      getString(name, required = false) {
+        const value = Object.prototype.hasOwnProperty.call(optionsConfig.strings || {}, name)
+          ? optionsConfig.strings[name]
+          : null;
+        if ((value === null || value === undefined) && required) throw new Error(`Missing string option: ${name}`);
+        return value;
       },
-      {
-        name: "📋 Queue",
-        value: "/queue add, /queue list, /queue status, /queue remove",
-        inline: false,
+      getUser(name, required = false) {
+        const value = Object.prototype.hasOwnProperty.call(optionsConfig.users || {}, name)
+          ? optionsConfig.users[name]
+          : null;
+        if (!value && required) throw new Error(`Missing user option: ${name}`);
+        return value;
       },
-      {
-        name: "⚙️ Setup",
-        value: "/setup timer-roles, /setup streak-roles",
-        inline: false,
-      },
-      {
-        name: "💡 Prefix Commands",
-        value: `${PREFIX} help, ${PREFIX} info, ${PREFIX} queue, ${PREFIX} streak, ${PREFIX} timers`,
-        inline: false,
+      getRole() { return null; },
+      getChannel() { return null; },
+      getBoolean() { return null; },
+      getInteger() { return null; },
+    },
+    async deferReply() {
+      interaction.deferred = true;
+      return null;
+    },
+    async reply(payload) {
+      const safePayload = sanitizeMessagePayload(payload);
+      const sent = await message.reply(safePayload);
+      interaction.replied = true;
+      sentReply = sent;
+      return sent;
+    },
+    async editReply(payload) {
+      const safePayload = sanitizeMessagePayload(payload);
+      if (sentReply) {
+        return sentReply.edit(safePayload);
       }
-    )
-    .setFooter({ text: "Type / in chat to see all available slash commands" })
-    .setTimestamp(new Date());
+      const sent = await message.reply(safePayload);
+      interaction.replied = true;
+      sentReply = sent;
+      return sent;
+    },
+    async followUp(payload) {
+      const safePayload = sanitizeMessagePayload(payload);
+      return message.reply(safePayload);
+    },
+  };
 
-  return message.reply({ embeds: [embed] });
+  return interaction;
 }
 
-async function handleInfo(message, args) {
-  const targetUser = message.mentions.users.first() || message.author;
-  const embed = new EmbedBuilder()
-    .setColor(0x2ECC71)
-    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-    .setTitle(`ℹ️ ${targetUser.username}'s Stats`)
-    .setDescription("Use `/info [@user]` to view detailed stats including streaks, timers, and pause credits")
-    .setFooter({ text: "Use the /info slash command for full details" })
-    .setTimestamp(new Date());
+async function resolveBoostServerIdFromArg(guildId, rawServerArg) {
+  const servers = await db.getBoostServers(guildId);
+  const input = (rawServerArg || "").trim();
+  if (!input || !Array.isArray(servers) || servers.length === 0) return null;
 
-  return message.reply({ embeds: [embed] });
+  const byExactId = servers.find((server) => String(server.id) === input);
+  if (byExactId) return String(byExactId.id);
+
+  const indexMatch = input.match(/^#?(\d+)$/);
+  if (indexMatch) {
+    const requestedIndex = Number(indexMatch[1]);
+    const byIndex = servers.find((server) => Number(server.server_index) === requestedIndex);
+    if (byIndex) return String(byIndex.id);
+  }
+
+  const lowered = input.toLowerCase();
+  const byExactName = servers.find((server) => (server.display_name || "").toLowerCase() === lowered);
+  if (byExactName) return String(byExactName.id);
+
+  const partialMatches = servers.filter((server) => (server.display_name || "").toLowerCase().includes(lowered));
+  if (partialMatches.length === 1) {
+    return String(partialMatches[0].id);
+  }
+
+  return null;
 }
 
-async function handleQueue(message, args) {
-  const embed = new EmbedBuilder()
-    .setColor(0x9B59B6)
-    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-    .setTitle("📋 Queue Commands")
-    .setDescription("Manage the boost queue using these slash commands:")
-    .addFields(
-      { name: "/queue add [note]", value: "Add yourself to the queue", inline: false },
-      { name: "/queue remove", value: "Remove yourself from the queue", inline: false },
-      { name: "/queue status", value: "Check your position in the queue", inline: false },
-      { name: "/queue list [#channel]", value: "View the entire queue", inline: false }
-    )
-    .setFooter({ text: "Use slash commands for queue management" })
-    .setTimestamp(new Date());
+async function handlePrefixTimerShow(message, argText) {
+  if (!argText) {
+    return message.reply({ content: "Usage: b! timer show <role>" });
+  }
 
-  return message.reply({ embeds: [embed] });
+  const interaction = buildPrefixInteraction(message, {
+    commandName: "timer",
+    options: {
+      subcommand: "show",
+      strings: { role: argText },
+    },
+  });
+
+  return timerHandler(interaction);
 }
 
-async function handleStreak(message, args) {
-  const embed = new EmbedBuilder()
-    .setColor(0xE67E22)
-    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-    .setTitle("🏆 Streak Commands")
-    .setDescription("Track your boost streaks using these slash commands:")
-    .addFields(
-      { name: "/streak status [@user]", value: "View your current streak", inline: false },
-      { name: "/streak leaderboard", value: "View top performers in the server", inline: false },
-      { name: "/streak admin grant-save @user", value: "Admin: Award streak save tokens", inline: false }
-    )
-    .setFooter({ text: "Use slash commands for streak management" })
-    .setTimestamp(new Date());
+async function handlePrefixBoostserverLeaders(message, argText) {
+  if (!argText) {
+    return message.reply({ content: "Usage: b! boostserver leaders <server>" });
+  }
 
-  return message.reply({ embeds: [embed] });
-}
+  const serverId = await resolveBoostServerIdFromArg(message.guild.id, argText);
+  if (!serverId) {
+    return message.reply({ content: "❌ Boost server not found. Usage: b! boostserver leaders <server>" });
+  }
 
-async function handleTimers(message, args) {
-  const embed = new EmbedBuilder()
-    .setColor(0x1ABC9C)
-    .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-    .setTitle("⏱️ Timer Commands")
-    .setDescription("Manage timed roles using these slash commands:")
-    .addFields(
-      { name: "/timer set @user <minutes> @role", value: "Admin: Set exact timer", inline: false },
-      { name: "/timer add @user <minutes> [@role]", value: "Admin: Add minutes to timer", inline: false },
-      { name: "/timer remove @user <minutes> [@role]", value: "Admin: Remove minutes", inline: false },
-      { name: "/timer show [@user] [@role]", value: "Anyone: Check remaining time", inline: false },
-      { name: "/timer pause user @user <duration>", value: "Pause a user's timer (costs credits)", inline: false },
-      { name: "/timer resume user @user", value: "Resume your own paused timer", inline: false }
-    )
-    .setFooter({ text: "Admin commands require Administrator permission" })
-    .setTimestamp(new Date());
+  const interaction = buildPrefixInteraction(message, {
+    commandName: "boostserver",
+    options: {
+      subcommand: "leaders",
+      strings: { server: serverId },
+    },
+  });
 
-  return message.reply({ embeds: [embed] });
+  return boostserverHandler(interaction);
 }
 
 async function processPrefixCommand(message) {
-  // Only process messages that start with our prefix
-  if (!message.content || !message.content.startsWith(PREFIX)) {
+  if (!message || message.author?.bot) return;
+  if (!message.content || !message.content.startsWith(PREFIX)) return;
+
+  if (!message.guild) {
+    await message.reply({ content: "This command can only be used in a server." }).catch(() => null);
     return;
   }
 
-  console.log(`[PREFIX] Found prefix command: "${message.content}"`);
+  const body = message.content.slice(PREFIX.length).trim();
+  if (!body) {
+    await message.reply({ content: USAGE_HINT }).catch(() => null);
+    return;
+  }
+
+  const tokens = body.split(/\s+/);
+  const command = (tokens.shift() || "").toLowerCase();
+  const subcommand = (tokens.shift() || "").toLowerCase();
+  const argText = tokens.join(" ").trim();
 
   try {
-    // Extract command and arguments
-    const args = message.content.slice(PREFIX.length).trim().split(/ +/);
-    const command = args.shift().toLowerCase();
-
-    console.log(`[PREFIX] Command: "${command}"`);
-
-    // Get handler for command
-    const handler = prefixHandlers[command];
-    if (!handler) {
-      console.log(`[PREFIX] No handler, showing help`);
-      return handleHelp(message, args);
+    if (command === "timer" && subcommand === "show") {
+      await handlePrefixTimerShow(message, argText);
+      return;
     }
 
-    console.log(`[PREFIX] Executing: "${command}"`);
-    await handler(message, args);
+    if (command === "boostserver" && subcommand === "leaders") {
+      await handlePrefixBoostserverLeaders(message, argText);
+      return;
+    }
+
+    await message.reply({ content: USAGE_HINT }).catch(() => null);
   } catch (err) {
-    console.error(`[PREFIX-COMMAND] Error:`, err);
-    return message.reply({
-      content: "❌ Error processing command.",
-    }).catch(() => null);
+    console.error("[PREFIX] Command bridge error:", err);
+    await message.reply({ content: "❌ Could not run prefix command. Please try again." }).catch(() => null);
   }
 }
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.24 — 2026-03-08
+- Reworked prefix parser to require exact `b! ` command prefix (with trailing space), ignore bot messages, and trim extra spaces after prefix
+- Added initial prefix bridge routes: `b! timer show <role>` and `b! boostserver leaders <server>`
+- Prefix routes now call existing slash handlers via an interaction adapter, preserving existing permission checks and output formatting
+- Added boost server argument resolver for prefix leaders command using existing guild boost server data
+- Invalid/unsupported prefix commands now return short usage hints without exposing internal errors
+
 ## v2.9.23 — 2026-03-02
 - Added lightweight integrity guard after `/boostserver owner-set` completes
 - Guard now verifies PS Owner role holder count and, if multiple users are detected, removes owner role from extras
