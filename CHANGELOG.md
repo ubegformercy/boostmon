@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.30 — 2026-03-08
+- Expanded `prefixRouter` support (exact `b! ` prefix) for: `url get`, `info`, `autopurge status`, `ping`, `queue list`, `streak leaderboard`, `streak status [@user]`, and `timer show @user`
+- Prefix routes now call existing slash handlers via an internal interaction adapter to avoid duplicating business logic
+- Kept existing `b! timer show <role>` and `b! boostserver leaders <server>` routes working with safe argument resolution
+- Added safe mention handling for user-based prefix routes and maintained short usage hints for malformed/unsupported commands
+- Preserved slash-equivalent permission checks and generic internal-error responses
+
 ## v2.9.29 — 2026-03-08
 - Audited shared command service + prefixRouter paths for `/timer show <role>` and `/boostserver leaders <server>`
 - Verified slash handlers still execute through the same shared business logic service layer used by prefix routing
