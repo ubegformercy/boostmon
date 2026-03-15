@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.34 — 2026-03-15
+- Updated `/queue add` validation to allow users with paused timers to join the queue
+- `/queue add` now blocks only when the user has an active **unpaused** timer in the same guild
+- Updated `/timer resume` to auto-remove resumed users from boost queue (and remove queue role when configured)
+- Added queue cleanup reporting to resume responses where applicable
+
 ## v2.9.33 — 2026-03-08
 - Fixed global prefix-command intake by restoring `GatewayIntentBits.GuildMessages` in Discord client intents
 - Prefix commands depend on guild `messageCreate` events; without this intent, prefix commands can appear completely unresponsive across versions

@@ -4,6 +4,26 @@ const db = require("../../db");
 const { canManageRole } = require("../../utils/permissions");
 const { BOOSTMON_ICON_URL, formatMs } = require("../../utils/helpers");
 
+async function removeUserFromQueueAfterResume(guild, userId, member = null) {
+  const existingInQueue = await db.getQueueUser(userId, guild.id);
+  if (!existingInQueue) return false;
+
+  const removed = await db.removeFromQueue(userId, guild.id);
+  if (!removed) return false;
+
+  const queueRoleId = await db.getQueueRole(guild.id);
+  if (queueRoleId) {
+    const queueMember = member || await guild.members.fetch(userId).catch(() => null);
+    if (queueMember) {
+      await queueMember.roles.remove(queueRoleId).catch((err) =>
+        console.warn(`Failed to remove queue role ${queueRoleId} from ${userId}:`, err.message)
+      );
+    }
+  }
+
+  return true;
+}
+
 module.exports = async function handleResumetime(interaction) {
   await interaction.deferReply().catch(() => null);
 
@@ -36,9 +56,19 @@ module.exports = async function handleResumetime(interaction) {
 
     // Resume only "global" pauses
     let resumeCount = 0;
+    let queueRemovedCount = 0;
+    const resumedUserIds = new Set();
     for (const timer of filtered) {
       const resumed = await db.resumeTimerByType(timer.user_id, timer.role_id, "global");
-      if (resumed) resumeCount++;
+      if (resumed) {
+        resumeCount++;
+        resumedUserIds.add(timer.user_id);
+      }
+    }
+
+    for (const userId of resumedUserIds) {
+      const removedFromQueue = await removeUserFromQueueAfterResume(guild, userId);
+      if (removedFromQueue) queueRemovedCount++;
     }
 
     const embed = new EmbedBuilder()
@@ -50,6 +80,7 @@ module.exports = async function handleResumetime(interaction) {
         { name: "Command Run By", value: `${interaction.user}`, inline: true },
         { name: "Type", value: "Global Resume", inline: true },
         { name: "Timers Resumed", value: `**${resumeCount}** timer(s)`, inline: false },
+        { name: "Queue Cleanup", value: `Removed **${queueRemovedCount}** resumed user(s) from queue`, inline: false },
         { name: "Note", value: "User-paused timers remain paused (user pauses take precedence)", inline: false }
       )
       .setFooter({ text: "BoostMon • Global Resume" });
@@ -144,6 +175,8 @@ module.exports = async function handleResumetime(interaction) {
       await member.roles.add(roleIdToResume).catch(() => null);
     }
 
+    const removedFromQueue = await removeUserFromQueueAfterResume(guild, targetUser.id, member);
+
     const newExpiresAt = await db.getTimerExpiry(targetUser.id, roleIdToResume);
 
     const embed = new EmbedBuilder()
@@ -162,7 +195,10 @@ module.exports = async function handleResumetime(interaction) {
           name: "New Expiry",
           value: `<t:${Math.floor(newExpiresAt / 1000)}:F>\n(<t:${Math.floor(newExpiresAt / 1000)}:R>)`,
           inline: false,
-        }
+        },
+        ...(removedFromQueue
+          ? [{ name: "Queue", value: "Removed from boost queue because timer is now active (unpaused).", inline: false }]
+          : [])
       )
       .setFooter({ text: "BoostMon • Active Timer" });
 

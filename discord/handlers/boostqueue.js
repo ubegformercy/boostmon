@@ -52,22 +52,25 @@ module.exports = async function handleQueue(interaction, { client }) {
       return interaction.editReply({ embeds: [embed] });
     }
 
-    // Check if user already has active timed roles
+    // Block only on active, UNPAUSED timers in this guild.
+    // Paused timers are allowed to stay/join queue until resumed.
     const activeTimers = await db.getTimersForUser(targetId);
-    // Filter to timers belonging to this guild
-    const guildTimers = activeTimers.filter(t => t.guild_id === guild.id);
-    if (guildTimers.length > 0) {
-      const roleList = guildTimers.map(t => `<@&${t.role_id}>`).join(", ");
+    const now = Date.now();
+    const blockingTimers = activeTimers.filter(
+      (t) => t.guild_id === guild.id && !t.paused && Number(t.expires_at || 0) > now
+    );
+    if (blockingTimers.length > 0) {
+      const roleList = blockingTimers.map((t) => `<@&${t.role_id}>`).join(", ");
       const embed = new EmbedBuilder()
         .setColor(0xE74C3C)
         .setAuthor({ name: "BoostMon", iconURL: BOOSTMON_ICON_URL })
-        .setTitle("⛔ Active Timer Detected")
+        .setTitle("⛔ Active Unpaused Timer Detected")
         .setTimestamp(new Date())
         .addFields(
           { name: "User", value: `${targetUser}`, inline: true },
           { name: "Active Role(s)", value: roleList, inline: true }
         )
-        .setDescription("Users with an active timed role cannot be added to the boost queue. Remove or wait for the timer to expire first.")
+        .setDescription("Users with an active unpaused timed role cannot be added to the boost queue. Pause the timer first or wait for it to expire.")
         .setFooter({ text: "BoostMon • Boost Queue" });
       return interaction.editReply({ embeds: [embed] });
     }
